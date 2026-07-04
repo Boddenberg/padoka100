@@ -127,7 +127,10 @@ async def transcribe_sale_audio(
         model=settings.openai_transcription_model,
         file=audio_buffer,
     )
-    transcript = getattr(transcription, "text", None) or transcription.get("text", "")
+    transcript = getattr(transcription, "text", None)
+    if not transcript and isinstance(transcription, dict):
+        transcript = transcription.get("text", "")
+    transcript = transcript or ""
     interpretation = None
     audio_url = None
 

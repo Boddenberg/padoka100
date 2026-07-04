@@ -24,6 +24,11 @@ uvicorn app.main:app --reload
 
 Depois de configurar as chaves no `.env`, aplique o SQL em `supabase/migrations/001_initial_schema.sql` no projeto Supabase.
 
+A documentacao interativa fica em:
+
+- `http://localhost:8000/docs`
+- `http://localhost:8000/redoc`
+
 ## Endpoints principais
 
 - `GET /health`
@@ -31,17 +36,25 @@ Depois de configurar as chaves no `.env`, aplique o SQL em `supabase/migrations/
 - `POST /api/v1/products`
 - `POST /api/v1/products/{product_id}/prices`
 - `POST /api/v1/products/{product_id}/media`
+- `GET /api/v1/locations`
+- `POST /api/v1/locations`
 - `POST /api/v1/sales-days`
 - `GET /api/v1/sales-days/current`
 - `POST /api/v1/sales-days/{sales_day_id}/production-items`
 - `POST /api/v1/sales`
 - `POST /api/v1/sales/{sale_id}/void`
 - `GET /api/v1/reports/days/{sales_day_id}/summary`
+- `GET /api/v1/reports/period`
+- `GET /api/v1/history/timeline`
+- `POST /api/v1/media/{owner_type}/{owner_id}`
 - `POST /api/v1/ai/interpret-sale-command`
 - `POST /api/v1/ai/transcribe-sale-audio`
+- `POST /api/v1/ai/interactions/{ai_interaction_id}/confirm-sale`
 
 ## Regra mais importante
 
 Preco e historico nao podem ser reescritos.
 
 Quando o preco de um produto muda, o backend cria uma nova versao de preco. Vendas e producoes salvam snapshots do nome, imagem e preco daquele dia. Assim, se o pao de calabresa custava R$ 8,00 na segunda e mudou para R$ 10,00 na quinta, a segunda continua mostrando R$ 8,00 para sempre.
+
+Veja exemplos de uso em `docs/API_USAGE.md`.
