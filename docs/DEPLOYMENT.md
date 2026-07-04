@@ -2,7 +2,97 @@
 
 Este projeto esta pronto para subir como uma API FastAPI em um servico web Python.
 
-## Opcao recomendada: Render
+## Opcao recomendada: Railway
+
+O arquivo `railway.json` na raiz define o deploy pelo Railpack.
+
+### 1. Por que o start command e necessario
+
+O Railpack detecta FastAPI, mas por padrao tenta iniciar:
+
+```text
+uvicorn main:app --host 0.0.0.0 --port ${PORT:-8000}
+```
+
+Neste projeto, a aplicacao esta em `app/main.py`, entao o comando correto e:
+
+```text
+uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000}
+```
+
+Isso ja esta configurado no `railway.json`.
+
+### 2. Variaveis no Railway
+
+No Railway, abra o servico da API e va em `Variables`. Configure:
+
+```text
+APP_NAME=Padoka 100 API
+APP_ENV=production
+API_PREFIX=/api/v1
+CORS_ORIGINS=https://seu-front.com
+API_KEY=gere-uma-chave-grande-aqui
+
+SUPABASE_URL=https://seu-projeto.supabase.co
+SUPABASE_SERVICE_ROLE_KEY=sua-service-role-key
+SUPABASE_STORAGE_BUCKET=padoka-midia
+
+OPENAI_API_KEY=sua-chave-openai
+OPENAI_TEXT_MODEL=gpt-5.4-mini
+OPENAI_TRANSCRIPTION_MODEL=gpt-4o-transcribe
+```
+
+`PORT` e configurada automaticamente pelo Railway.
+
+`API_KEY` e opcional localmente, mas deve ser configurada em producao. Quando ela existir, todos os endpoints em `/api/v1` exigem o header:
+
+```text
+X-API-Key: sua-chave
+```
+
+`/health`, `/docs`, `/redoc` e `/openapi.json` continuam acessiveis sem esse header para facilitar diagnostico.
+
+### 3. Gerar dominio
+
+Depois do deploy subir:
+
+1. Abra o servico no Railway.
+2. Va em `Settings > Networking`.
+3. Clique em `Generate Domain`.
+
+### 4. Teste depois do deploy
+
+Troque `SUA_URL` pela URL gerada pelo Railway:
+
+```bash
+curl https://SUA_URL/health
+curl https://SUA_URL/api/v1/produtos -H "X-API-Key: sua-chave"
+```
+
+A documentacao interativa fica em:
+
+```text
+https://SUA_URL/docs
+https://SUA_URL/redoc
+```
+
+### 5. Atualizar a collection do Insomnia
+
+No environment `Local` ou em um novo environment de producao:
+
+```text
+base_url=https://SUA_URL
+api_url=https://SUA_URL/api/v1
+api_key=sua-chave
+```
+
+Para requests em `/api/v1`, adicione o header:
+
+```text
+X-API-Key: {{ _.api_key }}
+```
+
+## Alternativa: Render
 
 O arquivo `render.yaml` na raiz ja descreve o servico `padoka100-api`.
 
