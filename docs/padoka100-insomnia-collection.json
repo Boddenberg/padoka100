@@ -1,7 +1,7 @@
 {
   "_type": "export",
   "__export_format": 4,
-  "__export_date": "2026-07-04T12:00:00.000Z",
+  "__export_date": "2026-07-04T22:10:00.000Z",
   "__export_source": "codex:padoka100",
   "resources": [
     {
@@ -41,6 +41,35 @@
       "color": "#D97706",
       "isPrivate": false,
       "metaSortKey": 1783166400000,
+      "_type": "environment"
+    },
+    {
+      "_id": "env_padoka100_railway_production",
+      "parentId": "wrk_padoka100",
+      "created": 1783166400000,
+      "modified": 1783166400000,
+      "name": "Railway Production",
+      "data": {
+        "base_url": "https://padoka100-production.up.railway.app",
+        "api_url": "https://padoka100-production.up.railway.app/api/v1",
+        "api_key": "",
+        "produto_id": "00000000-0000-0000-0000-000000000000",
+        "local_id": "00000000-0000-0000-0000-000000000000",
+        "dia_de_venda_id": "00000000-0000-0000-0000-000000000000",
+        "venda_id": "00000000-0000-0000-0000-000000000000",
+        "interacao_ia_id": "00000000-0000-0000-0000-000000000000",
+        "tipo_entidade": "produto",
+        "entidade_id": "00000000-0000-0000-0000-000000000000",
+        "data_venda": "2026-07-04",
+        "data_inicio": "2026-07-01",
+        "data_fim": "2026-07-31",
+        "data_preco": "2026-07-04",
+        "arquivo_midia": "C:\\\\caminho\\\\para\\\\foto.jpg",
+        "arquivo_audio": "C:\\\\caminho\\\\para\\\\venda.webm"
+      },
+      "color": "#7C3AED",
+      "isPrivate": false,
+      "metaSortKey": 1783166400001,
       "_type": "environment"
     },
     {
@@ -106,7 +135,15 @@
           "disabled": true
         }
       ],
-      "headers": [],
+      "headers": [
+        {
+          "id": "pair_padoka100_produtos_listar_api_key",
+          "name": "X-API-Key",
+          "value": "{{ _.api_key }}",
+          "description": "Obrigatorio em producao quando API_KEY estiver configurada.",
+          "disabled": false
+        }
+      ],
       "body": {},
       "authentication": {},
       "metaSortKey": -799,
@@ -127,6 +164,13 @@
           "id": "pair_produtos_criar_001",
           "name": "Content-Type",
           "value": "application/json"
+        },
+        {
+          "id": "pair_padoka100_produtos_criar_api_key",
+          "name": "X-API-Key",
+          "value": "{{ _.api_key }}",
+          "description": "Obrigatorio em producao quando API_KEY estiver configurada.",
+          "disabled": false
         }
       ],
       "body": {
@@ -155,7 +199,15 @@
           "disabled": true
         }
       ],
-      "headers": [],
+      "headers": [
+        {
+          "id": "pair_padoka100_produtos_buscar_api_key",
+          "name": "X-API-Key",
+          "value": "{{ _.api_key }}",
+          "description": "Obrigatorio em producao quando API_KEY estiver configurada.",
+          "disabled": false
+        }
+      ],
       "body": {},
       "authentication": {},
       "metaSortKey": -797,
@@ -176,6 +228,13 @@
           "id": "pair_produtos_atualizar_001",
           "name": "Content-Type",
           "value": "application/json"
+        },
+        {
+          "id": "pair_padoka100_produtos_atualizar_api_key",
+          "name": "X-API-Key",
+          "value": "{{ _.api_key }}",
+          "description": "Obrigatorio em producao quando API_KEY estiver configurada.",
+          "disabled": false
         }
       ],
       "body": {
@@ -196,7 +255,15 @@
       "method": "GET",
       "url": "{{ _.api_url }}/produtos/{{ _.produto_id }}/precos",
       "parameters": [],
-      "headers": [],
+      "headers": [
+        {
+          "id": "pair_padoka100_produtos_precos_listar_api_key",
+          "name": "X-API-Key",
+          "value": "{{ _.api_key }}",
+          "description": "Obrigatorio em producao quando API_KEY estiver configurada.",
+          "disabled": false
+        }
+      ],
       "body": {},
       "authentication": {},
       "metaSortKey": -795,
@@ -217,6 +284,13 @@
           "id": "pair_produtos_precos_criar_001",
           "name": "Content-Type",
           "value": "application/json"
+        },
+        {
+          "id": "pair_padoka100_produtos_precos_criar_api_key",
+          "name": "X-API-Key",
+          "value": "{{ _.api_key }}",
+          "description": "Obrigatorio em producao quando API_KEY estiver configurada.",
+          "disabled": false
         }
       ],
       "body": {
@@ -237,7 +311,15 @@
       "method": "POST",
       "url": "{{ _.api_url }}/produtos/{{ _.produto_id }}/midia",
       "parameters": [],
-      "headers": [],
+      "headers": [
+        {
+          "id": "pair_padoka100_produtos_midia_api_key",
+          "name": "X-API-Key",
+          "value": "{{ _.api_key }}",
+          "description": "Obrigatorio em producao quando API_KEY estiver configurada.",
+          "disabled": false
+        }
+      ],
       "body": {
         "mimeType": "multipart/form-data",
         "params": [
@@ -309,7 +391,15 @@
           "disabled": false
         }
       ],
-      "headers": [],
+      "headers": [
+        {
+          "id": "pair_padoka100_locais_listar_api_key",
+          "name": "X-API-Key",
+          "value": "{{ _.api_key }}",
+          "description": "Obrigatorio em producao quando API_KEY estiver configurada.",
+          "disabled": false
+        }
+      ],
       "body": {},
       "authentication": {},
       "metaSortKey": -699,
@@ -330,6 +420,13 @@
           "id": "pair_locais_criar_001",
           "name": "Content-Type",
           "value": "application/json"
+        },
+        {
+          "id": "pair_padoka100_locais_criar_api_key",
+          "name": "X-API-Key",
+          "value": "{{ _.api_key }}",
+          "description": "Obrigatorio em producao quando API_KEY estiver configurada.",
+          "disabled": false
         }
       ],
       "body": {
@@ -350,7 +447,15 @@
       "method": "GET",
       "url": "{{ _.api_url }}/locais/{{ _.local_id }}",
       "parameters": [],
-      "headers": [],
+      "headers": [
+        {
+          "id": "pair_padoka100_locais_buscar_api_key",
+          "name": "X-API-Key",
+          "value": "{{ _.api_key }}",
+          "description": "Obrigatorio em producao quando API_KEY estiver configurada.",
+          "disabled": false
+        }
+      ],
       "body": {},
       "authentication": {},
       "metaSortKey": -697,
@@ -371,6 +476,13 @@
           "id": "pair_locais_atualizar_001",
           "name": "Content-Type",
           "value": "application/json"
+        },
+        {
+          "id": "pair_padoka100_locais_atualizar_api_key",
+          "name": "X-API-Key",
+          "value": "{{ _.api_key }}",
+          "description": "Obrigatorio em producao quando API_KEY estiver configurada.",
+          "disabled": false
         }
       ],
       "body": {
@@ -424,7 +536,15 @@
           "disabled": true
         }
       ],
-      "headers": [],
+      "headers": [
+        {
+          "id": "pair_padoka100_dias_listar_api_key",
+          "name": "X-API-Key",
+          "value": "{{ _.api_key }}",
+          "description": "Obrigatorio em producao quando API_KEY estiver configurada.",
+          "disabled": false
+        }
+      ],
       "body": {},
       "authentication": {},
       "metaSortKey": -599,
@@ -445,6 +565,13 @@
           "id": "pair_dias_criar_001",
           "name": "Content-Type",
           "value": "application/json"
+        },
+        {
+          "id": "pair_padoka100_dias_criar_api_key",
+          "name": "X-API-Key",
+          "value": "{{ _.api_key }}",
+          "description": "Obrigatorio em producao quando API_KEY estiver configurada.",
+          "disabled": false
         }
       ],
       "body": {
@@ -473,7 +600,15 @@
           "disabled": true
         }
       ],
-      "headers": [],
+      "headers": [
+        {
+          "id": "pair_padoka100_dias_atual_api_key",
+          "name": "X-API-Key",
+          "value": "{{ _.api_key }}",
+          "description": "Obrigatorio em producao quando API_KEY estiver configurada.",
+          "disabled": false
+        }
+      ],
       "body": {},
       "authentication": {},
       "metaSortKey": -597,
@@ -489,7 +624,15 @@
       "method": "GET",
       "url": "{{ _.api_url }}/dias-de-venda/{{ _.dia_de_venda_id }}",
       "parameters": [],
-      "headers": [],
+      "headers": [
+        {
+          "id": "pair_padoka100_dias_buscar_api_key",
+          "name": "X-API-Key",
+          "value": "{{ _.api_key }}",
+          "description": "Obrigatorio em producao quando API_KEY estiver configurada.",
+          "disabled": false
+        }
+      ],
       "body": {},
       "authentication": {},
       "metaSortKey": -596,
@@ -510,6 +653,13 @@
           "id": "pair_dias_atualizar_001",
           "name": "Content-Type",
           "value": "application/json"
+        },
+        {
+          "id": "pair_padoka100_dias_atualizar_api_key",
+          "name": "X-API-Key",
+          "value": "{{ _.api_key }}",
+          "description": "Obrigatorio em producao quando API_KEY estiver configurada.",
+          "disabled": false
         }
       ],
       "body": {
@@ -535,6 +685,13 @@
           "id": "pair_dias_producao_001",
           "name": "Content-Type",
           "value": "application/json"
+        },
+        {
+          "id": "pair_padoka100_dias_producao_api_key",
+          "name": "X-API-Key",
+          "value": "{{ _.api_key }}",
+          "description": "Obrigatorio em producao quando API_KEY estiver configurada.",
+          "disabled": false
         }
       ],
       "body": {
@@ -560,6 +717,13 @@
           "id": "pair_dias_fechar_001",
           "name": "Content-Type",
           "value": "application/json"
+        },
+        {
+          "id": "pair_padoka100_dias_fechar_api_key",
+          "name": "X-API-Key",
+          "value": "{{ _.api_key }}",
+          "description": "Obrigatorio em producao quando API_KEY estiver configurada.",
+          "disabled": false
         }
       ],
       "body": {
@@ -596,6 +760,13 @@
           "id": "pair_vendas_registrar_001",
           "name": "Content-Type",
           "value": "application/json"
+        },
+        {
+          "id": "pair_padoka100_vendas_registrar_api_key",
+          "name": "X-API-Key",
+          "value": "{{ _.api_key }}",
+          "description": "Obrigatorio em producao quando API_KEY estiver configurada.",
+          "disabled": false
         }
       ],
       "body": {
@@ -616,7 +787,15 @@
       "method": "GET",
       "url": "{{ _.api_url }}/vendas/por-dia/{{ _.dia_de_venda_id }}",
       "parameters": [],
-      "headers": [],
+      "headers": [
+        {
+          "id": "pair_padoka100_vendas_listar_por_dia_api_key",
+          "name": "X-API-Key",
+          "value": "{{ _.api_key }}",
+          "description": "Obrigatorio em producao quando API_KEY estiver configurada.",
+          "disabled": false
+        }
+      ],
       "body": {},
       "authentication": {},
       "metaSortKey": -498,
@@ -632,7 +811,15 @@
       "method": "GET",
       "url": "{{ _.api_url }}/vendas/{{ _.venda_id }}",
       "parameters": [],
-      "headers": [],
+      "headers": [
+        {
+          "id": "pair_padoka100_vendas_buscar_api_key",
+          "name": "X-API-Key",
+          "value": "{{ _.api_key }}",
+          "description": "Obrigatorio em producao quando API_KEY estiver configurada.",
+          "disabled": false
+        }
+      ],
       "body": {},
       "authentication": {},
       "metaSortKey": -497,
@@ -653,6 +840,13 @@
           "id": "pair_vendas_cancelar_001",
           "name": "Content-Type",
           "value": "application/json"
+        },
+        {
+          "id": "pair_padoka100_vendas_cancelar_api_key",
+          "name": "X-API-Key",
+          "value": "{{ _.api_key }}",
+          "description": "Obrigatorio em producao quando API_KEY estiver configurada.",
+          "disabled": false
         }
       ],
       "body": {
@@ -684,7 +878,15 @@
       "method": "GET",
       "url": "{{ _.api_url }}/relatorios/dias/{{ _.dia_de_venda_id }}/resumo",
       "parameters": [],
-      "headers": [],
+      "headers": [
+        {
+          "id": "pair_padoka100_relatorios_dia_api_key",
+          "name": "X-API-Key",
+          "value": "{{ _.api_key }}",
+          "description": "Obrigatorio em producao quando API_KEY estiver configurada.",
+          "disabled": false
+        }
+      ],
       "body": {},
       "authentication": {},
       "metaSortKey": -399,
@@ -715,7 +917,15 @@
           "disabled": false
         }
       ],
-      "headers": [],
+      "headers": [
+        {
+          "id": "pair_padoka100_relatorios_periodo_api_key",
+          "name": "X-API-Key",
+          "value": "{{ _.api_key }}",
+          "description": "Obrigatorio em producao quando API_KEY estiver configurada.",
+          "disabled": false
+        }
+      ],
       "body": {},
       "authentication": {},
       "metaSortKey": -398,
@@ -771,7 +981,15 @@
           "disabled": false
         }
       ],
-      "headers": [],
+      "headers": [
+        {
+          "id": "pair_padoka100_historico_linha_api_key",
+          "name": "X-API-Key",
+          "value": "{{ _.api_key }}",
+          "description": "Obrigatorio em producao quando API_KEY estiver configurada.",
+          "disabled": false
+        }
+      ],
       "body": {},
       "authentication": {},
       "metaSortKey": -299,
@@ -798,7 +1016,15 @@
       "method": "POST",
       "url": "{{ _.api_url }}/midia/{{ _.tipo_entidade }}/{{ _.entidade_id }}",
       "parameters": [],
-      "headers": [],
+      "headers": [
+        {
+          "id": "pair_padoka100_midia_enviar_api_key",
+          "name": "X-API-Key",
+          "value": "{{ _.api_key }}",
+          "description": "Obrigatorio em producao quando API_KEY estiver configurada.",
+          "disabled": false
+        }
+      ],
       "body": {
         "mimeType": "multipart/form-data",
         "params": [
@@ -867,6 +1093,13 @@
           "id": "pair_ia_interpretar_001",
           "name": "Content-Type",
           "value": "application/json"
+        },
+        {
+          "id": "pair_padoka100_ia_interpretar_api_key",
+          "name": "X-API-Key",
+          "value": "{{ _.api_key }}",
+          "description": "Obrigatorio em producao quando API_KEY estiver configurada.",
+          "disabled": false
         }
       ],
       "body": {
@@ -887,7 +1120,15 @@
       "method": "POST",
       "url": "{{ _.api_url }}/ia/transcrever-audio-de-venda",
       "parameters": [],
-      "headers": [],
+      "headers": [
+        {
+          "id": "pair_padoka100_ia_audio_api_key",
+          "name": "X-API-Key",
+          "value": "{{ _.api_key }}",
+          "description": "Obrigatorio em producao quando API_KEY estiver configurada.",
+          "disabled": false
+        }
+      ],
       "body": {
         "mimeType": "multipart/form-data",
         "params": [
@@ -932,7 +1173,15 @@
       "method": "POST",
       "url": "{{ _.api_url }}/ia/interacoes/{{ _.interacao_ia_id }}/confirmar-venda",
       "parameters": [],
-      "headers": [],
+      "headers": [
+        {
+          "id": "pair_padoka100_ia_confirmar_api_key",
+          "name": "X-API-Key",
+          "value": "{{ _.api_key }}",
+          "description": "Obrigatorio em producao quando API_KEY estiver configurada.",
+          "disabled": false
+        }
+      ],
       "body": {},
       "authentication": {},
       "metaSortKey": -97,
