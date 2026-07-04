@@ -169,6 +169,13 @@ def get_price_as_of(product_id: UUID | str, target_date: date) -> dict:
     return _get_price_as_of(client, product_id, target_date)
 
 
+def get_product_snapshot(product_id: UUID | str, target_date: date) -> dict:
+    client = get_supabase_client()
+    product = _get_product_row(client, product_id)
+    price = _get_price_as_of(client, product_id, target_date)
+    return {"product": product, "price": price}
+
+
 def _attach_current_price(client: Client, product: dict, target_date: date) -> dict:
     product["current_price"] = _get_price_as_of(client, product["id"], target_date, required=False)
     return product
@@ -233,4 +240,3 @@ def _find_next_price(versions: list[dict], target_date: date) -> dict | None:
 def _price_covers_date(version: dict, target_date: date) -> bool:
     effective_to = version.get("effective_to")
     return effective_to is None or date.fromisoformat(effective_to) >= target_date
-

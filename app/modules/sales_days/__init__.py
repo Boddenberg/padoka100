@@ -1,0 +1,2 @@
+"""Sales day module."""
+
