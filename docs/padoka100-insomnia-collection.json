@@ -1,0 +1,942 @@
+{
+  "_type": "export",
+  "__export_format": 4,
+  "__export_date": "2026-07-04T12:00:00.000Z",
+  "__export_source": "codex:padoka100",
+  "resources": [
+    {
+      "_id": "wrk_padoka100",
+      "parentId": null,
+      "created": 1783166400000,
+      "modified": 1783166400000,
+      "name": "Padoka 100 API",
+      "description": "Collection completa para testar a API local da Padoka 100.",
+      "scope": "collection",
+      "_type": "workspace"
+    },
+    {
+      "_id": "env_padoka100_local",
+      "parentId": "wrk_padoka100",
+      "created": 1783166400000,
+      "modified": 1783166400000,
+      "name": "Local",
+      "data": {
+        "base_url": "http://localhost:8000",
+        "api_url": "http://localhost:8000/api/v1",
+        "api_key": "",
+        "produto_id": "00000000-0000-0000-0000-000000000000",
+        "local_id": "00000000-0000-0000-0000-000000000000",
+        "dia_de_venda_id": "00000000-0000-0000-0000-000000000000",
+        "venda_id": "00000000-0000-0000-0000-000000000000",
+        "interacao_ia_id": "00000000-0000-0000-0000-000000000000",
+        "tipo_entidade": "produto",
+        "entidade_id": "00000000-0000-0000-0000-000000000000",
+        "data_venda": "2026-07-04",
+        "data_inicio": "2026-07-01",
+        "data_fim": "2026-07-31",
+        "data_preco": "2026-07-04",
+        "arquivo_midia": "C:\\\\caminho\\\\para\\\\foto.jpg",
+        "arquivo_audio": "C:\\\\caminho\\\\para\\\\venda.webm"
+      },
+      "color": "#D97706",
+      "isPrivate": false,
+      "metaSortKey": 1783166400000,
+      "_type": "environment"
+    },
+    {
+      "_id": "fld_padoka100_health",
+      "parentId": "wrk_padoka100",
+      "created": 1783166400000,
+      "modified": 1783166400000,
+      "name": "Health",
+      "description": "Teste rapido da aplicacao fora do prefixo /api/v1.",
+      "environment": {},
+      "metaSortKey": -900,
+      "_type": "request_group"
+    },
+    {
+      "_id": "req_padoka100_health",
+      "parentId": "fld_padoka100_health",
+      "created": 1783166400000,
+      "modified": 1783166400000,
+      "name": "Healthcheck",
+      "description": "Confirma se a API subiu e mostra se Supabase/OpenAI estao configurados.",
+      "method": "GET",
+      "url": "{{ _.base_url }}/health",
+      "parameters": [],
+      "headers": [],
+      "body": {},
+      "authentication": {},
+      "metaSortKey": -899,
+      "_type": "request"
+    },
+    {
+      "_id": "fld_padoka100_produtos",
+      "parentId": "wrk_padoka100",
+      "created": 1783166400000,
+      "modified": 1783166400000,
+      "name": "Produtos",
+      "description": "Cadastro visual de produtos, consulta e historico de precos.",
+      "environment": {},
+      "metaSortKey": -800,
+      "_type": "request_group"
+    },
+    {
+      "_id": "req_padoka100_produtos_listar",
+      "parentId": "fld_padoka100_produtos",
+      "created": 1783166400000,
+      "modified": 1783166400000,
+      "name": "Listar produtos",
+      "description": "Lista produtos ativos por padrao. Use data_preco para consultar preco vigente em uma data.",
+      "method": "GET",
+      "url": "{{ _.api_url }}/produtos",
+      "parameters": [
+        {
+          "id": "pair_produtos_listar_001",
+          "name": "somente_ativos",
+          "value": "true",
+          "description": "true para retornar apenas produtos ativos.",
+          "disabled": false
+        },
+        {
+          "id": "pair_produtos_listar_002",
+          "name": "data_preco",
+          "value": "{{ _.data_preco }}",
+          "description": "Opcional: data para resolver o preco vigente.",
+          "disabled": true
+        }
+      ],
+      "headers": [],
+      "body": {},
+      "authentication": {},
+      "metaSortKey": -799,
+      "_type": "request"
+    },
+    {
+      "_id": "req_padoka100_produtos_criar",
+      "parentId": "fld_padoka100_produtos",
+      "created": 1783166400000,
+      "modified": 1783166400000,
+      "name": "Criar produto",
+      "description": "Cria produto e sua primeira versao de preco.",
+      "method": "POST",
+      "url": "{{ _.api_url }}/produtos",
+      "parameters": [],
+      "headers": [
+        {
+          "id": "pair_produtos_criar_001",
+          "name": "Content-Type",
+          "value": "application/json"
+        }
+      ],
+      "body": {
+        "mimeType": "application/json",
+        "text": "{\n  \"nome\": \"Pao de calabresa\",\n  \"descricao\": \"Pao recheado com calabresa\",\n  \"descricao_visual\": \"Recheio alaranjado, formato comprido\",\n  \"url_imagem_principal\": null,\n  \"cor_botao\": \"#D97706\",\n  \"ordem_exibicao\": 1,\n  \"preco_venda\": 10.0,\n  \"preco_custo\": 4.0,\n  \"vigente_desde\": \"{{ _.data_venda }}\",\n  \"motivo_preco\": \"Preco inicial\"\n}"
+      },
+      "authentication": {},
+      "metaSortKey": -798,
+      "_type": "request"
+    },
+    {
+      "_id": "req_padoka100_produtos_buscar",
+      "parentId": "fld_padoka100_produtos",
+      "created": 1783166400000,
+      "modified": 1783166400000,
+      "name": "Buscar produto por ID",
+      "description": "Busca um produto pelo ID salvo no environment.",
+      "method": "GET",
+      "url": "{{ _.api_url }}/produtos/{{ _.produto_id }}",
+      "parameters": [
+        {
+          "id": "pair_produtos_buscar_001",
+          "name": "data_preco",
+          "value": "{{ _.data_preco }}",
+          "description": "Opcional: data para resolver o preco vigente.",
+          "disabled": true
+        }
+      ],
+      "headers": [],
+      "body": {},
+      "authentication": {},
+      "metaSortKey": -797,
+      "_type": "request"
+    },
+    {
+      "_id": "req_padoka100_produtos_atualizar",
+      "parentId": "fld_padoka100_produtos",
+      "created": 1783166400000,
+      "modified": 1783166400000,
+      "name": "Atualizar produto",
+      "description": "Atualiza campos visuais e situacao do produto sem alterar historico de preco.",
+      "method": "PATCH",
+      "url": "{{ _.api_url }}/produtos/{{ _.produto_id }}",
+      "parameters": [],
+      "headers": [
+        {
+          "id": "pair_produtos_atualizar_001",
+          "name": "Content-Type",
+          "value": "application/json"
+        }
+      ],
+      "body": {
+        "mimeType": "application/json",
+        "text": "{\n  \"nome\": \"Pao de calabresa especial\",\n  \"descricao\": \"Pao recheado com calabresa e queijo\",\n  \"descricao_visual\": \"Recheio alaranjado, formato comprido\",\n  \"url_imagem_principal\": null,\n  \"cor_botao\": \"#EA580C\",\n  \"ordem_exibicao\": 1,\n  \"situacao\": \"ativo\"\n}"
+      },
+      "authentication": {},
+      "metaSortKey": -796,
+      "_type": "request"
+    },
+    {
+      "_id": "req_padoka100_produtos_precos_listar",
+      "parentId": "fld_padoka100_produtos",
+      "created": 1783166400000,
+      "modified": 1783166400000,
+      "name": "Listar precos do produto",
+      "description": "Lista todas as versoes de preco de um produto.",
+      "method": "GET",
+      "url": "{{ _.api_url }}/produtos/{{ _.produto_id }}/precos",
+      "parameters": [],
+      "headers": [],
+      "body": {},
+      "authentication": {},
+      "metaSortKey": -795,
+      "_type": "request"
+    },
+    {
+      "_id": "req_padoka100_produtos_precos_criar",
+      "parentId": "fld_padoka100_produtos",
+      "created": 1783166400000,
+      "modified": 1783166400000,
+      "name": "Criar nova versao de preco",
+      "description": "Cria uma nova versao de preco sem reescrever vendas antigas.",
+      "method": "POST",
+      "url": "{{ _.api_url }}/produtos/{{ _.produto_id }}/precos",
+      "parameters": [],
+      "headers": [
+        {
+          "id": "pair_produtos_precos_criar_001",
+          "name": "Content-Type",
+          "value": "application/json"
+        }
+      ],
+      "body": {
+        "mimeType": "application/json",
+        "text": "{\n  \"preco_venda\": 12.0,\n  \"preco_custo\": 4.5,\n  \"vigente_desde\": \"{{ _.data_venda }}\",\n  \"motivo\": \"Aumento no custo dos ingredientes\"\n}"
+      },
+      "authentication": {},
+      "metaSortKey": -794,
+      "_type": "request"
+    },
+    {
+      "_id": "req_padoka100_produtos_midia",
+      "parentId": "fld_padoka100_produtos",
+      "created": 1783166400000,
+      "modified": 1783166400000,
+      "name": "Enviar foto do produto",
+      "description": "Upload de midia para um produto e opcionalmente define como imagem principal.",
+      "method": "POST",
+      "url": "{{ _.api_url }}/produtos/{{ _.produto_id }}/midia",
+      "parameters": [],
+      "headers": [],
+      "body": {
+        "mimeType": "multipart/form-data",
+        "params": [
+          {
+            "id": "pair_produtos_midia_001",
+            "name": "file",
+            "value": "",
+            "description": "Selecione uma foto local.",
+            "type": "file",
+            "fileName": "{{ _.arquivo_midia }}",
+            "disabled": false
+          },
+          {
+            "id": "pair_produtos_midia_002",
+            "name": "descricao",
+            "value": "Foto do pao de calabresa",
+            "description": "",
+            "type": "text",
+            "disabled": false
+          },
+          {
+            "id": "pair_produtos_midia_003",
+            "name": "texto_alternativo",
+            "value": "Pao de calabresa em cima da mesa",
+            "description": "",
+            "type": "text",
+            "disabled": false
+          },
+          {
+            "id": "pair_produtos_midia_004",
+            "name": "definir_como_principal",
+            "value": "true",
+            "description": "",
+            "type": "text",
+            "disabled": false
+          }
+        ]
+      },
+      "authentication": {},
+      "metaSortKey": -793,
+      "_type": "request"
+    },
+    {
+      "_id": "fld_padoka100_locais",
+      "parentId": "wrk_padoka100",
+      "created": 1783166400000,
+      "modified": 1783166400000,
+      "name": "Locais",
+      "description": "Cadastro dos locais ou condominios de venda.",
+      "environment": {},
+      "metaSortKey": -700,
+      "_type": "request_group"
+    },
+    {
+      "_id": "req_padoka100_locais_listar",
+      "parentId": "fld_padoka100_locais",
+      "created": 1783166400000,
+      "modified": 1783166400000,
+      "name": "Listar locais",
+      "description": "Lista locais cadastrados.",
+      "method": "GET",
+      "url": "{{ _.api_url }}/locais",
+      "parameters": [
+        {
+          "id": "pair_locais_listar_001",
+          "name": "somente_ativos",
+          "value": "true",
+          "description": "true para retornar apenas locais ativos.",
+          "disabled": false
+        }
+      ],
+      "headers": [],
+      "body": {},
+      "authentication": {},
+      "metaSortKey": -699,
+      "_type": "request"
+    },
+    {
+      "_id": "req_padoka100_locais_criar",
+      "parentId": "fld_padoka100_locais",
+      "created": 1783166400000,
+      "modified": 1783166400000,
+      "name": "Criar local",
+      "description": "Cria um local de venda.",
+      "method": "POST",
+      "url": "{{ _.api_url }}/locais",
+      "parameters": [],
+      "headers": [
+        {
+          "id": "pair_locais_criar_001",
+          "name": "Content-Type",
+          "value": "application/json"
+        }
+      ],
+      "body": {
+        "mimeType": "application/json",
+        "text": "{\n  \"nome\": \"Condominio Primavera\",\n  \"endereco_texto\": \"Rua das Flores, 100\",\n  \"descricao\": \"Entrega na portaria principal\",\n  \"url_imagem_principal\": null\n}"
+      },
+      "authentication": {},
+      "metaSortKey": -698,
+      "_type": "request"
+    },
+    {
+      "_id": "req_padoka100_locais_buscar",
+      "parentId": "fld_padoka100_locais",
+      "created": 1783166400000,
+      "modified": 1783166400000,
+      "name": "Buscar local por ID",
+      "description": "Busca local pelo ID salvo no environment.",
+      "method": "GET",
+      "url": "{{ _.api_url }}/locais/{{ _.local_id }}",
+      "parameters": [],
+      "headers": [],
+      "body": {},
+      "authentication": {},
+      "metaSortKey": -697,
+      "_type": "request"
+    },
+    {
+      "_id": "req_padoka100_locais_atualizar",
+      "parentId": "fld_padoka100_locais",
+      "created": 1783166400000,
+      "modified": 1783166400000,
+      "name": "Atualizar local",
+      "description": "Atualiza dados do local.",
+      "method": "PATCH",
+      "url": "{{ _.api_url }}/locais/{{ _.local_id }}",
+      "parameters": [],
+      "headers": [
+        {
+          "id": "pair_locais_atualizar_001",
+          "name": "Content-Type",
+          "value": "application/json"
+        }
+      ],
+      "body": {
+        "mimeType": "application/json",
+        "text": "{\n  \"nome\": \"Condominio Primavera\",\n  \"endereco_texto\": \"Rua das Flores, 100\",\n  \"descricao\": \"Entrega na portaria principal\",\n  \"url_imagem_principal\": null,\n  \"situacao\": \"ativo\"\n}"
+      },
+      "authentication": {},
+      "metaSortKey": -696,
+      "_type": "request"
+    },
+    {
+      "_id": "fld_padoka100_dias",
+      "parentId": "wrk_padoka100",
+      "created": 1783166400000,
+      "modified": 1783166400000,
+      "name": "Dias de venda",
+      "description": "Abertura, consulta, producao e fechamento do dia de venda.",
+      "environment": {},
+      "metaSortKey": -600,
+      "_type": "request_group"
+    },
+    {
+      "_id": "req_padoka100_dias_listar",
+      "parentId": "fld_padoka100_dias",
+      "created": 1783166400000,
+      "modified": 1783166400000,
+      "name": "Listar dias de venda",
+      "description": "Lista dias de venda por periodo e situacao.",
+      "method": "GET",
+      "url": "{{ _.api_url }}/dias-de-venda",
+      "parameters": [
+        {
+          "id": "pair_dias_listar_001",
+          "name": "data_inicio",
+          "value": "{{ _.data_inicio }}",
+          "description": "Opcional.",
+          "disabled": true
+        },
+        {
+          "id": "pair_dias_listar_002",
+          "name": "data_fim",
+          "value": "{{ _.data_fim }}",
+          "description": "Opcional.",
+          "disabled": true
+        },
+        {
+          "id": "pair_dias_listar_003",
+          "name": "situacao",
+          "value": "aberto",
+          "description": "Opcional: aberto ou fechado.",
+          "disabled": true
+        }
+      ],
+      "headers": [],
+      "body": {},
+      "authentication": {},
+      "metaSortKey": -599,
+      "_type": "request"
+    },
+    {
+      "_id": "req_padoka100_dias_criar",
+      "parentId": "fld_padoka100_dias",
+      "created": 1783166400000,
+      "modified": 1783166400000,
+      "name": "Abrir dia de venda",
+      "description": "Abre um dia de venda e pode registrar itens de producao no mesmo request.",
+      "method": "POST",
+      "url": "{{ _.api_url }}/dias-de-venda",
+      "parameters": [],
+      "headers": [
+        {
+          "id": "pair_dias_criar_001",
+          "name": "Content-Type",
+          "value": "application/json"
+        }
+      ],
+      "body": {
+        "mimeType": "application/json",
+        "text": "{\n  \"data_venda\": \"{{ _.data_venda }}\",\n  \"local_id\": null,\n  \"nome_local\": \"Condominio Primavera\",\n  \"observacoes\": \"Dia aberto via Insomnia\",\n  \"itens_producao\": [\n    {\n      \"produto_id\": \"{{ _.produto_id }}\",\n      \"quantidade_produzida\": 30,\n      \"observacoes\": \"Primeira fornada\"\n    }\n  ]\n}"
+      },
+      "authentication": {},
+      "metaSortKey": -598,
+      "_type": "request"
+    },
+    {
+      "_id": "req_padoka100_dias_atual",
+      "parentId": "fld_padoka100_dias",
+      "created": 1783166400000,
+      "modified": 1783166400000,
+      "name": "Buscar dia atual",
+      "description": "Busca o dia aberto da data informada ou da data atual.",
+      "method": "GET",
+      "url": "{{ _.api_url }}/dias-de-venda/atual",
+      "parameters": [
+        {
+          "id": "pair_dias_atual_001",
+          "name": "data_venda",
+          "value": "{{ _.data_venda }}",
+          "description": "Opcional.",
+          "disabled": true
+        }
+      ],
+      "headers": [],
+      "body": {},
+      "authentication": {},
+      "metaSortKey": -597,
+      "_type": "request"
+    },
+    {
+      "_id": "req_padoka100_dias_buscar",
+      "parentId": "fld_padoka100_dias",
+      "created": 1783166400000,
+      "modified": 1783166400000,
+      "name": "Buscar dia por ID",
+      "description": "Busca dia de venda pelo ID salvo no environment.",
+      "method": "GET",
+      "url": "{{ _.api_url }}/dias-de-venda/{{ _.dia_de_venda_id }}",
+      "parameters": [],
+      "headers": [],
+      "body": {},
+      "authentication": {},
+      "metaSortKey": -596,
+      "_type": "request"
+    },
+    {
+      "_id": "req_padoka100_dias_atualizar",
+      "parentId": "fld_padoka100_dias",
+      "created": 1783166400000,
+      "modified": 1783166400000,
+      "name": "Atualizar dia de venda",
+      "description": "Atualiza local, nome do local ou observacoes do dia.",
+      "method": "PATCH",
+      "url": "{{ _.api_url }}/dias-de-venda/{{ _.dia_de_venda_id }}",
+      "parameters": [],
+      "headers": [
+        {
+          "id": "pair_dias_atualizar_001",
+          "name": "Content-Type",
+          "value": "application/json"
+        }
+      ],
+      "body": {
+        "mimeType": "application/json",
+        "text": "{\n  \"local_id\": null,\n  \"nome_local\": \"Condominio Primavera\",\n  \"observacoes\": \"Observacao atualizada via Insomnia\"\n}"
+      },
+      "authentication": {},
+      "metaSortKey": -595,
+      "_type": "request"
+    },
+    {
+      "_id": "req_padoka100_dias_producao",
+      "parentId": "fld_padoka100_dias",
+      "created": 1783166400000,
+      "modified": 1783166400000,
+      "name": "Salvar item de producao",
+      "description": "Registra ou atualiza a producao de um produto no dia de venda.",
+      "method": "POST",
+      "url": "{{ _.api_url }}/dias-de-venda/{{ _.dia_de_venda_id }}/itens-producao",
+      "parameters": [],
+      "headers": [
+        {
+          "id": "pair_dias_producao_001",
+          "name": "Content-Type",
+          "value": "application/json"
+        }
+      ],
+      "body": {
+        "mimeType": "application/json",
+        "text": "{\n  \"produto_id\": \"{{ _.produto_id }}\",\n  \"quantidade_produzida\": 30,\n  \"observacoes\": \"Producao adicionada via Insomnia\"\n}"
+      },
+      "authentication": {},
+      "metaSortKey": -594,
+      "_type": "request"
+    },
+    {
+      "_id": "req_padoka100_dias_fechar",
+      "parentId": "fld_padoka100_dias",
+      "created": 1783166400000,
+      "modified": 1783166400000,
+      "name": "Fechar dia de venda",
+      "description": "Fecha o dia de venda.",
+      "method": "POST",
+      "url": "{{ _.api_url }}/dias-de-venda/{{ _.dia_de_venda_id }}/fechar",
+      "parameters": [],
+      "headers": [
+        {
+          "id": "pair_dias_fechar_001",
+          "name": "Content-Type",
+          "value": "application/json"
+        }
+      ],
+      "body": {
+        "mimeType": "application/json",
+        "text": "{\n  \"observacoes\": \"Dia fechado via Insomnia\"\n}"
+      },
+      "authentication": {},
+      "metaSortKey": -593,
+      "_type": "request"
+    },
+    {
+      "_id": "fld_padoka100_vendas",
+      "parentId": "wrk_padoka100",
+      "created": 1783166400000,
+      "modified": 1783166400000,
+      "name": "Vendas",
+      "description": "Registro, consulta e cancelamento de vendas.",
+      "environment": {},
+      "metaSortKey": -500,
+      "_type": "request_group"
+    },
+    {
+      "_id": "req_padoka100_vendas_registrar",
+      "parentId": "fld_padoka100_vendas",
+      "created": 1783166400000,
+      "modified": 1783166400000,
+      "name": "Registrar venda",
+      "description": "Registra venda manual com snapshot de produto e preco do momento.",
+      "method": "POST",
+      "url": "{{ _.api_url }}/vendas",
+      "parameters": [],
+      "headers": [
+        {
+          "id": "pair_vendas_registrar_001",
+          "name": "Content-Type",
+          "value": "application/json"
+        }
+      ],
+      "body": {
+        "mimeType": "application/json",
+        "text": "{\n  \"dia_de_venda_id\": \"{{ _.dia_de_venda_id }}\",\n  \"itens\": [\n    {\n      \"produto_id\": \"{{ _.produto_id }}\",\n      \"quantidade\": 5\n    }\n  ],\n  \"tipo_entrada\": \"manual\",\n  \"interacao_ia_id\": null,\n  \"texto_original\": null,\n  \"url_audio\": null,\n  \"observacoes\": \"Venda manual via Insomnia\",\n  \"ocorrido_em\": null\n}"
+      },
+      "authentication": {},
+      "metaSortKey": -499,
+      "_type": "request"
+    },
+    {
+      "_id": "req_padoka100_vendas_listar_por_dia",
+      "parentId": "fld_padoka100_vendas",
+      "created": 1783166400000,
+      "modified": 1783166400000,
+      "name": "Listar vendas por dia",
+      "description": "Lista vendas de um dia de venda.",
+      "method": "GET",
+      "url": "{{ _.api_url }}/vendas/por-dia/{{ _.dia_de_venda_id }}",
+      "parameters": [],
+      "headers": [],
+      "body": {},
+      "authentication": {},
+      "metaSortKey": -498,
+      "_type": "request"
+    },
+    {
+      "_id": "req_padoka100_vendas_buscar",
+      "parentId": "fld_padoka100_vendas",
+      "created": 1783166400000,
+      "modified": 1783166400000,
+      "name": "Buscar venda por ID",
+      "description": "Busca venda pelo ID salvo no environment.",
+      "method": "GET",
+      "url": "{{ _.api_url }}/vendas/{{ _.venda_id }}",
+      "parameters": [],
+      "headers": [],
+      "body": {},
+      "authentication": {},
+      "metaSortKey": -497,
+      "_type": "request"
+    },
+    {
+      "_id": "req_padoka100_vendas_cancelar",
+      "parentId": "fld_padoka100_vendas",
+      "created": 1783166400000,
+      "modified": 1783166400000,
+      "name": "Cancelar venda",
+      "description": "Cancela uma venda sem apagar historico.",
+      "method": "POST",
+      "url": "{{ _.api_url }}/vendas/{{ _.venda_id }}/cancelar",
+      "parameters": [],
+      "headers": [
+        {
+          "id": "pair_vendas_cancelar_001",
+          "name": "Content-Type",
+          "value": "application/json"
+        }
+      ],
+      "body": {
+        "mimeType": "application/json",
+        "text": "{\n  \"motivo\": \"Cancelamento de teste via Insomnia\"\n}"
+      },
+      "authentication": {},
+      "metaSortKey": -496,
+      "_type": "request"
+    },
+    {
+      "_id": "fld_padoka100_relatorios",
+      "parentId": "wrk_padoka100",
+      "created": 1783166400000,
+      "modified": 1783166400000,
+      "name": "Relatorios",
+      "description": "Resumo do dia e resumo por periodo.",
+      "environment": {},
+      "metaSortKey": -400,
+      "_type": "request_group"
+    },
+    {
+      "_id": "req_padoka100_relatorios_dia",
+      "parentId": "fld_padoka100_relatorios",
+      "created": 1783166400000,
+      "modified": 1783166400000,
+      "name": "Resumo do dia",
+      "description": "Mostra produzido, vendido, sobra, faturamento, custo e lucro estimado.",
+      "method": "GET",
+      "url": "{{ _.api_url }}/relatorios/dias/{{ _.dia_de_venda_id }}/resumo",
+      "parameters": [],
+      "headers": [],
+      "body": {},
+      "authentication": {},
+      "metaSortKey": -399,
+      "_type": "request"
+    },
+    {
+      "_id": "req_padoka100_relatorios_periodo",
+      "parentId": "fld_padoka100_relatorios",
+      "created": 1783166400000,
+      "modified": 1783166400000,
+      "name": "Resumo por periodo",
+      "description": "Resumo consolidado por periodo.",
+      "method": "GET",
+      "url": "{{ _.api_url }}/relatorios/periodo",
+      "parameters": [
+        {
+          "id": "pair_relatorios_periodo_001",
+          "name": "data_inicio",
+          "value": "{{ _.data_inicio }}",
+          "description": "Obrigatorio.",
+          "disabled": false
+        },
+        {
+          "id": "pair_relatorios_periodo_002",
+          "name": "data_fim",
+          "value": "{{ _.data_fim }}",
+          "description": "Obrigatorio.",
+          "disabled": false
+        }
+      ],
+      "headers": [],
+      "body": {},
+      "authentication": {},
+      "metaSortKey": -398,
+      "_type": "request"
+    },
+    {
+      "_id": "fld_padoka100_historico",
+      "parentId": "wrk_padoka100",
+      "created": 1783166400000,
+      "modified": 1783166400000,
+      "name": "Historico",
+      "description": "Linha do tempo de eventos importantes.",
+      "environment": {},
+      "metaSortKey": -300,
+      "_type": "request_group"
+    },
+    {
+      "_id": "req_padoka100_historico_linha",
+      "parentId": "fld_padoka100_historico",
+      "created": 1783166400000,
+      "modified": 1783166400000,
+      "name": "Linha do tempo",
+      "description": "Lista eventos como produto criado, preco alterado, venda registrada e venda cancelada.",
+      "method": "GET",
+      "url": "{{ _.api_url }}/historico/linha-do-tempo",
+      "parameters": [
+        {
+          "id": "pair_historico_linha_001",
+          "name": "dia_de_venda_id",
+          "value": "{{ _.dia_de_venda_id }}",
+          "description": "Opcional.",
+          "disabled": true
+        },
+        {
+          "id": "pair_historico_linha_002",
+          "name": "tipo_entidade",
+          "value": "{{ _.tipo_entidade }}",
+          "description": "Opcional.",
+          "disabled": true
+        },
+        {
+          "id": "pair_historico_linha_003",
+          "name": "entidade_id",
+          "value": "{{ _.entidade_id }}",
+          "description": "Opcional.",
+          "disabled": true
+        },
+        {
+          "id": "pair_historico_linha_004",
+          "name": "limite",
+          "value": "100",
+          "description": "Entre 1 e 500.",
+          "disabled": false
+        }
+      ],
+      "headers": [],
+      "body": {},
+      "authentication": {},
+      "metaSortKey": -299,
+      "_type": "request"
+    },
+    {
+      "_id": "fld_padoka100_midia",
+      "parentId": "wrk_padoka100",
+      "created": 1783166400000,
+      "modified": 1783166400000,
+      "name": "Midia",
+      "description": "Upload generico de arquivos para entidades da API.",
+      "environment": {},
+      "metaSortKey": -200,
+      "_type": "request_group"
+    },
+    {
+      "_id": "req_padoka100_midia_enviar",
+      "parentId": "fld_padoka100_midia",
+      "created": 1783166400000,
+      "modified": 1783166400000,
+      "name": "Enviar midia generica",
+      "description": "Tipos aceitos: produto, local, dia_de_venda, venda ou interacao_ia.",
+      "method": "POST",
+      "url": "{{ _.api_url }}/midia/{{ _.tipo_entidade }}/{{ _.entidade_id }}",
+      "parameters": [],
+      "headers": [],
+      "body": {
+        "mimeType": "multipart/form-data",
+        "params": [
+          {
+            "id": "pair_midia_enviar_001",
+            "name": "file",
+            "value": "",
+            "description": "Selecione um arquivo local.",
+            "type": "file",
+            "fileName": "{{ _.arquivo_midia }}",
+            "disabled": false
+          },
+          {
+            "id": "pair_midia_enviar_002",
+            "name": "descricao",
+            "value": "Arquivo enviado via Insomnia",
+            "description": "",
+            "type": "text",
+            "disabled": false
+          },
+          {
+            "id": "pair_midia_enviar_003",
+            "name": "texto_alternativo",
+            "value": "Midia de teste da Padoka 100",
+            "description": "",
+            "type": "text",
+            "disabled": false
+          },
+          {
+            "id": "pair_midia_enviar_004",
+            "name": "definir_como_principal",
+            "value": "false",
+            "description": "",
+            "type": "text",
+            "disabled": false
+          }
+        ]
+      },
+      "authentication": {},
+      "metaSortKey": -199,
+      "_type": "request"
+    },
+    {
+      "_id": "fld_padoka100_ia",
+      "parentId": "wrk_padoka100",
+      "created": 1783166400000,
+      "modified": 1783166400000,
+      "name": "IA",
+      "description": "Interpretacao de venda por texto, transcricao de audio e confirmacao.",
+      "environment": {},
+      "metaSortKey": -100,
+      "_type": "request_group"
+    },
+    {
+      "_id": "req_padoka100_ia_interpretar",
+      "parentId": "fld_padoka100_ia",
+      "created": 1783166400000,
+      "modified": 1783166400000,
+      "name": "Interpretar comando de venda",
+      "description": "Interpreta texto de venda e retorna dados de confirmacao.",
+      "method": "POST",
+      "url": "{{ _.api_url }}/ia/interpretar-comando-de-venda",
+      "parameters": [],
+      "headers": [
+        {
+          "id": "pair_ia_interpretar_001",
+          "name": "Content-Type",
+          "value": "application/json"
+        }
+      ],
+      "body": {
+        "mimeType": "application/json",
+        "text": "{\n  \"texto\": \"vendi cinco paes de calabresa agora\",\n  \"dia_de_venda_id\": \"{{ _.dia_de_venda_id }}\",\n  \"permitir_fallback\": true\n}"
+      },
+      "authentication": {},
+      "metaSortKey": -99,
+      "_type": "request"
+    },
+    {
+      "_id": "req_padoka100_ia_audio",
+      "parentId": "fld_padoka100_ia",
+      "created": 1783166400000,
+      "modified": 1783166400000,
+      "name": "Transcrever audio de venda",
+      "description": "Envia audio, transcreve e opcionalmente interpreta como venda.",
+      "method": "POST",
+      "url": "{{ _.api_url }}/ia/transcrever-audio-de-venda",
+      "parameters": [],
+      "headers": [],
+      "body": {
+        "mimeType": "multipart/form-data",
+        "params": [
+          {
+            "id": "pair_ia_audio_001",
+            "name": "file",
+            "value": "",
+            "description": "Selecione um audio local.",
+            "type": "file",
+            "fileName": "{{ _.arquivo_audio }}",
+            "disabled": false
+          },
+          {
+            "id": "pair_ia_audio_002",
+            "name": "dia_de_venda_id",
+            "value": "{{ _.dia_de_venda_id }}",
+            "description": "Opcional, mas recomendado para interpretar como venda.",
+            "type": "text",
+            "disabled": false
+          },
+          {
+            "id": "pair_ia_audio_003",
+            "name": "interpretar",
+            "value": "true",
+            "description": "",
+            "type": "text",
+            "disabled": false
+          }
+        ]
+      },
+      "authentication": {},
+      "metaSortKey": -98,
+      "_type": "request"
+    },
+    {
+      "_id": "req_padoka100_ia_confirmar",
+      "parentId": "fld_padoka100_ia",
+      "created": 1783166400000,
+      "modified": 1783166400000,
+      "name": "Confirmar venda interpretada",
+      "description": "Confirma uma interacao de IA e cria uma venda real.",
+      "method": "POST",
+      "url": "{{ _.api_url }}/ia/interacoes/{{ _.interacao_ia_id }}/confirmar-venda",
+      "parameters": [],
+      "headers": [],
+      "body": {},
+      "authentication": {},
+      "metaSortKey": -97,
+      "_type": "request"
+    }
+  ]
+}

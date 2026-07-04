@@ -103,3 +103,7 @@ Quando o preco de um produto muda, o backend cria uma nova versao de preco. Vend
 15. Fazer uma tela de historico visual por dia, deixando claro qual preco foi usado em cada venda.
 
 Veja exemplos de uso em `docs/API_USAGE.md`.
+
+## Deploy
+
+Para publicar a API, veja `docs/DEPLOYMENT.md`.
