@@ -12,9 +12,8 @@ def get_supabase_client() -> Client:
     missing = []
     if not settings.supabase_url:
         missing.append("SUPABASE_URL")
-    if not settings.supabase_service_role_key:
-        missing.append("SUPABASE_SERVICE_ROLE_KEY")
+    if not settings.supabase_api_key:
+        missing.append("SUPABASE_SERVICE_ROLE_KEY ou SUPABASE_KEY")
     if missing:
         raise MissingConfigurationError("Supabase", missing)
-    return create_client(settings.supabase_url, settings.supabase_service_role_key)
-
+    return create_client(settings.supabase_url, settings.supabase_api_key)
