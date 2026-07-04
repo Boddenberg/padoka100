@@ -1,21 +1,24 @@
 from functools import lru_cache
+from typing import Annotated
 from typing import Any
 
 from pydantic import Field, field_validator
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 
 class Settings(BaseSettings):
     app_name: str = "Padoka 100 API"
     app_env: str = "local"
     api_prefix: str = "/api/v1"
-    cors_origins: list[str] = Field(default_factory=list)
+    cors_origins: Annotated[list[str], NoDecode] = Field(default_factory=list)
 
     supabase_url: str = ""
+    supabase_key: str = ""
     supabase_service_role_key: str = ""
     supabase_storage_bucket: str = "padoka-midia"
 
     openai_api_key: str = ""
+    openai_chat_model: str = ""
     openai_text_model: str = ""
     openai_transcription_model: str = ""
 
@@ -38,12 +41,20 @@ class Settings(BaseSettings):
         return []
 
     @property
+    def supabase_api_key(self) -> str:
+        return self.supabase_service_role_key or self.supabase_key
+
+    @property
     def supabase_configured(self) -> bool:
-        return bool(self.supabase_url and self.supabase_service_role_key)
+        return bool(self.supabase_url and self.supabase_api_key)
+
+    @property
+    def openai_text_model_resolved(self) -> str:
+        return self.openai_text_model or self.openai_chat_model
 
     @property
     def openai_text_configured(self) -> bool:
-        return bool(self.openai_api_key and self.openai_text_model)
+        return bool(self.openai_api_key and self.openai_text_model_resolved)
 
     @property
     def openai_audio_configured(self) -> bool:

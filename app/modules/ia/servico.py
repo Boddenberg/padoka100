@@ -60,7 +60,7 @@ def interpretar_comando_de_venda(
     if settings.openai_text_configured:
         try:
             interpretacao = _interpretar_com_openai(requisicao.texto, produtos)
-            modelo_usado = settings.openai_text_model
+            modelo_usado = settings.openai_text_model_resolved
         except Exception:
             if not requisicao.permitir_fallback:
                 raise
@@ -229,7 +229,7 @@ def _interpretar_com_openai(texto: str, produtos: list[dict]) -> dict:
         },
     }
     resposta = get_openai_client().responses.create(
-        model=settings.openai_text_model,
+        model=settings.openai_text_model_resolved,
         instructions=(
             "Voce interpreta comandos curtos de venda para um padeiro. "
             "Use apenas produtos do catalogo. Nao invente produto. "
@@ -364,4 +364,3 @@ def _normalizar(valor: str) -> str:
     normalizado = unicodedata.normalize("NFKD", valor.lower())
     valor_ascii = normalizado.encode("ascii", "ignore").decode("ascii")
     return re.sub(r"[^a-z0-9]+", " ", valor_ascii).strip()
-

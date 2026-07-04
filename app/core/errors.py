@@ -1,5 +1,6 @@
 from typing import Any
 
+import httpx
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
@@ -69,6 +70,19 @@ def register_exception_handlers(app: FastAPI) -> None:
                     "code": exc.code,
                     "message": exc.message,
                     "details": exc.details,
+                }
+            },
+        )
+
+    @app.exception_handler(httpx.HTTPError)
+    async def handle_http_error(_: Request, exc: httpx.HTTPError) -> JSONResponse:
+        return JSONResponse(
+            status_code=503,
+            content={
+                "error": {
+                    "code": "external_service_unavailable",
+                    "message": "Nao foi possivel conectar a um servico externo.",
+                    "details": {"type": type(exc).__name__},
                 }
             },
         )
