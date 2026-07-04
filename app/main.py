@@ -1,5 +1,9 @@
+from secrets import compare_digest
+
 from fastapi import FastAPI
+from fastapi import Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
 from app.api.router import api_router
 from app.core.config import get_settings
@@ -23,6 +27,28 @@ def create_app() -> FastAPI:
     )
 
     register_exception_handlers(app)
+
+    @app.middleware("http")
+    async def require_api_key(request: Request, call_next):
+        if (
+            settings.api_key
+            and request.method != "OPTIONS"
+            and request.url.path.startswith(settings.api_prefix)
+        ):
+            header_api_key = request.headers.get("x-api-key", "")
+            if not compare_digest(header_api_key, settings.api_key):
+                return JSONResponse(
+                    status_code=401,
+                    content={
+                        "error": {
+                            "code": "unauthorized",
+                            "message": "Chave de API ausente ou invalida.",
+                            "details": {"header": "X-API-Key"},
+                        }
+                    },
+                )
+        return await call_next(request)
+
     app.include_router(api_router, prefix=settings.api_prefix)
 
     @app.get("/health", tags=["health"])
@@ -34,10 +60,10 @@ def create_app() -> FastAPI:
             "supabase_configured": settings.supabase_configured,
             "openai_text_configured": settings.openai_text_configured,
             "openai_audio_configured": settings.openai_audio_configured,
+            "api_key_configured": settings.api_key_configured,
         }
 
     return app
 
 
 app = create_app()
-

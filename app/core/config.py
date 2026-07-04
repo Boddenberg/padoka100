@@ -11,6 +11,7 @@ class Settings(BaseSettings):
     app_env: str = "local"
     api_prefix: str = "/api/v1"
     cors_origins: Annotated[list[str], NoDecode] = Field(default_factory=list)
+    api_key: str = ""
 
     supabase_url: str = ""
     supabase_key: str = ""
@@ -59,6 +60,10 @@ class Settings(BaseSettings):
     @property
     def openai_audio_configured(self) -> bool:
         return bool(self.openai_api_key and self.openai_transcription_model)
+
+    @property
+    def api_key_configured(self) -> bool:
+        return bool(self.api_key)
 
 
 @lru_cache
