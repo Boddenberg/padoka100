@@ -29,6 +29,36 @@ class MissingConfigurationError(AppError):
         )
 
 
+class BadRequestError(AppError):
+    def __init__(self, message: str, details: dict[str, Any] | None = None) -> None:
+        super().__init__(
+            status_code=400,
+            code="bad_request",
+            message=message,
+            details=details,
+        )
+
+
+class NotFoundError(AppError):
+    def __init__(self, resource: str, resource_id: str) -> None:
+        super().__init__(
+            status_code=404,
+            code="not_found",
+            message=f"{resource} nao encontrado.",
+            details={"id": resource_id},
+        )
+
+
+class ConflictError(AppError):
+    def __init__(self, message: str, details: dict[str, Any] | None = None) -> None:
+        super().__init__(
+            status_code=409,
+            code="conflict",
+            message=message,
+            details=details,
+        )
+
+
 def register_exception_handlers(app: FastAPI) -> None:
     @app.exception_handler(AppError)
     async def handle_app_error(_: Request, exc: AppError) -> JSONResponse:
@@ -42,4 +72,3 @@ def register_exception_handlers(app: FastAPI) -> None:
                 }
             },
         )
-
