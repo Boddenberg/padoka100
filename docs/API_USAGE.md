@@ -9,54 +9,54 @@ http://localhost:8000/api/v1
 ## 1. Criar produto visual
 
 ```bash
-curl -X POST http://localhost:8000/api/v1/products \
+curl -X POST http://localhost:8000/api/v1/produtos \
   -H "Content-Type: application/json" \
   -d '{
-    "name": "Pao de calabresa",
-    "description": "Pao recheado com calabresa",
-    "visual_description": "Recheio alaranjado, formato comprido",
-    "button_color": "#D97706",
-    "sale_price": 10.00,
-    "cost_price": 4.00,
-    "effective_from": "2026-07-04"
+    "nome": "Pao de calabresa",
+    "descricao": "Pao recheado com calabresa",
+    "descricao_visual": "Recheio alaranjado, formato comprido",
+    "cor_botao": "#D97706",
+    "preco_venda": 10.00,
+    "preco_custo": 4.00,
+    "vigente_desde": "2026-07-04"
   }'
 ```
 
 ## 2. Enviar foto do produto
 
 ```bash
-curl -X POST http://localhost:8000/api/v1/products/PRODUCT_ID/media \
+curl -X POST http://localhost:8000/api/v1/produtos/PRODUTO_ID/midia \
   -F "file=@calabresa.jpg" \
-  -F "description=Foto do pao de calabresa" \
-  -F "alt_text=Pao de calabresa em cima da mesa" \
-  -F "set_as_main=true"
+  -F "descricao=Foto do pao de calabresa" \
+  -F "texto_alternativo=Pao de calabresa em cima da mesa" \
+  -F "definir_como_principal=true"
 ```
 
 ## 3. Mudar preco sem afetar passado
 
 ```bash
-curl -X POST http://localhost:8000/api/v1/products/PRODUCT_ID/prices \
+curl -X POST http://localhost:8000/api/v1/produtos/PRODUTO_ID/precos \
   -H "Content-Type: application/json" \
   -d '{
-    "sale_price": 12.00,
-    "cost_price": 4.50,
-    "effective_from": "2026-07-10",
-    "reason": "Aumento no custo dos ingredientes"
+    "preco_venda": 12.00,
+    "preco_custo": 4.50,
+    "vigente_desde": "2026-07-10",
+    "motivo": "Aumento no custo dos ingredientes"
   }'
 ```
 
-Vendas antes de `2026-07-10` continuam com o preco antigo porque `sale_items` salva `unit_sale_price_snapshot`.
+Vendas antes de `2026-07-10` continuam com o preco antigo porque `itens_venda` salva `preco_venda_unitario_no_momento`.
 
 ## 4. Abrir dia com producao
 
 ```bash
-curl -X POST http://localhost:8000/api/v1/sales-days \
+curl -X POST http://localhost:8000/api/v1/dias-de-venda \
   -H "Content-Type: application/json" \
   -d '{
-    "business_date": "2026-07-04",
-    "location_name": "Condominio Primavera",
-    "production_items": [
-      { "product_id": "PRODUCT_ID", "quantity_produced": 30 }
+    "data_venda": "2026-07-04",
+    "nome_local": "Condominio Primavera",
+    "itens_producao": [
+      { "produto_id": "PRODUTO_ID", "quantidade_produzida": 30 }
     ]
   }'
 ```
@@ -64,13 +64,13 @@ curl -X POST http://localhost:8000/api/v1/sales-days \
 ## 5. Registrar venda manual
 
 ```bash
-curl -X POST http://localhost:8000/api/v1/sales \
+curl -X POST http://localhost:8000/api/v1/vendas \
   -H "Content-Type: application/json" \
   -d '{
-    "sales_day_id": "SALES_DAY_ID",
-    "input_type": "manual",
-    "items": [
-      { "product_id": "PRODUCT_ID", "quantity": 5 }
+    "dia_de_venda_id": "DIA_DE_VENDA_ID",
+    "tipo_entrada": "manual",
+    "itens": [
+      { "produto_id": "PRODUTO_ID", "quantidade": 5 }
     ]
   }'
 ```
@@ -78,37 +78,37 @@ curl -X POST http://localhost:8000/api/v1/sales \
 ## 6. Interpretar venda por texto
 
 ```bash
-curl -X POST http://localhost:8000/api/v1/ai/interpret-sale-command \
+curl -X POST http://localhost:8000/api/v1/ia/interpretar-comando-de-venda \
   -H "Content-Type: application/json" \
   -d '{
-    "sales_day_id": "SALES_DAY_ID",
-    "text": "vendi cinco paes de calabresa agora"
+    "dia_de_venda_id": "DIA_DE_VENDA_ID",
+    "texto": "vendi cinco paes de calabresa agora"
   }'
 ```
 
-A resposta traz `confirmation_payload`. O front deve mostrar a confirmacao para o usuario.
+A resposta traz `dados_confirmacao`. O front deve mostrar a confirmacao para o usuario.
 
 ## 7. Confirmar venda interpretada
 
 ```bash
-curl -X POST http://localhost:8000/api/v1/ai/interactions/AI_INTERACTION_ID/confirm-sale
+curl -X POST http://localhost:8000/api/v1/ia/interacoes/INTERACAO_IA_ID/confirmar-venda
 ```
 
 ## 8. Enviar audio
 
 ```bash
-curl -X POST http://localhost:8000/api/v1/ai/transcribe-sale-audio \
+curl -X POST http://localhost:8000/api/v1/ia/transcrever-audio-de-venda \
   -F "file=@venda.webm" \
-  -F "sales_day_id=SALES_DAY_ID" \
-  -F "interpret=true"
+  -F "dia_de_venda_id=DIA_DE_VENDA_ID" \
+  -F "interpretar=true"
 ```
 
-O audio e salvo no Supabase Storage e associado a `ai_interactions` quando `interpret=true`.
+O audio e salvo no Supabase Storage e associado a `interacoes_ia` quando `interpretar=true`.
 
 ## 9. Ver resumo do dia
 
 ```bash
-curl http://localhost:8000/api/v1/reports/days/SALES_DAY_ID/summary
+curl http://localhost:8000/api/v1/relatorios/dias/DIA_DE_VENDA_ID/resumo
 ```
 
 O resumo retorna:
@@ -124,8 +124,8 @@ O resumo retorna:
 ## 10. Ver historico
 
 ```bash
-curl http://localhost:8000/api/v1/history/timeline?sales_day_id=SALES_DAY_ID
+curl http://localhost:8000/api/v1/historico/linha-do-tempo?dia_de_venda_id=DIA_DE_VENDA_ID
 ```
 
-Eventos importantes entram em `timeline_events`: produto criado, preco alterado, dia aberto, producao adicionada, venda registrada, venda cancelada e midia enviada.
+Eventos importantes entram em `eventos_linha_do_tempo`: produto criado, preco alterado, dia aberto, producao adicionada, venda registrada, venda cancelada e midia enviada.
 

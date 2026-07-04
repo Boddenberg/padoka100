@@ -1,0 +1,71 @@
+from datetime import date
+from uuid import UUID
+
+from fastapi import APIRouter, File, Form, Query, UploadFile
+
+from app.modules.midia import servico as servico_de_midia
+from app.modules.midia.esquemas import MidiaSaida
+from app.modules.produtos import servico
+from app.modules.produtos.esquemas import (
+    ProdutoSaida,
+    RequisicaoAtualizarProduto,
+    RequisicaoCriarProduto,
+    RequisicaoCriarVersaoDePreco,
+    VersaoDePrecoSaida,
+)
+
+router = APIRouter(prefix="/produtos", tags=["produtos"])
+
+
+@router.get("", response_model=list[ProdutoSaida])
+def listar_produtos(
+    somente_ativos: bool = True,
+    data_preco: date | None = Query(default=None),
+) -> list[dict]:
+    return servico.listar_produtos(somente_ativos=somente_ativos, data_preco=data_preco)
+
+
+@router.post("", response_model=ProdutoSaida, status_code=201)
+def criar_produto(requisicao: RequisicaoCriarProduto) -> dict:
+    return servico.criar_produto(requisicao)
+
+
+@router.get("/{produto_id}", response_model=ProdutoSaida)
+def buscar_produto(produto_id: UUID, data_preco: date | None = Query(default=None)) -> dict:
+    return servico.buscar_produto(produto_id, data_preco=data_preco)
+
+
+@router.patch("/{produto_id}", response_model=ProdutoSaida)
+def atualizar_produto(produto_id: UUID, requisicao: RequisicaoAtualizarProduto) -> dict:
+    return servico.atualizar_produto(produto_id, requisicao)
+
+
+@router.get("/{produto_id}/precos", response_model=list[VersaoDePrecoSaida])
+def listar_versoes_de_preco(produto_id: UUID) -> list[dict]:
+    return servico.listar_versoes_de_preco(produto_id)
+
+
+@router.post("/{produto_id}/precos", response_model=VersaoDePrecoSaida, status_code=201)
+def criar_versao_de_preco(
+    produto_id: UUID,
+    requisicao: RequisicaoCriarVersaoDePreco,
+) -> dict:
+    return servico.criar_versao_de_preco(produto_id, requisicao)
+
+
+@router.post("/{produto_id}/midia", response_model=MidiaSaida, status_code=201)
+async def enviar_midia_do_produto(
+    produto_id: UUID,
+    file: UploadFile = File(...),
+    descricao: str | None = Form(default=None),
+    texto_alternativo: str | None = Form(default=None),
+    definir_como_principal: bool = Form(default=True),
+) -> dict:
+    return await servico_de_midia.enviar_midia(
+        tipo_entidade="produto",
+        entidade_id=produto_id,
+        file=file,
+        descricao=descricao,
+        texto_alternativo=texto_alternativo,
+        definir_como_principal=definir_como_principal,
+    )

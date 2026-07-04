@@ -13,7 +13,7 @@ class Settings(BaseSettings):
 
     supabase_url: str = ""
     supabase_service_role_key: str = ""
-    supabase_storage_bucket: str = "padoka-media"
+    supabase_storage_bucket: str = "padoka-midia"
 
     openai_api_key: str = ""
     openai_text_model: str = ""
@@ -53,4 +53,3 @@ class Settings(BaseSettings):
 @lru_cache
 def get_settings() -> Settings:
     return Settings()
-

@@ -24,21 +24,21 @@ A API deve permitir que uma pessoa com pouca intimidade com tecnologia consiga o
 
 - Visual primeiro: produtos precisam ter foto, descricao curta, descricao visual e cor/ordem para facilitar botoes grandes no front.
 - Historico imutavel: venda antiga nunca muda quando nome, foto, custo ou preco do produto mudam.
-- Confirmacao antes de acao sensivel: comandos interpretados por IA retornam payload de confirmacao antes de salvar.
+- Confirmacao antes de acao sensivel: comandos interpretados por IA retornam dados de confirmacao antes de salvar.
 - Desfazer sem apagar: venda errada deve ser marcada como cancelada, nao deletada.
-- Dia de venda como centro do sistema: relatatorios e consultas partem de `sales_days`.
+- Dia de venda como centro do sistema: relatorios e consultas partem de `dias_de_venda`.
 
 ## Modelo de historico de preco
 
-Produtos ficam em `products`.
+Produtos ficam em `produtos`.
 
-Precos ficam em `product_price_versions`, com:
+Precos ficam em `versoes_preco_produto`, com:
 
-- `effective_from`
-- `effective_to`
-- `sale_price`
-- `cost_price`
-- `reason`
+- `vigente_desde`
+- `vigente_ate`
+- `preco_venda`
+- `preco_custo`
+- `motivo`
 
 Quando um preco novo entra, a versao anterior e encerrada no dia anterior. As vendas salvas guardam snapshots:
 
@@ -95,7 +95,7 @@ Isso garante que relatorios antigos continuem corretos.
 - Interpretar comando textual.
 - Transcrever audio.
 - Transcrever audio e interpretar venda.
-- Salvar interacoes em `ai_interactions`.
+- Salvar interacoes em `interacoes_ia`.
 
 ## Ordem de construcao
 
@@ -109,4 +109,3 @@ Isso garante que relatorios antigos continuem corretos.
 8. Upload de midia.
 9. IA para interpretar comandos.
 10. Documentacao de uso e variaveis de ambiente.
-

@@ -1,20 +1,20 @@
 from fastapi import APIRouter
 
-from app.modules.ai.router import router as ai_router
-from app.modules.history.router import router as history_router
-from app.modules.locations.router import router as locations_router
-from app.modules.media.router import router as media_router
-from app.modules.products.router import router as products_router
-from app.modules.reports.router import router as reports_router
-from app.modules.sales.router import router as sales_router
-from app.modules.sales_days.router import router as sales_days_router
+from app.modules.dias_de_venda.router import router as router_de_dias_de_venda
+from app.modules.historico.router import router as router_de_historico
+from app.modules.ia.router import router as router_de_ia
+from app.modules.locais.router import router as router_de_locais
+from app.modules.midia.router import router as router_de_midia
+from app.modules.produtos.router import router as router_de_produtos
+from app.modules.relatorios.router import router as router_de_relatorios
+from app.modules.vendas.router import router as router_de_vendas
 
 api_router = APIRouter()
-api_router.include_router(products_router)
-api_router.include_router(locations_router)
-api_router.include_router(sales_days_router)
-api_router.include_router(sales_router)
-api_router.include_router(reports_router)
-api_router.include_router(history_router)
-api_router.include_router(media_router)
-api_router.include_router(ai_router)
+api_router.include_router(router_de_produtos)
+api_router.include_router(router_de_locais)
+api_router.include_router(router_de_dias_de_venda)
+api_router.include_router(router_de_vendas)
+api_router.include_router(router_de_relatorios)
+api_router.include_router(router_de_historico)
+api_router.include_router(router_de_midia)
+api_router.include_router(router_de_ia)

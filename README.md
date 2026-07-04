@@ -32,24 +32,24 @@ A documentacao interativa fica em:
 ## Endpoints principais
 
 - `GET /health`
-- `GET /api/v1/products`
-- `POST /api/v1/products`
-- `POST /api/v1/products/{product_id}/prices`
-- `POST /api/v1/products/{product_id}/media`
-- `GET /api/v1/locations`
-- `POST /api/v1/locations`
-- `POST /api/v1/sales-days`
-- `GET /api/v1/sales-days/current`
-- `POST /api/v1/sales-days/{sales_day_id}/production-items`
-- `POST /api/v1/sales`
-- `POST /api/v1/sales/{sale_id}/void`
-- `GET /api/v1/reports/days/{sales_day_id}/summary`
-- `GET /api/v1/reports/period`
-- `GET /api/v1/history/timeline`
-- `POST /api/v1/media/{owner_type}/{owner_id}`
-- `POST /api/v1/ai/interpret-sale-command`
-- `POST /api/v1/ai/transcribe-sale-audio`
-- `POST /api/v1/ai/interactions/{ai_interaction_id}/confirm-sale`
+- `GET /api/v1/produtos`
+- `POST /api/v1/produtos`
+- `POST /api/v1/produtos/{produto_id}/precos`
+- `POST /api/v1/produtos/{produto_id}/midia`
+- `GET /api/v1/locais`
+- `POST /api/v1/locais`
+- `POST /api/v1/dias-de-venda`
+- `GET /api/v1/dias-de-venda/atual`
+- `POST /api/v1/dias-de-venda/{dia_de_venda_id}/itens-producao`
+- `POST /api/v1/vendas`
+- `POST /api/v1/vendas/{venda_id}/cancelar`
+- `GET /api/v1/relatorios/dias/{dia_de_venda_id}/resumo`
+- `GET /api/v1/relatorios/periodo`
+- `GET /api/v1/historico/linha-do-tempo`
+- `POST /api/v1/midia/{tipo_entidade}/{entidade_id}`
+- `POST /api/v1/ia/interpretar-comando-de-venda`
+- `POST /api/v1/ia/transcrever-audio-de-venda`
+- `POST /api/v1/ia/interacoes/{interacao_ia_id}/confirmar-venda`
 
 ## Regra mais importante
 
