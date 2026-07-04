@@ -22,23 +22,46 @@ async def upload_media(
     alt_text: str | None = None,
     set_as_main: bool = False,
 ) -> dict:
+    content = await file.read()
+    return upload_media_bytes(
+        owner_type=owner_type,
+        owner_id=owner_id,
+        content=content,
+        filename=file.filename,
+        content_type=file.content_type,
+        description=description,
+        alt_text=alt_text,
+        set_as_main=set_as_main,
+    )
+
+
+def upload_media_bytes(
+    *,
+    owner_type: str,
+    owner_id: UUID,
+    content: bytes,
+    filename: str | None,
+    content_type: str | None = None,
+    description: str | None = None,
+    alt_text: str | None = None,
+    set_as_main: bool = False,
+) -> dict:
     if owner_type not in OWNER_TYPES:
         raise BadRequestError("Tipo de dono de midia invalido.", {"owner_type": owner_type})
 
-    content = await file.read()
     if not content:
         raise BadRequestError("Arquivo vazio.")
 
     settings = get_settings()
     client = get_supabase_client()
     bucket = settings.supabase_storage_bucket
-    file_path = _build_file_path(owner_type, owner_id, file.filename)
-    content_type = file.content_type or "application/octet-stream"
+    file_path = _build_file_path(owner_type, owner_id, filename)
+    resolved_content_type = content_type or "application/octet-stream"
 
     client.storage.from_(bucket).upload(
         file_path,
         content,
-        file_options={"content-type": content_type},
+        file_options={"content-type": resolved_content_type},
     )
     public_url = client.storage.from_(bucket).get_public_url(file_path)
 
@@ -52,7 +75,7 @@ async def upload_media(
                     "bucket": bucket,
                     "file_path": file_path,
                     "public_url": public_url,
-                    "content_type": content_type,
+                    "content_type": resolved_content_type,
                     "description": description,
                     "alt_text": alt_text,
                 }
@@ -75,7 +98,7 @@ async def upload_media(
         details={
             "media_asset_id": asset["id"],
             "file_path": file_path,
-            "content_type": content_type,
+            "content_type": resolved_content_type,
             "set_as_main": set_as_main,
         },
     )
@@ -91,4 +114,3 @@ def _build_file_path(owner_type: str, owner_id: UUID, filename: str | None) -> s
 def _safe_filename(value: str) -> str:
     safe = re.sub(r"[^a-zA-Z0-9_-]+", "-", value).strip("-").lower()
     return safe or "arquivo"
-
