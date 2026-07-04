@@ -1,8 +1,10 @@
 from datetime import date
 from uuid import UUID
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, File, Form, Query, UploadFile
 
+from app.modules.media import service as media_service
+from app.modules.media.schemas import MediaAssetOut
 from app.modules.products import service
 from app.modules.products.schemas import (
     PriceVersionCreate,
@@ -47,3 +49,20 @@ def list_price_versions(product_id: UUID) -> list[dict]:
 def create_price_version(product_id: UUID, payload: PriceVersionCreate) -> dict:
     return service.create_price_version(product_id, payload)
 
+
+@router.post("/{product_id}/media", response_model=MediaAssetOut, status_code=201)
+async def upload_product_media(
+    product_id: UUID,
+    file: UploadFile = File(...),
+    description: str | None = Form(default=None),
+    alt_text: str | None = Form(default=None),
+    set_as_main: bool = Form(default=True),
+) -> dict:
+    return await media_service.upload_media(
+        owner_type="product",
+        owner_id=product_id,
+        file=file,
+        description=description,
+        alt_text=alt_text,
+        set_as_main=set_as_main,
+    )
