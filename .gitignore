@@ -14,6 +14,7 @@ htmlcov/
 .venv/
 venv/
 ENV/
+supabase/.temp/
 
 dist/
 build/
@@ -21,4 +22,3 @@ build/
 
 .DS_Store
 Thumbs.db
-
