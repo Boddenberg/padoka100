@@ -3,6 +3,7 @@ import json
 import re
 import unicodedata
 from datetime import date, timedelta
+from decimal import Decimal
 from uuid import UUID
 
 from fastapi import UploadFile
@@ -362,6 +363,10 @@ def _interpretar_com_openai(texto: str, produtos: list[dict]) -> dict:
             "Classifique cancelar_venda para desfazer/cancelar uma venda inteira. "
             "Classifique cancelar_item_venda quando o usuario pedir para tirar/cancelar "
             "item parcial de uma venda. "
+            "So use usar_ultima_venda=true quando o comando disser ultima/ultimo venda "
+            "ou pedir para desfazer a ultima acao. "
+            "Comandos amplos como cancelar vendas por valor ou todas as vendas nao devem "
+            "escolher uma venda sozinhos. "
             "Se o usuario disser hoje, ontem ou amanha, converta usando a data de hoje "
             "informada no input. "
             "A mensagem_assistente deve resumir em uma frase o que foi entendido "
@@ -419,7 +424,10 @@ def _detectar_acao_com_fallback(texto_normalizado: str, tem_itens: bool) -> str:
         return ACAO_FECHAR_DIA_DE_VENDA
     if "abrir" in texto_normalizado and "dia" in texto_normalizado:
         return ACAO_ABRIR_DIA_DE_VENDA
-    if any(palavra in texto_normalizado for palavra in ["cancelar", "cancela", "desfazer"]):
+    if any(
+        palavra in texto_normalizado
+        for palavra in ["cancelar", "cancela", "cancele", "cancelou", "desfazer"]
+    ):
         if tem_itens:
             return ACAO_CANCELAR_ITEM_VENDA
         return ACAO_CANCELAR_VENDA
@@ -537,7 +545,11 @@ def _montar_dados_confirmacao(
     if acao == ACAO_FECHAR_DIA_DE_VENDA:
         return _montar_confirmacao_de_fechamento_de_dia(interpretacao, dia_de_venda_id)
     if acao == ACAO_CANCELAR_VENDA:
-        return _montar_confirmacao_de_cancelamento_de_venda(interpretacao, dia_de_venda_id)
+        return _montar_confirmacao_de_cancelamento_de_venda(
+            interpretacao=interpretacao,
+            dia_de_venda_id=dia_de_venda_id,
+            texto_original=texto_original,
+        )
     if acao == ACAO_CANCELAR_ITEM_VENDA:
         return _montar_confirmacao_de_cancelamento_de_item_de_venda(
             interpretacao=interpretacao,
@@ -740,16 +752,23 @@ def _montar_confirmacao_de_fechamento_de_dia(
 
 
 def _montar_confirmacao_de_cancelamento_de_venda(
+    *,
     interpretacao: dict,
     dia_de_venda_id: UUID | None,
+    texto_original: str,
 ) -> dict:
     venda = None
     if interpretacao["venda_id"]:
         venda = _buscar_venda_ou_none(interpretacao["venda_id"])
-    if not venda:
+    if not venda and _comando_pede_ultima_venda(texto_original, interpretacao):
         venda = _buscar_ultima_venda_ativa(
             dia_de_venda_id=dia_de_venda_id,
             data_venda=interpretacao["data_venda"],
+        )
+    if not venda and not interpretacao["venda_id"]:
+        return _dados_sem_confirmacao(
+            ACAO_CANCELAR_VENDA,
+            _mensagem_cancelamento_sem_alvo_claro(texto_original),
         )
     if not venda:
         return _dados_sem_confirmacao(
@@ -764,8 +783,8 @@ def _montar_confirmacao_de_cancelamento_de_venda(
 
     motivo = interpretacao["motivo_cancelamento"] or "Cancelado via IA"
     mensagem = (
-        f"Entendi que devo cancelar a venda {venda['id']} "
-        f"({_formatar_itens_da_venda(venda)}). Confirma?"
+        f"Entendi que devo cancelar a venda {venda['id']}: "
+        f"{_formatar_resumo_da_venda(venda)}. Confirma?"
     )
     return {
         "acao": ACAO_CANCELAR_VENDA,
@@ -801,10 +820,15 @@ def _montar_confirmacao_de_cancelamento_de_item_de_venda(
     venda = None
     if interpretacao["venda_id"]:
         venda = _buscar_venda_ou_none(interpretacao["venda_id"])
-    if not venda:
+    if not venda and _comando_pede_ultima_venda(texto_original, interpretacao):
         venda = _buscar_ultima_venda_ativa(
             dia_de_venda_id=dia_de_venda_id,
             data_venda=interpretacao["data_venda"],
+        )
+    if not venda and not interpretacao["venda_id"]:
+        return _dados_sem_confirmacao(
+            ACAO_CANCELAR_ITEM_VENDA,
+            _mensagem_cancelamento_sem_alvo_claro(texto_original),
         )
     if not venda:
         return _dados_sem_confirmacao(
@@ -1219,6 +1243,76 @@ def _formatar_itens_da_venda(venda: dict) -> str:
         for item in venda.get("itens", [])
     ]
     return _formatar_itens(itens)
+
+
+def _formatar_resumo_da_venda(venda: dict) -> str:
+    itens = venda.get("itens") or []
+    if not itens:
+        return "sem itens registrados, total R$ 0,00"
+    return f"{_formatar_itens_da_venda(venda)}, total {_formatar_moeda(_total_da_venda(venda))}"
+
+
+def _total_da_venda(venda: dict) -> Decimal:
+    total = Decimal("0")
+    for item in venda.get("itens") or []:
+        total += Decimal(str(item.get("valor_total_venda") or 0))
+    return total
+
+
+def _formatar_moeda(valor: Decimal) -> str:
+    texto = f"{valor:.2f}".replace(".", ",")
+    return f"R$ {texto}"
+
+
+def _comando_pede_ultima_venda(texto_original: str, interpretacao: dict) -> bool:
+    if _comando_menciona_cancelamento_por_valor(texto_original) or _comando_parece_em_lote(
+        texto_original
+    ):
+        return False
+
+    texto = _normalizar(texto_original)
+    tokens = set(texto.split())
+    pediu_ultima = bool({"ultima", "ultimo"} & tokens) and bool({"venda", "vendas"} & tokens)
+    pediu_desfazer = bool({"desfazer", "desfaz", "desfaca"} & tokens)
+    return pediu_ultima or pediu_desfazer
+
+
+def _mensagem_cancelamento_sem_alvo_claro(texto_original: str) -> str:
+    if _comando_menciona_cancelamento_por_valor(texto_original):
+        return (
+            "Entendi que voce quer cancelar vendas de R$ 0,00, mas nao vou escolher "
+            "vendas por valor sozinho. Toque na venda certa ou diga: cancele a ultima venda."
+        )
+    if _comando_parece_em_lote(texto_original):
+        return (
+            "Entendi que voce quer cancelar mais de uma venda, mas preciso fazer uma por vez. "
+            "Toque na venda certa ou diga: cancele a ultima venda."
+        )
+    return (
+        "Entendi que voce quer cancelar uma venda, mas preciso saber qual. "
+        "Toque na venda certa ou diga: cancele a ultima venda."
+    )
+
+
+def _comando_menciona_cancelamento_por_valor(texto_original: str) -> bool:
+    texto = _normalizar(texto_original)
+    tokens = set(texto.split())
+    menciona_zero = "zero" in tokens or "0" in tokens
+    menciona_dinheiro = bool({"real", "reais", "r", "rs"} & tokens)
+    if menciona_zero and menciona_dinheiro:
+        return True
+    return bool(
+        re.search(
+            r"\br\$\s*0(?:[,.]00)?\b|\b0(?:[,.]00)?\s*reais?\b|\bzero\s+reais?\b",
+            texto_original,
+            flags=re.IGNORECASE,
+        )
+    )
+
+
+def _comando_parece_em_lote(texto_original: str) -> bool:
+    tokens = set(_normalizar(texto_original).split())
+    return bool({"vendas", "todas", "todos", "varias", "varios"} & tokens)
 
 
 def _formatar_data(data_valor: str) -> str:
