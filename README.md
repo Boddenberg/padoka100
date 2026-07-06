@@ -47,6 +47,9 @@ A documentacao interativa fica em:
 - `GET /api/v1/relatorios/periodo`
 - `GET /api/v1/historico/linha-do-tempo`
 - `POST /api/v1/midia/{tipo_entidade}/{entidade_id}`
+- `POST /api/v1/ia/interpretar-comando`
+- `POST /api/v1/ia/transcrever-audio`
+- `POST /api/v1/ia/interacoes/{interacao_ia_id}/confirmar`
 - `POST /api/v1/ia/interpretar-comando-de-venda`
 - `POST /api/v1/ia/transcrever-audio-de-venda`
 - `POST /api/v1/ia/interacoes/{interacao_ia_id}/confirmar-venda`
@@ -78,9 +81,9 @@ Quando o preco de um produto muda, o backend cria uma nova versao de preco. Vend
 - Relatorios por dia e por periodo com produzido, vendido, sobra, faturamento bruto, custo estimado e lucro estimado.
 - Linha do tempo para eventos importantes: produto criado, preco alterado, dia aberto, producao adicionada, venda registrada, venda cancelada e midia enviada.
 - Upload de midia para produtos, locais, dias de venda, vendas e interacoes de IA.
-- Fluxo de IA para interpretar comando de venda por texto.
-- Fluxo de audio para transcrever fala, interpretar venda e salvar o audio associado.
-- Confirmacao explicita antes de transformar uma interpretacao de IA em venda real.
+- Fluxo de IA para interpretar comandos por texto: venda, producao, abertura/fechamento de dia, cancelamento de venda e ajuste de item vendido.
+- Fluxo de audio para transcrever fala, interpretar comando e salvar o audio associado.
+- Confirmacao explicita antes de transformar qualquer interpretacao de IA em mudanca real no banco.
 - Documentacao de exemplos em `docs/API_USAGE.md`.
 - Plano tecnico em `docs/IMPLEMENTATION_PLAN.md`.
 

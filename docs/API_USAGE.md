@@ -75,29 +75,47 @@ curl -X POST http://localhost:8000/api/v1/vendas \
   }'
 ```
 
-## 6. Interpretar venda por texto
+## 6. Interpretar comando por texto
 
 ```bash
-curl -X POST http://localhost:8000/api/v1/ia/interpretar-comando-de-venda \
+curl -X POST http://localhost:8000/api/v1/ia/interpretar-comando \
   -H "Content-Type: application/json" \
   -d '{
     "dia_de_venda_id": "DIA_DE_VENDA_ID",
-    "texto": "vendi cinco paes de calabresa agora"
+    "texto": "producao de hoje foi 10 paes de calabresa e 10 paes de queijo"
   }'
 ```
 
-A resposta traz `dados_confirmacao`. O front deve mostrar a confirmacao para o usuario.
+A resposta traz `mensagem_confirmacao` e `dados_confirmacao`. O front deve mostrar a mensagem para o usuario e so chamar a confirmacao se ele aceitar.
 
-## 7. Confirmar venda interpretada
+Comandos suportados pelo fluxo generico:
+
+- registrar venda
+- registrar producao
+- abrir dia de venda
+- fechar dia de venda
+- cancelar venda inteira
+- cancelar item de venda, cancelando a venda original e criando uma venda corrigida com os itens restantes
+
+No cancelamento parcial, a API nao apaga itens: ela preserva historico cancelando a venda original e registrando uma venda corrigida depois da confirmacao.
+
+## 7. Confirmar comando interpretado
 
 ```bash
+curl -X POST http://localhost:8000/api/v1/ia/interacoes/INTERACAO_IA_ID/confirmar
+```
+
+As rotas antigas de venda continuam disponiveis:
+
+```bash
+curl -X POST http://localhost:8000/api/v1/ia/interpretar-comando-de-venda
 curl -X POST http://localhost:8000/api/v1/ia/interacoes/INTERACAO_IA_ID/confirmar-venda
 ```
 
 ## 8. Enviar audio
 
 ```bash
-curl -X POST http://localhost:8000/api/v1/ia/transcrever-audio-de-venda \
+curl -X POST http://localhost:8000/api/v1/ia/transcrever-audio \
   -F "file=@venda.webm" \
   -F "dia_de_venda_id=DIA_DE_VENDA_ID" \
   -F "interpretar=true"
