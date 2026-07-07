@@ -12,6 +12,8 @@ class ResumoProdutoNoDia(ApiModel):
     nome_produto: str
     url_imagem_produto: str | None = None
     quantidade_produzida: int = 0
+    quantidade_sobra_aproveitada: int = 0
+    quantidade_disponivel: int = 0
     quantidade_vendida: int = 0
     quantidade_sobra: int = 0
     faturamento_bruto: Decimal = Decimal("0")
@@ -25,6 +27,8 @@ class ResumoDoDiaDeVenda(ApiModel):
     nome_local: str | None = None
     situacao: str
     total_produzido: int = 0
+    total_sobra_aproveitada: int = 0
+    total_disponivel: int = 0
     total_vendido: int = 0
     total_sobra: int = 0
     faturamento_bruto: Decimal = Decimal("0")
@@ -37,6 +41,8 @@ class ResumoDoPeriodo(ApiModel):
     data_inicio: date
     data_fim: date
     total_produzido: int = 0
+    total_sobra_aproveitada: int = 0
+    total_disponivel: int = 0
     total_vendido: int = 0
     total_sobra: int = 0
     faturamento_bruto: Decimal = Decimal("0")

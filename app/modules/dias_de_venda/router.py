@@ -6,11 +6,13 @@ from fastapi import APIRouter, Query
 from app.modules.dias_de_venda import servico
 from app.modules.dias_de_venda.esquemas import (
     DiaDeVendaSaida,
+    IniciarDiaDeVendaSaida,
     ItemProducaoSaida,
     RequisicaoAtualizarDiaDeVenda,
     RequisicaoCriarDiaDeVenda,
     RequisicaoCriarItemProducao,
     RequisicaoFecharDiaDeVenda,
+    RequisicaoIniciarDiaDeVenda,
 )
 
 router = APIRouter(prefix="/dias-de-venda", tags=["dias-de-venda"])
@@ -37,6 +39,11 @@ def criar_dia_de_venda(requisicao: RequisicaoCriarDiaDeVenda) -> dict:
 @router.get("/atual", response_model=DiaDeVendaSaida)
 def buscar_dia_de_venda_atual(data_venda: date | None = Query(default=None)) -> dict:
     return servico.buscar_dia_de_venda_atual(data_venda=data_venda)
+
+
+@router.post("/iniciar-hoje", response_model=IniciarDiaDeVendaSaida)
+def iniciar_dia_de_venda(requisicao: RequisicaoIniciarDiaDeVenda) -> dict:
+    return servico.iniciar_dia_de_venda(requisicao)
 
 
 @router.get("/{dia_de_venda_id}", response_model=DiaDeVendaSaida)

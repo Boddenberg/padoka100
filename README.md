@@ -22,7 +22,7 @@ copy .env.example .env
 uvicorn app.main:app --reload
 ```
 
-Depois de configurar as chaves no `.env`, aplique o SQL em `supabase/migrations/001_initial_schema.sql` no projeto Supabase.
+Depois de configurar as chaves no `.env`, aplique os SQLs de `supabase/migrations` em ordem no projeto Supabase.
 
 A documentacao interativa fica em:
 
@@ -39,6 +39,7 @@ A documentacao interativa fica em:
 - `GET /api/v1/locais`
 - `POST /api/v1/locais`
 - `POST /api/v1/dias-de-venda`
+- `POST /api/v1/dias-de-venda/iniciar-hoje`
 - `GET /api/v1/dias-de-venda/atual`
 - `POST /api/v1/dias-de-venda/{dia_de_venda_id}/itens-producao`
 - `POST /api/v1/vendas`
@@ -69,16 +70,17 @@ Quando o preco de um produto muda, o backend cria uma nova versao de preco. Vend
 - Integracao preparada para Supabase com cliente lazy e erro claro quando as chaves ainda nao estao configuradas.
 - Integracao preparada para OpenAI com cliente dedicado e modelos configuraveis por ambiente.
 - Migration inicial do Supabase em `supabase/migrations/001_initial_schema.sql`.
-- Tabelas principais em portugues: `produtos`, `versoes_preco_produto`, `locais`, `dias_de_venda`, `itens_producao`, `vendas`, `itens_venda`, `midias`, `interacoes_ia` e `eventos_linha_do_tempo`.
+- Tabelas principais em portugues: `produtos`, `versoes_preco_produto`, `locais`, `dias_de_venda`, `itens_producao`, `decisoes_sobra`, `vendas`, `itens_venda`, `midias`, `interacoes_ia` e `eventos_linha_do_tempo`.
 - Cadastro, listagem, atualizacao e consulta de produtos.
 - Produtos preparados para uso visual com descricao, descricao visual, cor de botao, ordem de exibicao e imagem principal.
 - Historico de precos por versao, com vigencia por data e sem sobrescrever o passado.
 - Cadastro e atualizacao de locais/condominios.
 - Abertura, edicao, consulta e fechamento de dias de venda.
+- Virada de dia com fechamento do dia anterior, abertura do dia atual e decisao explicita sobre sobras.
 - Registro de producao do dia com snapshot de produto, imagem e preco vigente.
 - Registro de vendas manuais com snapshots de nome, imagem, preco de venda e custo.
 - Cancelamento de venda sem apagar historico.
-- Relatorios por dia e por periodo com produzido, vendido, sobra, faturamento bruto, custo estimado e lucro estimado.
+- Relatorios por dia e por periodo com produzido, sobra aproveitada, disponivel, vendido, sobra, faturamento bruto, custo estimado e lucro estimado.
 - Linha do tempo para eventos importantes: produto criado, preco alterado, dia aberto, producao adicionada, venda registrada, venda cancelada e midia enviada.
 - Upload de midia para produtos, locais, dias de venda, vendas e interacoes de IA.
 - Fluxo de IA para interpretar comandos por texto: venda, producao, abertura/fechamento de dia, cancelamento de venda e ajuste de item vendido.

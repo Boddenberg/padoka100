@@ -61,6 +61,61 @@ curl -X POST http://localhost:8000/api/v1/dias-de-venda \
   }'
 ```
 
+## 4.1. Iniciar hoje com virada automatica
+
+Use este endpoint na abertura do app ou no primeiro acesso do dia. Ele e idempotente:
+se o dia de hoje ja estiver aberto, apenas devolve o dia atual.
+
+```bash
+curl -X POST http://localhost:8000/api/v1/dias-de-venda/iniciar-hoje \
+  -H "Content-Type: application/json" \
+  -d '{}'
+```
+
+Se existir um dia anterior aberto com sobra, a API nao fecha nem abre tudo sozinha.
+Ela devolve `acao: "decidir_sobras"` para o front pedir a decisao do usuario:
+
+```json
+{
+  "acao": "decidir_sobras",
+  "mensagem": "Existe sobra do dia anterior. Escolha o que usar hoje antes de iniciar.",
+  "data_venda": "2026-07-07",
+  "sobras_pendentes": [
+    {
+      "produto_id": "PRODUTO_ID",
+      "nome_produto": "Pao de calabresa",
+      "quantidade_sobra": 12,
+      "quantidade_sugerida_para_usar": 12
+    }
+  ]
+}
+```
+
+Depois da escolha, chame o mesmo endpoint informando uma decisao para cada sobra.
+Se `quantidade_nao_usada_hoje` for omitida, a API calcula o restante automaticamente.
+
+```bash
+curl -X POST http://localhost:8000/api/v1/dias-de-venda/iniciar-hoje \
+  -H "Content-Type: application/json" \
+  -d '{
+    "decisoes_sobra": [
+      {
+        "produto_id": "PRODUTO_ID",
+        "quantidade_usada_hoje": 8
+      }
+    ],
+    "itens_producao": [
+      { "produto_id": "PRODUTO_ID", "quantidade_produzida": 30 }
+    ]
+  }'
+```
+
+Nesse exemplo, o relatorio do novo dia mostra:
+
+- produzido: 30
+- sobra aproveitada: 8
+- disponivel: 38
+
 ## 5. Registrar venda manual
 
 ```bash
@@ -136,6 +191,8 @@ curl http://localhost:8000/api/v1/relatorios/dias/DIA_DE_VENDA_ID/resumo
 O resumo retorna:
 
 - produzido
+- sobra aproveitada
+- disponivel
 - vendido
 - sobra
 - faturamento bruto
