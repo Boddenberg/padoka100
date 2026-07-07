@@ -9,7 +9,7 @@ from uuid import UUID
 from fastapi import UploadFile
 
 from app.core.config import get_settings
-from app.core.errors import BadRequestError, MissingConfigurationError, NotFoundError
+from app.core.errors import AppError, BadRequestError, MissingConfigurationError, NotFoundError
 from app.db.openai import get_openai_client
 from app.db.supabase import get_supabase_client
 from app.modules.dias_de_venda import servico as servico_de_dias_de_venda
@@ -90,6 +90,63 @@ PALAVRAS_IGNORADAS_DE_PRODUTO = {
     "recheada",
 }
 
+PALAVRAS_FORTES_DE_PRODUCAO = {
+    "producao",
+    "producoes",
+    "produzi",
+    "produzimos",
+    "produzido",
+    "produzida",
+    "produzidos",
+    "produzidas",
+    "fornada",
+    "fornadas",
+    "assei",
+    "assamos",
+    "assou",
+    "assado",
+    "assada",
+}
+
+PALAVRAS_FRACAS_DE_PRODUCAO = {
+    "fiz",
+    "fizemos",
+    "feito",
+    "feita",
+    "feitos",
+    "feitas",
+}
+
+PALAVRAS_DE_VENDA = {
+    "vendi",
+    "vendemos",
+    "vendeu",
+    "vender",
+    "vendido",
+    "vendida",
+    "vendidos",
+    "vendidas",
+    "saiu",
+    "sairam",
+    "levou",
+    "levaram",
+    "comprou",
+    "compraram",
+    "entreguei",
+    "entregamos",
+    "entregou",
+    "cliente",
+    "clientes",
+}
+
+PALAVRAS_DE_CANCELAMENTO = {
+    "cancelar",
+    "cancela",
+    "cancele",
+    "cancelou",
+    "desfazer",
+}
+
 
 def interpretar_comando(
     requisicao: RequisicaoInterpretarComandoDeIA,
@@ -112,7 +169,11 @@ def interpretar_comando(
     else:
         interpretacao = _interpretar_com_fallback(requisicao.texto, produtos)
 
-    interpretacao = _normalizar_interpretacao(interpretacao, produtos)
+    interpretacao = _normalizar_interpretacao(
+        interpretacao,
+        produtos,
+        texto_original=requisicao.texto,
+    )
     dados_confirmacao = _montar_dados_confirmacao(
         interpretacao=interpretacao,
         dia_de_venda_id=requisicao.dia_de_venda_id,
@@ -248,31 +309,79 @@ async def transcrever_audio_de_venda(
 def confirmar_comando(interacao_ia_id: UUID) -> dict:
     client = get_supabase_client()
     interacao = _buscar_interacao_ia(client, interacao_ia_id)
-    if interacao["situacao"] == "confirmada":
-        raise BadRequestError("Essa interacao de IA ja foi confirmada.")
-    if interacao["situacao"] != "interpretada":
-        raise BadRequestError("Essa interacao de IA nao esta pronta para confirmacao.")
-
     dados_confirmacao = interacao.get("dados_confirmacao") or {}
+    acao = dados_confirmacao.get("acao")
+    if interacao["situacao"] == "confirmada":
+        return _resposta_confirmacao_nao_aplicada(
+            interacao_ia_id,
+            acao,
+            "Essa confirmacao ja foi aplicada.",
+        )
+    if interacao["situacao"] != "interpretada":
+        return _resposta_confirmacao_nao_aplicada(
+            interacao_ia_id,
+            acao,
+            "Essa interacao de IA nao esta pronta para confirmacao.",
+        )
+
     if not dados_confirmacao.get("precisa_confirmacao"):
-        raise BadRequestError("Essa interacao nao tem nenhuma acao pronta para confirmar.")
+        return _resposta_confirmacao_nao_aplicada(
+            interacao_ia_id,
+            acao,
+            "Essa interacao nao tem nenhuma acao pronta para confirmar.",
+        )
     operacao = dados_confirmacao.get("operacao")
     if not operacao:
-        raise BadRequestError("Essa interacao nao tem uma operacao pronta para confirmar.")
+        return _resposta_confirmacao_nao_aplicada(
+            interacao_ia_id,
+            acao,
+            "Essa interacao nao tem uma operacao pronta para confirmar.",
+        )
 
-    resultado = _executar_operacao_confirmada(
-        dados_confirmacao,
-        operacao,
-        interacao_ia_id=interacao_ia_id,
-    )
+    try:
+        resultado = _executar_operacao_confirmada(
+            dados_confirmacao,
+            operacao,
+            interacao_ia_id=interacao_ia_id,
+        )
+    except AppError as exc:
+        mensagem = _mensagem_falha_confirmacao(exc)
+        client.table("interacoes_ia").update(
+            {
+                "situacao": "falhou",
+                "mensagem_erro": mensagem,
+            }
+        ).eq("id", str(interacao_ia_id)).execute()
+        return {
+            "interacao_ia_id": interacao_ia_id,
+            "acao": dados_confirmacao.get("acao", operacao.get("tipo")),
+            "sucesso": False,
+            "mensagem_assistente": mensagem,
+            "resultado": {
+                "aplicado": False,
+                "mensagem": mensagem,
+                "codigo": exc.code,
+                "detalhes": exc.details,
+            },
+        }
+
     client.table("interacoes_ia").update({"situacao": "confirmada"}).eq(
         "id",
         str(interacao_ia_id),
     ).execute()
+    mensagem = _mensagem_sucesso_confirmacao(
+        dados_confirmacao.get("acao", operacao.get("tipo"))
+    )
     return {
         "interacao_ia_id": interacao_ia_id,
         "acao": dados_confirmacao.get("acao", operacao.get("tipo")),
-        "resultado": resultado,
+        "sucesso": True,
+        "mensagem_assistente": mensagem,
+        "resultado": {
+            "aplicado": True,
+            "mensagem": mensagem,
+            **resultado,
+        },
     }
 
 
@@ -281,13 +390,38 @@ def confirmar_venda(interacao_ia_id: UUID) -> dict:
     interacao = _buscar_interacao_ia(client, interacao_ia_id)
     dados_confirmacao = interacao.get("dados_confirmacao") or {}
     if not dados_confirmacao.get("venda"):
-        raise BadRequestError("Essa interacao nao tem uma venda pronta para confirmar.")
+        mensagem = (
+            "Essa interacao nao e uma venda pronta para confirmar. "
+            "Use a confirmacao geral do comando."
+        )
+        return {
+            "interacao_ia_id": interacao_ia_id,
+            "sucesso": False,
+            "mensagem_assistente": mensagem,
+            "venda": None,
+            "resultado": {
+                "aplicado": False,
+                "mensagem": mensagem,
+            },
+        }
 
     confirmacao = confirmar_comando(interacao_ia_id)
     venda = confirmacao["resultado"].get("venda")
     if not venda:
-        raise BadRequestError("Essa interacao nao gerou uma venda.")
-    return {"interacao_ia_id": interacao_ia_id, "venda": venda}
+        return {
+            "interacao_ia_id": interacao_ia_id,
+            "sucesso": False,
+            "mensagem_assistente": confirmacao.get("mensagem_assistente"),
+            "venda": None,
+            "resultado": confirmacao["resultado"],
+        }
+    return {
+        "interacao_ia_id": interacao_ia_id,
+        "sucesso": True,
+        "mensagem_assistente": confirmacao.get("mensagem_assistente"),
+        "venda": venda,
+        "resultado": confirmacao["resultado"],
+    }
 
 
 def _interpretar_com_openai(texto: str, produtos: list[dict]) -> dict:
@@ -356,10 +490,17 @@ def _interpretar_com_openai(texto: str, produtos: list[dict]) -> dict:
             "A API sempre pedira confirmacao antes de gravar qualquer mudanca. "
             "Use apenas produtos do catalogo; nao invente produto. "
             "Se faltar certeza sobre produto, coloque em itens_nao_identificados. "
+            "Nao classifique como venda apenas porque ha quantidade e produto. "
+            "Uma fala pode trazer uma lista de varios produtos; nesses casos retorne "
+            "todos os itens na mesma acao, cada um com sua quantidade. "
+            "Exemplo: 'fiz 15 paes de soja e 15 paes de queijo' significa "
+            "registrar_producao com dois itens. "
             "Classifique venda quando o usuario disser que vendeu, saiu, entregou "
             "ou o cliente levou. "
             "Classifique producao quando o usuario disser producao, produzi, fiz, "
-            "assou, fornada ou quantidade feita. "
+            "minha producao aumentou, assou, fornada ou quantidade feita. "
+            "Se uma mesma fala misturar producao e venda sem separar claramente, "
+            "use desconhecido e peca para enviar uma acao por vez. "
             "Classifique cancelar_venda para desfazer/cancelar uma venda inteira. "
             "Classifique cancelar_item_venda quando o usuario pedir para tirar/cancelar "
             "item parcial de uma venda. "
@@ -424,22 +565,13 @@ def _detectar_acao_com_fallback(texto_normalizado: str, tem_itens: bool) -> str:
         return ACAO_FECHAR_DIA_DE_VENDA
     if "abrir" in texto_normalizado and "dia" in texto_normalizado:
         return ACAO_ABRIR_DIA_DE_VENDA
-    if any(
-        palavra in texto_normalizado
-        for palavra in ["cancelar", "cancela", "cancele", "cancelou", "desfazer"]
-    ):
+    if _texto_indica_cancelamento(texto_normalizado):
         if tem_itens:
             return ACAO_CANCELAR_ITEM_VENDA
         return ACAO_CANCELAR_VENDA
-    if any(
-        palavra in texto_normalizado
-        for palavra in ["producao", "produzi", "produzido", "fiz", "feito", "fornada", "assou"]
-    ):
+    if _texto_indica_producao(texto_normalizado):
         return ACAO_REGISTRAR_PRODUCAO
-    if any(
-        palavra in texto_normalizado
-        for palavra in ["vendi", "vendeu", "venda", "vender", "saiu", "sairam", "levou"]
-    ):
+    if _texto_indica_venda(texto_normalizado):
         return ACAO_REGISTRAR_VENDA
     return ACAO_REGISTRAR_VENDA if tem_itens else ACAO_DESCONHECIDO
 
@@ -470,7 +602,79 @@ def _interpretar_itens_com_fallback(texto_normalizado: str, produtos: list[dict]
     return itens
 
 
-def _normalizar_interpretacao(interpretacao: dict, produtos: list[dict]) -> dict:
+def _agrupar_itens_por_produto(itens: list[dict]) -> list[dict]:
+    itens_por_produto = {}
+    for item in itens:
+        produto_id = str(item["produto_id"])
+        existente = itens_por_produto.get(produto_id)
+        if existente:
+            existente["quantidade"] += item["quantidade"]
+            existente["confianca"] = max(existente["confianca"], item["confianca"])
+            continue
+        itens_por_produto[produto_id] = dict(item)
+    return list(itens_por_produto.values())
+
+
+def _corrigir_acao_pelo_texto(
+    acao: str,
+    texto_original: str | None,
+    *,
+    tem_itens: bool,
+) -> str:
+    if not texto_original:
+        return acao
+
+    texto_normalizado = _normalizar(texto_original)
+    if not texto_normalizado:
+        return acao
+
+    if "fechar" in texto_normalizado and "dia" in texto_normalizado:
+        return ACAO_FECHAR_DIA_DE_VENDA
+    if "abrir" in texto_normalizado and "dia" in texto_normalizado:
+        return ACAO_ABRIR_DIA_DE_VENDA
+    if _texto_indica_cancelamento(texto_normalizado):
+        return ACAO_CANCELAR_ITEM_VENDA if tem_itens else ACAO_CANCELAR_VENDA
+
+    indica_producao = _texto_indica_producao(texto_normalizado)
+    indica_venda = _texto_indica_venda(texto_normalizado)
+    if indica_producao and indica_venda:
+        return ACAO_DESCONHECIDO
+    if indica_producao:
+        return ACAO_REGISTRAR_PRODUCAO
+    if indica_venda:
+        return ACAO_REGISTRAR_VENDA
+    return acao
+
+
+def _texto_indica_cancelamento(texto_normalizado: str) -> bool:
+    tokens = set(texto_normalizado.split())
+    return bool(tokens & PALAVRAS_DE_CANCELAMENTO)
+
+
+def _texto_indica_producao(texto_normalizado: str) -> bool:
+    tokens = set(texto_normalizado.split())
+    if tokens & PALAVRAS_FORTES_DE_PRODUCAO:
+        return True
+    return bool(tokens & PALAVRAS_FRACAS_DE_PRODUCAO) and not _texto_indica_venda(
+        texto_normalizado
+    )
+
+
+def _texto_indica_venda(texto_normalizado: str) -> bool:
+    tokens = set(texto_normalizado.split())
+    if tokens & PALAVRAS_DE_VENDA:
+        return True
+    if {"venda", "vendas"} & tokens:
+        return not bool(tokens & PALAVRAS_FORTES_DE_PRODUCAO)
+    return False
+
+
+def _normalizar_interpretacao(
+    interpretacao: dict,
+    produtos: list[dict],
+    *,
+    texto_original: str | None = None,
+) -> dict:
     produtos_por_id = {str(produto["id"]): produto for produto in produtos}
     itens = []
     itens_nao_identificados = list(interpretacao.get("itens_nao_identificados") or [])
@@ -495,9 +699,12 @@ def _normalizar_interpretacao(interpretacao: dict, produtos: list[dict]) -> dict
             }
         )
 
+    itens = _agrupar_itens_por_produto(itens)
+
     acao = interpretacao.get("acao")
     if acao not in ACOES_SUPORTADAS:
         acao = ACAO_DESCONHECIDO
+    acao = _corrigir_acao_pelo_texto(acao, texto_original, tem_itens=bool(itens))
 
     return {
         "acao": acao,
@@ -972,11 +1179,16 @@ def _executar_operacao_confirmada(
         dados_venda = dados_confirmacao.get("venda")
         if not dados_venda:
             raise BadRequestError("Essa interacao nao tem dados de venda para executar.")
+        _validar_itens_com_preco_no_dia(
+            UUID(str(dados_venda["dia_de_venda_id"])),
+            dados_venda.get("itens") or [],
+        )
         venda = servico_de_vendas.registrar_venda(RequisicaoRegistrarVenda(**dados_venda))
         return {"venda": venda}
 
     if tipo == ACAO_REGISTRAR_PRODUCAO:
         dia_de_venda_id = UUID(str(operacao["dia_de_venda_id"]))
+        _validar_itens_com_preco_no_dia(dia_de_venda_id, operacao.get("itens") or [])
         itens_producao = []
         for item in operacao.get("itens") or []:
             itens_producao.append(
@@ -995,9 +1207,11 @@ def _executar_operacao_confirmada(
         }
 
     if tipo == ACAO_ABRIR_DIA_DE_VENDA:
+        data_venda = date.fromisoformat(operacao["data_venda"])
+        _validar_itens_com_preco_na_data(data_venda, operacao.get("itens") or [])
         dia_de_venda = servico_de_dias_de_venda.criar_dia_de_venda(
             RequisicaoCriarDiaDeVenda(
-                data_venda=date.fromisoformat(operacao["data_venda"]),
+                data_venda=data_venda,
                 nome_local=operacao.get("nome_local"),
                 observacoes=operacao.get("observacoes"),
                 itens_producao=[
@@ -1037,6 +1251,10 @@ def _executar_operacao_confirmada(
                 raise BadRequestError(
                     "Nao e possivel recriar a venda corrigida porque o dia esta fechado."
                 )
+            _validar_itens_com_preco_na_data(
+                date.fromisoformat(dia_de_venda["data_venda"]),
+                itens_restantes,
+            )
         venda_cancelada = servico_de_vendas.cancelar_venda(
             UUID(str(operacao["venda_id"])),
             RequisicaoCancelarVenda(motivo=operacao.get("motivo")),
@@ -1067,6 +1285,26 @@ def _executar_operacao_confirmada(
         }
 
     raise BadRequestError("Tipo de operacao de IA nao suportado.")
+
+
+def _validar_itens_com_preco_no_dia(dia_de_venda_id: UUID, itens: list[dict]) -> None:
+    dia_de_venda = servico_de_dias_de_venda.buscar_linha_dia_de_venda(
+        get_supabase_client(),
+        dia_de_venda_id,
+    )
+    _validar_itens_com_preco_na_data(date.fromisoformat(dia_de_venda["data_venda"]), itens)
+
+
+def _validar_itens_com_preco_na_data(data_venda: date, itens: list[dict]) -> None:
+    for item in itens:
+        try:
+            produto_id = UUID(str(item["produto_id"]))
+        except (KeyError, ValueError) as exc:
+            raise BadRequestError(
+                "Produto invalido na confirmacao.",
+                {"produto_id": item.get("produto_id")},
+            ) from exc
+        servico_de_produtos.buscar_snapshot_do_produto(produto_id, data_venda)
 
 
 def _criar_interacao_ia(
@@ -1210,6 +1448,48 @@ def _dados_sem_confirmacao(acao: str, mensagem: str) -> dict:
         "mensagem_confirmacao": mensagem,
         "operacao": None,
     }
+
+
+def _resposta_confirmacao_nao_aplicada(
+    interacao_ia_id: UUID,
+    acao: str | None,
+    mensagem: str,
+) -> dict:
+    return {
+        "interacao_ia_id": interacao_ia_id,
+        "acao": acao or ACAO_DESCONHECIDO,
+        "sucesso": False,
+        "mensagem_assistente": mensagem,
+        "resultado": {
+            "aplicado": False,
+            "mensagem": mensagem,
+        },
+    }
+
+
+def _mensagem_falha_confirmacao(exc: AppError) -> str:
+    if exc.status_code == 404:
+        return (
+            f"Nao consegui aplicar essa confirmacao: {exc.message} "
+            "Confira os dados e envie o comando de novo."
+        )
+    return f"Nao consegui aplicar essa confirmacao: {exc.message}"
+
+
+def _mensagem_sucesso_confirmacao(acao: str | None) -> str:
+    if acao == ACAO_REGISTRAR_VENDA:
+        return "Pronto, registrei a venda."
+    if acao == ACAO_REGISTRAR_PRODUCAO:
+        return "Pronto, salvei a producao."
+    if acao == ACAO_ABRIR_DIA_DE_VENDA:
+        return "Pronto, abri o dia de venda."
+    if acao == ACAO_FECHAR_DIA_DE_VENDA:
+        return "Pronto, fechei o dia de venda."
+    if acao == ACAO_CANCELAR_VENDA:
+        return "Pronto, cancelei a venda."
+    if acao == ACAO_CANCELAR_ITEM_VENDA:
+        return "Pronto, ajustei a venda."
+    return "Pronto, apliquei a confirmacao."
 
 
 def _mensagem_inicial_da_acao(acao: str, itens: list[dict]) -> str:

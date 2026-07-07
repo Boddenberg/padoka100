@@ -58,9 +58,14 @@ class RespostaTranscreverAudioDeVenda(ApiModel):
 class RespostaConfirmarComandoDeIA(ApiModel):
     interacao_ia_id: UUID
     acao: str
+    sucesso: bool = True
+    mensagem_assistente: str | None = None
     resultado: dict
 
 
 class RespostaConfirmarVenda(ApiModel):
     interacao_ia_id: UUID
-    venda: VendaSaida
+    sucesso: bool = True
+    mensagem_assistente: str | None = None
+    venda: VendaSaida | None = None
+    resultado: dict = Field(default_factory=dict)

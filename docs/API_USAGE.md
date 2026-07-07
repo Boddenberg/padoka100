@@ -88,6 +88,8 @@ curl -X POST http://localhost:8000/api/v1/ia/interpretar-comando \
 
 A resposta traz `mensagem_confirmacao` e `dados_confirmacao`. O front deve mostrar a mensagem para o usuario e so chamar a confirmacao se ele aceitar.
 
+Para comandos com varios produtos na mesma acao, como `fiz 15 paes de soja e 15 paes de queijo`, a resposta vem com todos os itens em uma unica confirmacao. Nao e necessario criar um botao por item para esse fluxo.
+
 Comandos suportados pelo fluxo generico:
 
 - registrar venda
@@ -104,6 +106,8 @@ No cancelamento parcial, a API nao apaga itens: ela preserva historico canceland
 ```bash
 curl -X POST http://localhost:8000/api/v1/ia/interacoes/INTERACAO_IA_ID/confirmar
 ```
+
+Quando a confirmacao conseguir aplicar a operacao, a resposta vem com `sucesso: true` e `resultado.aplicado: true`. Se a operacao nao puder ser aplicada porque algum dado ficou invalido ou sumiu entre a interpretacao e a confirmacao, a API responde sem erro HTTP, com `sucesso: false`, `resultado.aplicado: false` e uma mensagem amigavel em `mensagem_assistente` e `resultado.mensagem`.
 
 As rotas antigas de venda continuam disponiveis:
 
