@@ -1047,18 +1047,23 @@ def _ingredientes_sem_dados_de_receita(ingredientes: list[dict]) -> list[str]:
 
 
 def _ingrediente_precisa_de_dados_de_receita(ingrediente: dict) -> bool:
-    if not ingrediente.get("quantidade_usada") or not ingrediente.get("unidade_usada"):
-        return True
-    unidade_usada = ingrediente.get("unidade_usada")
-    return bool(unidade_usada and not servico_de_custos.unidade_suportada(unidade_usada))
+    return not ingrediente.get("quantidade_usada") or not ingrediente.get("unidade_usada")
 
 
 def _ingredientes_sem_dados_de_compra(ingredientes: list[dict]) -> list[str]:
     nomes = []
     for indice, ingrediente in enumerate(ingredientes, start=1):
-        if _ingrediente_precisa_de_preco_ou_unidade(ingrediente):
+        if _ingrediente_precisa_de_dados_de_compra(ingrediente):
             nomes.append(ingrediente.get("nome") or f"ingrediente {indice}")
     return nomes
+
+
+def _ingrediente_precisa_de_dados_de_compra(ingrediente: dict) -> bool:
+    if ingrediente.get("insumo_id"):
+        return False
+    if _tem_dados_de_compra_completos(ingrediente):
+        return False
+    return _buscar_insumo_existente_para_ingrediente(ingrediente) is None
 
 
 def _fase_permite_perguntas_de_preco(fase: str) -> bool:
