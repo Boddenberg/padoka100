@@ -402,6 +402,9 @@ def _normalizar_unidade(unidade: str) -> str:
 def _resolver_unidade_com_equivalencia_informada(
     unidade_normalizada: str,
 ) -> tuple[str, Decimal] | None:
+    if _unidade_indica_quantidade_alternativa(unidade_normalizada):
+        return None
+
     match = re.search(
         r"(\d+(?:[,.]\d+)?)\s*(kg|quilo|quilos|kilograma|kilogramas)\b",
         unidade_normalizada,
@@ -432,6 +435,13 @@ def _resolver_unidade_com_equivalencia_informada(
         return "unidade", Decimal(match.group(1).replace(",", "."))
 
     return None
+
+
+def _unidade_indica_quantidade_alternativa(unidade_normalizada: str) -> bool:
+    return bool(
+        re.search(r"\b(?:ou|ate)\b\s*\d", unidade_normalizada)
+        or re.search(r"\d+(?:[,.]\d+)?\s*(?:ou|a|ate|-)\s*\d", unidade_normalizada)
+    )
 
 
 def unidade_suportada(unidade: str | None) -> bool:

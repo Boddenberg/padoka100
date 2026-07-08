@@ -773,6 +773,8 @@ def _equivalencia_explicita_na_unidade(valor: str | None) -> dict | None:
     if not valor:
         return None
     unidade_normalizada = _normalizar_chave(valor)
+    if _texto_indica_quantidade_alternativa(unidade_normalizada):
+        return None
     padroes = [
         (r"(\d+(?:[,.]\d+)?)\s*(kg|quilo|quilos|kilograma|kilogramas)\b", "massa", "g", "1000"),
         (r"(\d+(?:[,.]\d+)?)\s*(g|grama|gramas)\b", "massa", "g", "1"),
@@ -1016,6 +1018,12 @@ def _simular_ingrediente(ingrediente: dict) -> tuple[Decimal | None, Decimal | N
         return None, None, f"{nome} sem quantidade usada."
     if not unidade_usada:
         return None, None, f"{nome} sem unidade usada."
+    if _ingrediente_tem_quantidade_ambigua(ingrediente):
+        return (
+            None,
+            None,
+            f"{nome} com quantidade ambigua na receita. Escolha uma quantidade antes do calculo.",
+        )
 
     insumo_id = _uuid_ou_none(ingrediente.get("insumo_id"))
     try:
@@ -1095,6 +1103,22 @@ def _montar_perguntas(rascunho: dict, pendencias: list[str], *, fase: str) -> li
             }
         )
 
+    ingredientes_ambiguos = _ingredientes_com_quantidade_ambigua(rascunho["ingredientes"])
+    if ingredientes_ambiguos:
+        perguntas.append(
+            {
+                "id": "ingredientes.quantidade_ambigua",
+                "campo": None,
+                "pergunta": (
+                    "Escolha a quantidade correta na receita para: "
+                    f"{_formatar_lista_nomes(ingredientes_ambiguos)}. "
+                    "Pode responder tudo junto, por exemplo: 'ovos 2 unidades'."
+                ),
+                "tipo_resposta": "texto",
+                "prioridade": 1,
+            }
+        )
+
     ingredientes_sem_medida = _ingredientes_sem_dados_de_receita(rascunho["ingredientes"])
     if ingredientes_sem_medida:
         perguntas.append(
@@ -1167,6 +1191,30 @@ def _ingredientes_sem_dados_de_receita(ingredientes: list[dict]) -> list[str]:
 
 def _ingrediente_precisa_de_dados_de_receita(ingrediente: dict) -> bool:
     return not ingrediente.get("quantidade_usada") or not ingrediente.get("unidade_usada")
+
+
+def _ingredientes_com_quantidade_ambigua(ingredientes: list[dict]) -> list[str]:
+    nomes = []
+    for indice, ingrediente in enumerate(ingredientes, start=1):
+        if _ingrediente_tem_quantidade_ambigua(ingrediente):
+            nomes.append(ingrediente.get("nome") or f"ingrediente {indice}")
+    return nomes
+
+
+def _ingrediente_tem_quantidade_ambigua(ingrediente: dict) -> bool:
+    return _texto_indica_quantidade_alternativa(
+        ingrediente.get("quantidade_usada"),
+    ) or _texto_indica_quantidade_alternativa(ingrediente.get("unidade_usada"))
+
+
+def _texto_indica_quantidade_alternativa(valor) -> bool:
+    if valor is None:
+        return False
+    texto = _normalizar_chave(str(valor))
+    return bool(
+        re.search(r"\b(?:ou|ate)\b\s*\d", texto)
+        or re.search(r"\d+(?:[,.]\d+)?\s*(?:ou|a|ate|-)\s*\d", texto)
+    )
 
 
 def _ingredientes_sem_dados_de_compra(ingredientes: list[dict]) -> list[str]:
@@ -2057,6 +2105,7 @@ def _resolver_fase_do_rascunho(rascunho: dict, *, produto_id: UUID | str | None)
         not rascunho["ingredientes"]
         or not _decimal_ou_none(rascunho["receita"].get("rendimento"))
         or any(_ingrediente_precisa_de_dados_de_receita(item) for item in rascunho["ingredientes"])
+        or any(_ingrediente_tem_quantidade_ambigua(item) for item in rascunho["ingredientes"])
     ):
         return "coletando_ingredientes"
     if any(_ingrediente_precisa_de_preco_ou_unidade(item) for item in rascunho["ingredientes"]):
