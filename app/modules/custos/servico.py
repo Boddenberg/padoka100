@@ -1,3 +1,5 @@
+import re
+import unicodedata
 from decimal import ROUND_HALF_UP, Decimal
 from uuid import UUID
 
@@ -14,12 +16,77 @@ from app.shared.db import first_or_none, to_db_payload
 
 UNIDADES_BASE = {
     "kg": ("massa", Decimal("1000")),
+    "quilo": ("massa", Decimal("1000")),
+    "quilos": ("massa", Decimal("1000")),
+    "kilograma": ("massa", Decimal("1000")),
+    "kilogramas": ("massa", Decimal("1000")),
     "g": ("massa", Decimal("1")),
+    "grama": ("massa", Decimal("1")),
+    "gramas": ("massa", Decimal("1")),
     "l": ("volume", Decimal("1000")),
+    "lt": ("volume", Decimal("1000")),
+    "litro": ("volume", Decimal("1000")),
+    "litros": ("volume", Decimal("1000")),
     "ml": ("volume", Decimal("1")),
+    "mililitro": ("volume", Decimal("1")),
+    "mililitros": ("volume", Decimal("1")),
+    "copo": ("volume", Decimal("200")),
+    "copos": ("volume", Decimal("200")),
+    "copo americano": ("volume", Decimal("200")),
+    "copos americanos": ("volume", Decimal("200")),
+    "xicara": ("volume", Decimal("240")),
+    "xicaras": ("volume", Decimal("240")),
+    "colher sopa": ("volume", Decimal("15")),
+    "colheres sopa": ("volume", Decimal("15")),
+    "colher de sopa": ("volume", Decimal("15")),
+    "colheres de sopa": ("volume", Decimal("15")),
+    "colher cha": ("volume", Decimal("5")),
+    "colheres cha": ("volume", Decimal("5")),
+    "colher de cha": ("volume", Decimal("5")),
+    "colheres de cha": ("volume", Decimal("5")),
+    "prato cheio": ("massa", Decimal("350")),
+    "pratos cheios": ("massa", Decimal("350")),
     "un": ("unidade", Decimal("1")),
+    "und": ("unidade", Decimal("1")),
     "unidade": ("unidade", Decimal("1")),
     "unidades": ("unidade", Decimal("1")),
+    "ovo": ("unidade", Decimal("1")),
+    "ovos": ("unidade", Decimal("1")),
+    "duzia": ("unidade", Decimal("12")),
+    "duzias": ("unidade", Decimal("12")),
+    "cartela": ("unidade", Decimal("30")),
+    "cartelas": ("unidade", Decimal("30")),
+    "cartela de ovos": ("unidade", Decimal("30")),
+    "cartelas de ovos": ("unidade", Decimal("30")),
+    "bandeja de ovos": ("unidade", Decimal("30")),
+    "bandejas de ovos": ("unidade", Decimal("30")),
+}
+
+DESCRICOES_UNIDADES_APROXIMADAS = {
+    "copo": "copo = 200 ml",
+    "copos": "copo = 200 ml",
+    "copo americano": "copo americano = 200 ml",
+    "copos americanos": "copo americano = 200 ml",
+    "xicara": "xicara = 240 ml",
+    "xicaras": "xicara = 240 ml",
+    "colher sopa": "colher de sopa = 15 ml",
+    "colheres sopa": "colher de sopa = 15 ml",
+    "colher de sopa": "colher de sopa = 15 ml",
+    "colheres de sopa": "colher de sopa = 15 ml",
+    "colher cha": "colher de cha = 5 ml",
+    "colheres cha": "colher de cha = 5 ml",
+    "colher de cha": "colher de cha = 5 ml",
+    "colheres de cha": "colher de cha = 5 ml",
+    "prato cheio": "prato cheio = 350 g",
+    "pratos cheios": "prato cheio = 350 g",
+    "duzia": "duzia = 12 unidades",
+    "duzias": "duzia = 12 unidades",
+    "cartela": "cartela = 30 unidades",
+    "cartelas": "cartela = 30 unidades",
+    "cartela de ovos": "cartela de ovos = 30 unidades",
+    "cartelas de ovos": "cartela de ovos = 30 unidades",
+    "bandeja de ovos": "bandeja de ovos = 30 unidades",
+    "bandejas de ovos": "bandeja de ovos = 30 unidades",
 }
 
 STATUS_ORDEM = {
@@ -318,13 +385,83 @@ def _calcular_custo_ingrediente(
 
 def _resolver_unidade(unidade: str) -> tuple[str, Decimal]:
     unidade_normalizada = _normalizar_unidade(unidade)
+    unidade_com_equivalencia = _resolver_unidade_com_equivalencia_informada(unidade_normalizada)
+    if unidade_com_equivalencia:
+        return unidade_com_equivalencia
     if unidade_normalizada not in UNIDADES_BASE:
         raise BadRequestError("Unidade de medida ainda nao suportada.", {"unidade": unidade})
     return UNIDADES_BASE[unidade_normalizada]
 
 
 def _normalizar_unidade(unidade: str) -> str:
-    return unidade.strip().lower()
+    texto = unicodedata.normalize("NFKD", str(unidade).strip().lower())
+    texto = texto.encode("ascii", "ignore").decode("ascii")
+    return re.sub(r"[^a-z0-9]+", " ", texto).strip()
+
+
+def _resolver_unidade_com_equivalencia_informada(
+    unidade_normalizada: str,
+) -> tuple[str, Decimal] | None:
+    match = re.search(
+        r"(\d+(?:[,.]\d+)?)\s*(kg|quilo|quilos|kilograma|kilogramas)\b",
+        unidade_normalizada,
+    )
+    if match:
+        return "massa", Decimal(match.group(1).replace(",", ".")) * Decimal("1000")
+
+    match = re.search(r"(\d+(?:[,.]\d+)?)\s*(g|grama|gramas)\b", unidade_normalizada)
+    if match:
+        return "massa", Decimal(match.group(1).replace(",", "."))
+
+    match = re.search(
+        r"(\d+(?:[,.]\d+)?)\s*(ml|mililitro|mililitros)\b",
+        unidade_normalizada,
+    )
+    if match:
+        return "volume", Decimal(match.group(1).replace(",", "."))
+
+    match = re.search(r"(\d+(?:[,.]\d+)?)\s*(l|lt|litro|litros)\b", unidade_normalizada)
+    if match:
+        return "volume", Decimal(match.group(1).replace(",", ".")) * Decimal("1000")
+
+    match = re.search(
+        r"(\d+(?:[,.]\d+)?)\s*(un|und|unidade|unidades|ovo|ovos)\b",
+        unidade_normalizada,
+    )
+    if match:
+        return "unidade", Decimal(match.group(1).replace(",", "."))
+
+    return None
+
+
+def unidade_suportada(unidade: str | None) -> bool:
+    if not unidade:
+        return False
+    try:
+        _resolver_unidade(unidade)
+    except BadRequestError:
+        return False
+    return True
+
+
+def descrever_unidade_aproximada(unidade: str) -> str | None:
+    unidade_normalizada = _normalizar_unidade(unidade)
+    descricao = _descrever_unidade_com_equivalencia_informada(unidade_normalizada)
+    if descricao:
+        return descricao
+    return DESCRICOES_UNIDADES_APROXIMADAS.get(unidade_normalizada)
+
+
+def _descrever_unidade_com_equivalencia_informada(unidade_normalizada: str) -> str | None:
+    unidade_resolvida = _resolver_unidade_com_equivalencia_informada(unidade_normalizada)
+    if not unidade_resolvida:
+        return None
+    tipo, fator = unidade_resolvida
+    if tipo == "massa":
+        return f"{unidade_normalizada} = {fator} g"
+    if tipo == "volume":
+        return f"{unidade_normalizada} = {fator} ml"
+    return f"{unidade_normalizada} = {fator} unidades"
 
 
 def _consolidar_status(statuses: list[str]) -> str:

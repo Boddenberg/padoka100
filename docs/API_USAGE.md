@@ -555,6 +555,7 @@ Enviar texto:
 curl -X POST http://localhost:8000/api/v1/custos/assistente/sessoes/SESSAO_ID/entradas/texto \
   -H "Content-Type: application/json" \
   -d '{
+    "finalidade": "completo",
     "texto": "Usei 800g de farinha. O pacote de 5kg custou 22 reais. Rendeu 12 unidades. Embalagem 35 centavos por unidade."
   }'
 ```
@@ -564,8 +565,13 @@ Enviar arquivo de audio ou imagem:
 ```bash
 curl -X POST http://localhost:8000/api/v1/custos/assistente/sessoes/SESSAO_ID/entradas/arquivo \
   -F "tipo=imagem" \
+  -F "finalidade=receita" \
   -F "file=@nota-ou-print.jpg"
 ```
+
+Use `finalidade=receita` para foto/print de receita e `finalidade=compras`
+para nota/cupom/precos de mercado. Assim o backend nao copia quantidade usada
+na receita para quantidade comprada.
 
 Corrigir rascunho:
 

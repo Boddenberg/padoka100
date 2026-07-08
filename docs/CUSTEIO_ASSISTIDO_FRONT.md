@@ -50,6 +50,7 @@ Content-Type: application/json
 
 ```json
 {
+  "finalidade": "completo",
   "texto": "Usei 800g de farinha. O pacote de 5kg custou 22 reais. Rendeu 12 unidades. Embalagem 35 centavos por unidade.",
   "contexto": "Receita base",
   "permitir_fallback": true
@@ -67,6 +68,7 @@ Content-Type: application/json
 
 ```json
 {
+  "finalidade": "receita",
   "dados": {
     "receita": {
       "nome": "Receita base",
@@ -77,9 +79,6 @@ Content-Type: application/json
     "ingredientes": [
       {
         "nome": "Farinha de trigo",
-        "quantidade_comprada": 5,
-        "unidade_compra": "kg",
-        "preco_total": 22,
         "quantidade_usada": 800,
         "unidade_usada": "g",
         "status": "CONFIRMADO"
@@ -91,6 +90,26 @@ Content-Type: application/json
         "nome": "Saquinho",
         "valor": 0.35,
         "aplicacao": "por_unidade",
+        "status": "CONFIRMADO"
+      }
+    ]
+  }
+}
+```
+
+Para formulario de compras/precos, use `finalidade: "compras"` e mande somente
+os dados de compra do insumo:
+
+```json
+{
+  "finalidade": "compras",
+  "dados": {
+    "ingredientes": [
+      {
+        "nome": "Farinha de trigo",
+        "quantidade_comprada": 5,
+        "unidade_compra": "kg",
+        "preco_total": 22,
         "status": "CONFIRMADO"
       }
     ]
@@ -110,10 +129,24 @@ Campos:
 - `file`: arquivo.
 - `tipo`: `audio` ou `imagem`.
 - `contexto`: opcional.
+- `finalidade`: `auto`, `receita`, `compras` ou `completo`.
 - `permitir_fallback`: opcional, usado para audio apos transcricao.
 
 Audio exige `OPENAI_API_KEY` e `OPENAI_TRANSCRIPTION_MODEL`.
 Imagem exige `OPENAI_API_KEY` e `OPENAI_TEXT_MODEL`.
+
+Jornada recomendada:
+
+- foto/print de receita: `finalidade=receita`;
+- foto/print de nota fiscal, cupom ou mercado: `finalidade=compras`;
+- entrada misturada de receita + precos: `finalidade=completo`;
+- `auto` existe por compatibilidade, mas o front deve preferir finalidade
+  explicita para evitar mistura de etapa.
+
+Quando `finalidade=receita`, o backend nao preenche `quantidade_comprada`,
+`unidade_compra` nem `preco_total`, mesmo que a receita diga `250 ml de leite`.
+Quando `finalidade=compras`, o backend nao sobrescreve rendimento nem
+quantidade usada da receita; ele apenas atualiza dados de compra/preco.
 
 ## Buscar estado da sessao
 
@@ -129,6 +162,7 @@ Campos importantes para o front:
 - `avisos`: itens opcionais que merecem atencao.
 - `custo_simulado`: custo total, custo por unidade, margem e detalhes.
 - `pode_confirmar`: habilita/desabilita confirmacao.
+- `fase`: etapa real da sessao para rotular a tela.
 - `proxima_acao`: orienta a tela atual.
 - `entradas`: historico de texto/audio/imagem/formulario enviados.
 
@@ -207,3 +241,47 @@ A tela deve ser orientada por `proxima_acao`:
 O front deve tratar `rascunho` como documento editavel. Ele pode montar cards de
 ingredientes, rendimento, embalagem, custos indiretos e resumo a partir desse
 campo, mas deve sempre considerar `custo_simulado` como a fonte do calculo.
+
+## Unidades e conversao
+
+O backend converte unidades compativeis automaticamente. Exemplos:
+
+- massa: `kg`, `g`, `quilo`, `grama`;
+- volume: `l`, `ml`, `litro`, `copo`, `copo americano`, `xicara`,
+  `colher de sopa`, `colher de cha`;
+- unidade: `un`, `und`, `unidade`, `ovo`, `ovos`, `duzia`, `cartela`.
+
+Medidas caseiras usam padrao aproximado:
+
+- `copo` ou `copo americano`: 200 ml;
+- `xicara`: 240 ml;
+- `colher de sopa`: 15 ml;
+- `colher de cha`: 5 ml.
+- `prato cheio`: 350 g;
+- `cartela de ovos`: 30 unidades.
+
+Se o usuario informar o tamanho no texto ou formulario, por exemplo
+`copo de 250ml`, `prato cheio (350 g)` ou `cartela de 12 ovos`, o backend usa
+essa equivalencia em vez do padrao. Quando a simulacao usar medida caseira
+aproximada, o campo `avisos` da sessao trara um alerta para o front pedir
+confirmacao visual.
+
+## Merge e insumos compartilhados
+
+Ao receber novas entradas, o backend junta ingredientes por nome normalizado.
+Exemplo: `queijo mussarela ralado`, `mussarela` e `mucarela` devem atualizar o
+mesmo item do rascunho em vez de criar linhas duplicadas.
+
+Na confirmacao, se um ingrediente tiver o mesmo nome de um insumo ja cadastrado,
+o backend reutiliza esse insumo. Se a nova entrada trouxer preco, quantidade de
+compra e unidade de compra, o backend atualiza o insumo existente com o preco
+mais recente e usa o mesmo `insumo_id` na receita.
+
+Fases possiveis:
+
+- `vinculando_produto`;
+- `coletando_ingredientes`;
+- `coletando_precos`;
+- `revisando`;
+- `confirmada`;
+- `descartada`.

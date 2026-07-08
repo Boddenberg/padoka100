@@ -10,6 +10,7 @@ STATUS_SESSAO_CUSTEIO_PATTERN = (
 )
 TIPO_ENTRADA_CUSTEIO_PATTERN = "^(texto|audio|imagem|formulario|correcao)$"
 MODO_ATUALIZACAO_RASCUNHO_PATTERN = "^(mesclar|substituir)$"
+FINALIDADE_ENTRADA_CUSTEIO_PATTERN = "^(auto|receita|compras|completo)$"
 
 
 class RequisicaoCriarSessaoCusteio(ApiModel):
@@ -21,12 +22,14 @@ class RequisicaoCriarSessaoCusteio(ApiModel):
 class RequisicaoEntradaTextoCusteio(ApiModel):
     texto: str = Field(min_length=1)
     contexto: str | None = None
+    finalidade: str = Field(default="auto", pattern=FINALIDADE_ENTRADA_CUSTEIO_PATTERN)
     permitir_fallback: bool = True
 
 
 class RequisicaoEntradaFormularioCusteio(ApiModel):
     dados: dict = Field(default_factory=dict)
     contexto: str | None = None
+    finalidade: str = Field(default="auto", pattern=FINALIDADE_ENTRADA_CUSTEIO_PATTERN)
 
 
 class RequisicaoAtualizarRascunhoCusteio(ApiModel):
@@ -71,6 +74,7 @@ class SessaoCusteioSaida(ApiModel):
     confianca_geral: float | None = None
     custo_simulado: dict = Field(default_factory=dict)
     pode_confirmar: bool = False
+    fase: str
     proxima_acao: str
     resultado_confirmacao: dict | None = None
     mensagem_erro: str | None = None

@@ -112,6 +112,7 @@ async def adicionar_arquivo_ao_custeio(
     file: Annotated[UploadFile, File()],
     tipo: Annotated[str, Form(pattern="^(audio|imagem)$")],
     contexto: Annotated[str | None, Form()] = None,
+    finalidade: Annotated[str, Form(pattern="^(auto|receita|compras|completo)$")] = "auto",
     permitir_fallback: Annotated[bool, Form()] = True,
 ) -> dict:
     return await assistente_servico.adicionar_entrada_arquivo(
@@ -119,6 +120,7 @@ async def adicionar_arquivo_ao_custeio(
         tipo=tipo,
         file=file,
         contexto=contexto,
+        finalidade=finalidade,
         permitir_fallback=permitir_fallback,
     )
 

@@ -22,6 +22,7 @@ from app.modules.custos.assistente_esquemas import (
     RequisicaoEntradaTextoCusteio,
 )
 from app.modules.custos.esquemas import (
+    RequisicaoAtualizarInsumo,
     RequisicaoCriarCustoAdicional,
     RequisicaoCriarInsumo,
     RequisicaoCriarReceita,
@@ -43,6 +44,20 @@ STATUS_ORDEM = {
 TIPOS_CUSTO_ADICIONAL = {"embalagem", "transporte", "indireto", "outro"}
 APLICACOES_CUSTO = {"por_receita", "por_unidade"}
 SESSOES_IMUTAVEIS = {"confirmado", "descartado"}
+FINALIDADES_ENTRADA = {"auto", "receita", "compras", "completo"}
+DESCRITORES_INGREDIENTE = {
+    "ralado",
+    "ralada",
+    "picado",
+    "picada",
+    "fatiado",
+    "fatiada",
+    "moido",
+    "moida",
+    "triturado",
+    "triturada",
+}
+STOPWORDS_INGREDIENTE = {"de", "da", "do", "das", "dos", "para", "com", "sem", "tipo"}
 
 
 def criar_sessao(requisicao: RequisicaoCriarSessaoCusteio) -> dict:
@@ -92,10 +107,16 @@ def adicionar_entrada_texto(
 ) -> dict:
     sessao = _buscar_sessao_bruta(sessao_id)
     _garantir_sessao_mutavel(sessao)
+    finalidade = _resolver_finalidade_entrada(
+        sessao,
+        finalidade=requisicao.finalidade,
+        contexto=requisicao.contexto or requisicao.texto,
+    )
     extraidos = _extrair_rascunho_de_texto(
         requisicao.texto,
         sessao=sessao,
         contexto=requisicao.contexto,
+        finalidade=finalidade,
         permitir_fallback=requisicao.permitir_fallback,
     )
     return _aplicar_entrada(
@@ -114,13 +135,23 @@ def adicionar_entrada_formulario(
 ) -> dict:
     sessao = _buscar_sessao_bruta(sessao_id)
     _garantir_sessao_mutavel(sessao)
+    finalidade = _resolver_finalidade_entrada(
+        sessao,
+        finalidade=requisicao.finalidade,
+        contexto=requisicao.contexto,
+    )
     rascunho = _normalizar_rascunho(requisicao.dados, produto_id=sessao.get("produto_id"))
+    rascunho = _aplicar_finalidade_ao_rascunho_extraido(
+        rascunho,
+        finalidade=finalidade,
+    )
     extraidos = {
         "rascunho": rascunho,
         "perguntas_sugeridas": [],
         "avisos": [],
         "confianca": 1,
         "modelo_usado": "formulario",
+        "finalidade": finalidade,
     }
     texto_original = requisicao.contexto or "Entrada manual por formulario."
     return _aplicar_entrada(
@@ -139,6 +170,7 @@ async def adicionar_entrada_arquivo(
     tipo: str,
     file: UploadFile,
     contexto: str | None = None,
+    finalidade: str = "auto",
     permitir_fallback: bool = True,
 ) -> dict:
     tipo = tipo.strip().lower()
@@ -147,6 +179,11 @@ async def adicionar_entrada_arquivo(
 
     sessao = _buscar_sessao_bruta(sessao_id)
     _garantir_sessao_mutavel(sessao)
+    finalidade_resolvida = _resolver_finalidade_entrada(
+        sessao,
+        finalidade=finalidade,
+        contexto=contexto or file.filename,
+    )
     conteudo = await file.read()
     if not conteudo:
         raise BadRequestError("Arquivo vazio.")
@@ -169,6 +206,7 @@ async def adicionar_entrada_arquivo(
             transcricao,
             sessao=sessao,
             contexto=contexto,
+            finalidade=finalidade_resolvida,
             permitir_fallback=permitir_fallback,
         )
         extraidos["transcricao"] = transcricao
@@ -180,6 +218,7 @@ async def adicionar_entrada_arquivo(
             tipo_conteudo=file.content_type,
             sessao=sessao,
             contexto=contexto,
+            finalidade=finalidade_resolvida,
         )
         texto_original = contexto
 
@@ -496,6 +535,7 @@ def _montar_sessao_saida(sessao: dict, entradas: list[dict] | None = None) -> di
             **sessao,
             "produto": produto,
             "pode_confirmar": pode_confirmar,
+            "fase": _resolver_fase(sessao, produto_id=produto_id),
             "proxima_acao": _resolver_proxima_acao(sessao, produto_id=produto_id),
             "entradas": entradas_resolvidas,
         }
@@ -658,10 +698,9 @@ def _mesclar_rascunhos(atual: dict, novo: dict) -> dict:
         "produto_id": novo.get("produto_id") or atual.get("produto_id"),
         "receita": _mesclar_dict_sem_nones(atual["receita"], novo["receita"]),
         "preparo": _mesclar_dict_sem_nones(atual["preparo"], novo["preparo"]),
-        "ingredientes": _mesclar_listas_por_chave(
+        "ingredientes": _mesclar_ingredientes(
             atual["ingredientes"],
             novo["ingredientes"],
-            _chave_ingrediente,
         ),
         "custos_adicionais": _mesclar_listas_por_chave(
             atual["custos_adicionais"],
@@ -700,6 +739,44 @@ def _mesclar_listas_por_chave(atual: list[dict], nova: list[dict], chave_fn) -> 
     return resultado
 
 
+def _mesclar_ingredientes(atual: list[dict], nova: list[dict]) -> list[dict]:
+    resultado = [dict(item) for item in atual]
+    for item_novo in nova:
+        indice = _encontrar_ingrediente_compativel(resultado, item_novo)
+        if indice is None:
+            resultado.append(item_novo)
+            continue
+        resultado[indice] = _mesclar_ingrediente(resultado[indice], item_novo)
+    return resultado
+
+
+def _encontrar_ingrediente_compativel(
+    ingredientes: list[dict],
+    item_novo: dict,
+) -> int | None:
+    novo_insumo_id = item_novo.get("insumo_id")
+    for indice, item_atual in enumerate(ingredientes):
+        if novo_insumo_id and item_atual.get("insumo_id") == novo_insumo_id:
+            return indice
+
+    for indice, item_atual in enumerate(ingredientes):
+        if _nomes_ingredientes_compativeis(item_atual.get("nome"), item_novo.get("nome")):
+            return indice
+    return None
+
+
+def _mesclar_ingrediente(atual: dict, novo: dict) -> dict:
+    resultado = _mesclar_dict_sem_nones(atual, novo)
+    resultado["nome"] = _escolher_nome_ingrediente(atual.get("nome"), novo.get("nome"))
+
+    novo_tem_dados_de_compra = _tem_algum_dado_de_compra(novo)
+    if novo_tem_dados_de_compra:
+        for chave in ("quantidade_usada", "unidade_usada"):
+            if atual.get(chave) is not None and novo.get(chave) is not None:
+                resultado[chave] = atual[chave]
+    return resultado
+
+
 def _simular_custo(rascunho: dict, *, produto_id: UUID | str | None) -> dict:
     pendencias = []
     avisos = []
@@ -722,6 +799,13 @@ def _simular_custo(rascunho: dict, *, produto_id: UUID | str | None) -> dict:
         status = _status_de_custo(ingrediente.get("status"), padrao="PENDENTE")
         statuses.append(status)
         custo_total, custo_unitario, pendencia = _simular_ingrediente(ingrediente)
+        for campo_unidade in ("unidade_usada", "unidade_compra"):
+            descricao = _descrever_conversao_aproximada(ingrediente.get(campo_unidade))
+            if descricao:
+                avisos.append(
+                    f"Ingrediente {ingrediente.get('nome') or indice}: medida caseira "
+                    f"convertida como {descricao}. Confirme se esse e o tamanho usado."
+                )
         if pendencia:
             pendencias.append(f"Ingrediente {indice}: {pendencia}")
         if custo_total is not None:
@@ -833,6 +917,17 @@ def _simular_ingrediente(ingrediente: dict) -> tuple[Decimal | None, Decimal | N
         quantidade_comprada = _decimal_ou_none(ingrediente.get("quantidade_comprada"))
         unidade_compra = ingrediente.get("unidade_compra")
         preco_total = _decimal_ou_none(ingrediente.get("preco_total"))
+        insumo_existente = _buscar_insumo_existente_para_ingrediente(ingrediente)
+        if insumo_existente and not _tem_dados_de_compra_completos(ingrediente):
+            custo_unitario = Decimal(str(insumo_existente["custo_por_unidade"]))
+            custo_total = servico_de_custos._calcular_custo_ingrediente(
+                custo_unitario,
+                quantidade_usada,
+                unidade_usada,
+                insumo_existente["unidade_compra"],
+            )
+            return custo_total, custo_unitario, None
+
         if not quantidade_comprada or not unidade_compra or preco_total is None:
             return None, None, f"{nome} sem preco/quantidade de compra para calcular custo."
 
@@ -940,19 +1035,36 @@ def _extrair_rascunho_de_texto(
     *,
     sessao: dict,
     contexto: str | None,
+    finalidade: str,
     permitir_fallback: bool,
 ) -> dict:
     settings = get_settings()
     if settings.openai_text_configured:
         try:
-            return _extrair_com_openai_texto(texto, sessao=sessao, contexto=contexto)
+            return _extrair_com_openai_texto(
+                texto,
+                sessao=sessao,
+                contexto=contexto,
+                finalidade=finalidade,
+            )
         except Exception:
             if not permitir_fallback:
                 raise
-    return _extrair_com_fallback_texto(texto, sessao=sessao, contexto=contexto)
+    return _extrair_com_fallback_texto(
+        texto,
+        sessao=sessao,
+        contexto=contexto,
+        finalidade=finalidade,
+    )
 
 
-def _extrair_com_openai_texto(texto: str, *, sessao: dict, contexto: str | None) -> dict:
+def _extrair_com_openai_texto(
+    texto: str,
+    *,
+    sessao: dict,
+    contexto: str | None,
+    finalidade: str,
+) -> dict:
     settings = get_settings()
     resposta = get_openai_client().responses.create(
         model=settings.openai_text_model_resolved,
@@ -962,6 +1074,7 @@ def _extrair_com_openai_texto(texto: str, *, sessao: dict, contexto: str | None)
                 "tipo_entrada": "texto",
                 "texto": texto,
                 "contexto": contexto,
+                "finalidade": finalidade,
                 "produto_id_da_sessao": sessao.get("produto_id"),
                 "rascunho_atual": sessao.get("rascunho") or {},
                 "catalogo_produtos": _catalogo_de_produtos_para_ia(),
@@ -972,10 +1085,15 @@ def _extrair_com_openai_texto(texto: str, *, sessao: dict, contexto: str | None)
     )
     dados = json.loads(resposta.output_text)
     dados["modelo_usado"] = settings.openai_text_model_resolved
+    dados["finalidade"] = finalidade
     dados["rascunho"] = _normalizar_rascunho(
         dados.get("rascunho") or dados,
         produto_id=sessao.get("produto_id"),
         contexto=contexto,
+    )
+    dados["rascunho"] = _aplicar_finalidade_ao_rascunho_extraido(
+        dados["rascunho"],
+        finalidade=finalidade,
     )
     return dados
 
@@ -986,6 +1104,7 @@ def _extrair_rascunho_de_imagem(
     tipo_conteudo: str | None,
     sessao: dict,
     contexto: str | None,
+    finalidade: str,
 ) -> dict:
     settings = get_settings()
     if not settings.openai_text_configured:
@@ -1011,6 +1130,7 @@ def _extrair_rascunho_de_imagem(
                             {
                                 "tipo_entrada": "imagem",
                                 "contexto": contexto,
+                                "finalidade": finalidade,
                                 "produto_id_da_sessao": sessao.get("produto_id"),
                                 "rascunho_atual": sessao.get("rascunho") or {},
                                 "catalogo_produtos": _catalogo_de_produtos_para_ia(),
@@ -1033,10 +1153,15 @@ def _extrair_rascunho_de_imagem(
     )
     dados = json.loads(resposta.output_text)
     dados["modelo_usado"] = settings.openai_text_model_resolved
+    dados["finalidade"] = finalidade
     dados["rascunho"] = _normalizar_rascunho(
         dados.get("rascunho") or dados,
         produto_id=sessao.get("produto_id"),
         contexto=contexto,
+    )
+    dados["rascunho"] = _aplicar_finalidade_ao_rascunho_extraido(
+        dados["rascunho"],
+        finalidade=finalidade,
     )
     return dados
 
@@ -1062,7 +1187,13 @@ def _transcrever_audio_de_custeio(*, conteudo: bytes, nome_arquivo: str | None) 
     return transcricao or "", settings.openai_transcription_model
 
 
-def _extrair_com_fallback_texto(texto: str, *, sessao: dict, contexto: str | None) -> dict:
+def _extrair_com_fallback_texto(
+    texto: str,
+    *,
+    sessao: dict,
+    contexto: str | None,
+    finalidade: str,
+) -> dict:
     rascunho = _normalizar_rascunho({}, produto_id=sessao.get("produto_id"), contexto=contexto)
     produto_id = _identificar_produto_no_texto(texto)
     if produto_id and not rascunho.get("produto_id"):
@@ -1083,12 +1214,14 @@ def _extrair_com_fallback_texto(texto: str, *, sessao: dict, contexto: str | Non
             "Envie os ingredientes em linhas ou configure OpenAI para extracao completa."
         )
 
+    rascunho = _aplicar_finalidade_ao_rascunho_extraido(rascunho, finalidade=finalidade)
     return {
         "rascunho": rascunho,
         "perguntas_sugeridas": rascunho["perguntas_sugeridas"],
         "avisos": rascunho["avisos"],
         "confianca": 0.35 if ingredientes else 0.15,
         "modelo_usado": "fallback-custeio",
+        "finalidade": finalidade,
     }
 
 
@@ -1100,7 +1233,22 @@ def _instrucoes_extracao_custeio() -> str:
         "ingrediente. Quando algo nao estiver claro, deixe null, marque status PRECISA_REVISAR "
         "ou PENDENTE e gere perguntas_sugeridas. Use somente produto_id presente na sessao ou "
         "um produto existente no catalogo enviado. Diferencie quantidade comprada da quantidade "
-        "usada na receita. Para embalagem normalmente use aplicacao por_unidade; para gas, "
+        "usada na receita. O backend converte medidas como ml, l, g, kg, copo, xicara, "
+        "colher de sopa, colher de cha, prato cheio com equivalencia em gramas, ovo e "
+        "cartela de ovos. Se a entrada trouxer medida caseira, mantenha a unidade falada "
+        "pelo usuario para que a tela mostre revisao; se houver equivalencia explicita, "
+        "preserve a equivalencia na unidade, como 'prato cheio (350 g)' ou "
+        "'cartela de 30 ovos'. Respeite a finalidade recebida no input: com finalidade "
+        "'receita', preencha apenas receita, preparo, quantidade_usada e unidade_usada; "
+        "em imagem de receita, medidas como '250 ml de leite' ou '1/2 copo de oleo' "
+        "sao sempre quantidade_usada/unidade_usada, nao quantidade_comprada/unidade_compra; "
+        "deixe quantidade_comprada, unidade_compra e preco_total como null, mesmo que a "
+        "receita tenha medidas. Com finalidade 'compras', preencha quantidade_comprada, "
+        "unidade_compra e preco_total; deixe quantidade_usada, unidade_usada, preparo e "
+        "rendimento como null, salvo se o usuario trouxer isso explicitamente junto. "
+        "Com finalidade 'completo', aceite receita e compras na mesma entrada, mas nunca "
+        "copie quantidade usada para quantidade comprada por deducao. Para embalagem normalmente "
+        "use aplicacao por_unidade; para gas, "
         "energia e transporte use por_receita quando o usuario informar valor do lote/receita. "
         "Status deve ser CONFIRMADO quando o usuario informou explicitamente, ESTIMADO quando "
         "for uma aproximacao declarada, PENDENTE quando faltar dado e PRECISA_REVISAR quando "
@@ -1265,6 +1413,7 @@ def _montar_ingredientes_para_confirmacao(
                 "Ingrediente incompleto para confirmacao.",
                 {"ingrediente": item},
             )
+        _validar_unidades_do_ingrediente_para_confirmacao(item)
         insumo_id = _resolver_ou_criar_insumo(item)
         ingredientes.append(
             RequisicaoIngredienteReceita(
@@ -1286,6 +1435,24 @@ def _resolver_ou_criar_insumo(item: dict) -> UUID | None:
         return insumo_id
     if item.get("salvar_como_insumo") is False:
         return None
+    insumo_existente = _buscar_insumo_existente_para_ingrediente(item)
+    if insumo_existente:
+        if _tem_dados_de_compra_completos(item):
+            insumo_atualizado = servico_de_custos.atualizar_insumo(
+                UUID(insumo_existente["id"]),
+                RequisicaoAtualizarInsumo(
+                    nome=item.get("nome") or insumo_existente["nome"],
+                    categoria=item.get("categoria") or insumo_existente.get("categoria"),
+                    quantidade_comprada=_decimal_ou_none(item.get("quantidade_comprada")),
+                    unidade_compra=item.get("unidade_compra"),
+                    preco_total=_decimal_ou_none(item.get("preco_total")),
+                    status=_status_de_custo(item.get("status"), padrao=insumo_existente["status"]),
+                    observacoes=item.get("observacoes") or insumo_existente.get("observacoes"),
+                ),
+            )
+            return UUID(insumo_atualizado["id"])
+        return UUID(insumo_existente["id"])
+
     quantidade = _decimal_ou_none(item.get("quantidade_comprada"))
     unidade = item.get("unidade_compra")
     preco_total = _decimal_ou_none(item.get("preco_total"))
@@ -1368,6 +1535,174 @@ def _resolver_proxima_acao(sessao: dict, *, produto_id: UUID | None) -> str:
     return "enviar_dados_de_custo"
 
 
+def _resolver_finalidade_entrada(
+    sessao: dict,
+    *,
+    finalidade: str,
+    contexto: str | None,
+) -> str:
+    finalidade_normalizada = str(finalidade or "auto").strip().lower()
+    if finalidade_normalizada in FINALIDADES_ENTRADA and finalidade_normalizada != "auto":
+        return finalidade_normalizada
+
+    contexto_normalizado = _normalizar_chave(contexto or "")
+    if _contexto_indica_compras(contexto_normalizado):
+        return "compras"
+    if _contexto_indica_receita(contexto_normalizado):
+        return "receita"
+
+    produto_id = _uuid_ou_none(sessao.get("produto_id"))
+    fase = _resolver_fase(sessao, produto_id=produto_id)
+    if fase in {"vinculando_produto", "coletando_ingredientes"}:
+        return "receita"
+    if fase == "coletando_precos":
+        return "compras"
+    return "completo"
+
+
+def _contexto_indica_compras(contexto_normalizado: str) -> bool:
+    palavras = {
+        "nota",
+        "cupom",
+        "mercado",
+        "compra",
+        "compras",
+        "preco",
+        "precos",
+        "valor",
+        "valores",
+        "nf",
+        "fiscal",
+        "recibo",
+    }
+    return (
+        any(palavra in contexto_normalizado.split() for palavra in palavras)
+        or "r " in contexto_normalizado
+    )
+
+
+def _contexto_indica_receita(contexto_normalizado: str) -> bool:
+    palavras = {
+        "receita",
+        "ingrediente",
+        "ingredientes",
+        "preparo",
+        "modo",
+        "rendimento",
+        "massa",
+    }
+    return any(palavra in contexto_normalizado.split() for palavra in palavras)
+
+
+def _aplicar_finalidade_ao_rascunho_extraido(rascunho: dict, *, finalidade: str) -> dict:
+    rascunho = _normalizar_rascunho(rascunho, produto_id=rascunho.get("produto_id"))
+    finalidade = finalidade if finalidade in FINALIDADES_ENTRADA else "auto"
+    if finalidade == "receita":
+        rascunho["ingredientes"] = [
+            _manter_apenas_dados_de_receita(item) for item in rascunho["ingredientes"]
+        ]
+        return rascunho
+
+    if finalidade == "compras":
+        rascunho["receita"] = _limpar_receita_para_entrada_de_compras(rascunho["receita"])
+        rascunho["preparo"] = _normalizar_rascunho({}).get("preparo", {})
+        rascunho["custos_adicionais"] = []
+        rascunho["ingredientes"] = [
+            _manter_apenas_dados_de_compra(item) for item in rascunho["ingredientes"]
+        ]
+        return rascunho
+
+    if finalidade == "auto":
+        rascunho["ingredientes"] = [
+            _limpar_compra_copiada_da_receita(item) for item in rascunho["ingredientes"]
+        ]
+    return rascunho
+
+
+def _manter_apenas_dados_de_receita(ingrediente: dict) -> dict:
+    item = dict(ingrediente)
+    if item.get("preco_total") is None:
+        if item.get("quantidade_usada") is None:
+            item["quantidade_usada"] = item.get("quantidade_comprada")
+        if item.get("unidade_usada") is None:
+            item["unidade_usada"] = item.get("unidade_compra")
+    item["quantidade_comprada"] = None
+    item["unidade_compra"] = None
+    item["preco_total"] = None
+    item["insumo_id"] = None
+    return item
+
+
+def _manter_apenas_dados_de_compra(ingrediente: dict) -> dict:
+    item = dict(ingrediente)
+    if not item.get("quantidade_comprada") and item.get("quantidade_usada"):
+        item["quantidade_comprada"] = item.get("quantidade_usada")
+    if not item.get("unidade_compra") and item.get("unidade_usada"):
+        item["unidade_compra"] = item.get("unidade_usada")
+    item["quantidade_usada"] = None
+    item["unidade_usada"] = None
+    return item
+
+
+def _limpar_receita_para_entrada_de_compras(receita: dict) -> dict:
+    return {
+        "nome": None,
+        "rendimento": None,
+        "unidade_rendimento": None,
+        "status": receita.get("status") or "PENDENTE",
+        "observacoes": None,
+    }
+
+
+def _limpar_compra_copiada_da_receita(ingrediente: dict) -> dict:
+    item = dict(ingrediente)
+    if item.get("preco_total") is not None:
+        return item
+    quantidade_compra = _decimal_ou_none(item.get("quantidade_comprada"))
+    quantidade_uso = _decimal_ou_none(item.get("quantidade_usada"))
+    unidade_compra = _normalizar_unidade_texto(item.get("unidade_compra"))
+    unidade_uso = _normalizar_unidade_texto(item.get("unidade_usada"))
+    if (
+        quantidade_compra is not None
+        and quantidade_uso is not None
+        and quantidade_compra == quantidade_uso
+        and unidade_compra
+        and unidade_compra == unidade_uso
+    ):
+        item["quantidade_comprada"] = None
+        item["unidade_compra"] = None
+    return item
+
+
+def _resolver_fase(sessao: dict, *, produto_id: UUID | None) -> str:
+    situacao = sessao["situacao"]
+    if situacao == "confirmado":
+        return "confirmada"
+    if situacao == "descartado":
+        return "descartada"
+    if not produto_id:
+        return "vinculando_produto"
+
+    rascunho = _normalizar_rascunho(sessao.get("rascunho") or {}, produto_id=produto_id)
+    if not rascunho["ingredientes"] or not _decimal_ou_none(rascunho["receita"].get("rendimento")):
+        return "coletando_ingredientes"
+    if any(_ingrediente_precisa_de_preco_ou_unidade(item) for item in rascunho["ingredientes"]):
+        return "coletando_precos"
+    return "revisando"
+
+
+def _ingrediente_precisa_de_preco_ou_unidade(ingrediente: dict) -> bool:
+    if not ingrediente.get("unidade_usada"):
+        return True
+    if not servico_de_custos.unidade_suportada(ingrediente.get("unidade_usada")):
+        return True
+    if ingrediente.get("insumo_id"):
+        return False
+    if _tem_dados_de_compra_completos(ingrediente):
+        return not servico_de_custos.unidade_suportada(ingrediente.get("unidade_compra"))
+    return _buscar_insumo_existente_para_ingrediente(ingrediente) is None
+
+
 def _identificar_produto_no_texto(texto: str) -> UUID | None:
     texto_normalizado = _normalizar_chave(texto)
     for produto in servico_de_produtos.listar_produtos(somente_ativos=True):
@@ -1387,7 +1722,8 @@ def _extrair_rendimento(texto: str) -> Decimal | None:
 def _extrair_ingredientes_simples(texto: str) -> list[dict]:
     ingredientes = []
     padrao = re.compile(
-        r"(?P<qtd>\d+(?:[,.]\d+)?)\s*(?P<un>kg|g|ml|l|un|unidade|unidades)"
+        r"(?P<qtd>\d+(?:[,.]\d+)?)\s*"
+        r"(?P<un>kg|g|ml|l|copo|copos|xicara|xicaras|xícara|xícaras|un|unidade|unidades)"
         r"\s+(?:de\s+)?(?P<nome>[a-zA-Z0-9 çÇãÃõÕáÁéÉíÍóÓúÚâÂêÊôÔ_-]+?)"
         r"(?:\s+(?:por|custou|custa|saiu|preco|preço)\s*(?:r\$)?\s*"
         r"(?P<preco>\d+(?:[,.]\d+)?))?(?:,|;|\.|\n|$)",
@@ -1442,6 +1778,65 @@ def _tipo_custo_adicional(valor) -> str:
     return valor_normalizado if valor_normalizado in TIPOS_CUSTO_ADICIONAL else "outro"
 
 
+def _validar_unidades_do_ingrediente_para_confirmacao(item: dict) -> None:
+    unidade_usada = item.get("unidade_usada")
+    if not servico_de_custos.unidade_suportada(unidade_usada):
+        raise BadRequestError(
+            "Unidade usada no ingrediente ainda nao pode ser gravada.",
+            {"ingrediente": item.get("nome"), "unidade_usada": unidade_usada},
+        )
+
+    unidade_compra = item.get("unidade_compra")
+    if (
+        unidade_compra
+        and _tem_dados_de_compra_completos(item)
+        and not servico_de_custos.unidade_suportada(unidade_compra)
+    ):
+        raise BadRequestError(
+            "Unidade de compra do ingrediente ainda nao pode ser gravada.",
+            {"ingrediente": item.get("nome"), "unidade_compra": unidade_compra},
+        )
+
+
+def _buscar_insumo_existente_para_ingrediente(item: dict) -> dict | None:
+    nome = item.get("nome")
+    if not nome:
+        return None
+    insumos = servico_de_custos.listar_insumos()
+    nome_normalizado = _normalizar_nome_ingrediente(nome)
+    for insumo in insumos:
+        if _normalizar_nome_ingrediente(insumo["nome"]) == nome_normalizado:
+            return insumo
+
+    candidatos = [
+        insumo
+        for insumo in insumos
+        if _nomes_ingredientes_compativeis(nome, insumo["nome"])
+    ]
+    return candidatos[0] if len(candidatos) == 1 else None
+
+
+def _tem_dados_de_compra_completos(item: dict) -> bool:
+    return (
+        _decimal_ou_none(item.get("quantidade_comprada")) is not None
+        and bool(item.get("unidade_compra"))
+        and _decimal_ou_none(item.get("preco_total")) is not None
+    )
+
+
+def _tem_algum_dado_de_compra(item: dict) -> bool:
+    return any(
+        item.get(chave) is not None
+        for chave in ("quantidade_comprada", "unidade_compra", "preco_total")
+    )
+
+
+def _descrever_conversao_aproximada(unidade: str | None) -> str | None:
+    if not unidade:
+        return None
+    return servico_de_custos.descrever_unidade_aproximada(unidade)
+
+
 def _status_de_custo(valor, *, padrao: str = "PENDENTE") -> str:
     status = str(valor or padrao).strip().upper()
     return status if status in STATUS_CUSTO_VALIDOS else padrao
@@ -1457,6 +1852,56 @@ def _chave_ingrediente(item: dict) -> str:
     if item.get("insumo_id"):
         return f"id:{item['insumo_id']}"
     return f"nome:{_normalizar_chave(item.get('nome') or '')}"
+
+
+def _nomes_ingredientes_compativeis(nome_a: str | None, nome_b: str | None) -> bool:
+    if not nome_a or not nome_b:
+        return False
+    normalizado_a = _normalizar_nome_ingrediente(nome_a)
+    normalizado_b = _normalizar_nome_ingrediente(nome_b)
+    if not normalizado_a or not normalizado_b:
+        return False
+    if normalizado_a == normalizado_b:
+        return True
+
+    tokens_a = set(normalizado_a.split())
+    tokens_b = set(normalizado_b.split())
+    if len(tokens_a) < 2 and len(tokens_b) < 2:
+        return False
+    comuns = tokens_a & tokens_b
+    if not comuns:
+        return False
+    cobertura_menor = len(comuns) / min(len(tokens_a), len(tokens_b))
+    cobertura_maior = len(comuns) / max(len(tokens_a), len(tokens_b))
+    return cobertura_menor >= 0.75 and cobertura_maior >= 0.45
+
+
+def _normalizar_nome_ingrediente(nome: str) -> str:
+    texto = _normalizar_chave(nome)
+    substituicoes = {
+        "mucarela": "mussarela",
+        "mozarela": "mussarela",
+        "mozzarella": "mussarela",
+    }
+    tokens = []
+    for token in texto.split():
+        token = substituicoes.get(token, token)
+        if token in STOPWORDS_INGREDIENTE or token in DESCRITORES_INGREDIENTE:
+            continue
+        tokens.append(token)
+    return " ".join(tokens)
+
+
+def _escolher_nome_ingrediente(nome_atual: str | None, nome_novo: str | None) -> str | None:
+    if not nome_atual:
+        return nome_novo
+    if not nome_novo:
+        return nome_atual
+    tokens_atual = set(_normalizar_nome_ingrediente(nome_atual).split())
+    tokens_novo = set(_normalizar_nome_ingrediente(nome_novo).split())
+    if len(tokens_novo) > len(tokens_atual):
+        return nome_novo
+    return nome_atual
 
 
 def _chave_custo_adicional(item: dict) -> str:
@@ -1549,3 +1994,9 @@ def _normalizar_chave(valor: str) -> str:
     sem_acento = unicodedata.normalize("NFKD", valor)
     ascii_texto = sem_acento.encode("ascii", "ignore").decode("ascii")
     return re.sub(r"[^a-z0-9]+", " ", ascii_texto.lower()).strip()
+
+
+def _normalizar_unidade_texto(valor: str | None) -> str | None:
+    if not valor:
+        return None
+    return _normalizar_chave(valor)
