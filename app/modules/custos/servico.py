@@ -32,7 +32,7 @@ STATUS_ORDEM = {
 
 def listar_insumos() -> list[dict]:
     client = get_supabase_client()
-    return client.table("insumos").select("*").order("nome").execute().data
+    return _executar_lista_opcional(client.table("insumos").select("*").order("nome"))
 
 
 def criar_insumo(requisicao: RequisicaoCriarInsumo) -> dict:
@@ -84,7 +84,9 @@ def atualizar_insumo(insumo_id: UUID, requisicao: RequisicaoAtualizarInsumo) -> 
 def buscar_insumo(insumo_id: UUID | str) -> dict:
     client = get_supabase_client()
     insumo = first_or_none(
-        client.table("insumos").select("*").eq("id", str(insumo_id)).limit(1).execute().data
+        _executar_lista_opcional(
+            client.table("insumos").select("*").eq("id", str(insumo_id)).limit(1)
+        )
     )
     if not insumo:
         raise NotFoundError("Insumo", str(insumo_id))
@@ -124,12 +126,12 @@ def listar_receitas_do_produto(produto_id: UUID) -> list[dict]:
     servico_de_produtos.buscar_produto(produto_id)
     client = get_supabase_client()
     receitas = (
-        client.table("receitas_produto")
-        .select("*")
-        .eq("produto_id", str(produto_id))
-        .order("criado_em", desc=True)
-        .execute()
-        .data
+        _executar_lista_opcional(
+            client.table("receitas_produto")
+            .select("*")
+            .eq("produto_id", str(produto_id))
+            .order("criado_em", desc=True)
+        )
     )
     return [_anexar_ingredientes(receita) for receita in receitas]
 
@@ -137,12 +139,12 @@ def listar_receitas_do_produto(produto_id: UUID) -> list[dict]:
 def buscar_receita(receita_id: UUID | str) -> dict:
     client = get_supabase_client()
     receita = first_or_none(
-        client.table("receitas_produto")
-        .select("*")
-        .eq("id", str(receita_id))
-        .limit(1)
-        .execute()
-        .data
+        _executar_lista_opcional(
+            client.table("receitas_produto")
+            .select("*")
+            .eq("id", str(receita_id))
+            .limit(1)
+        )
     )
     if not receita:
         raise NotFoundError("Receita", str(receita_id))
@@ -256,13 +258,11 @@ def _montar_linha_ingrediente(receita_id: UUID | str, ingrediente) -> dict:
 
 def _anexar_ingredientes(receita: dict) -> dict:
     client = get_supabase_client()
-    receita["ingredientes"] = (
+    receita["ingredientes"] = _executar_lista_opcional(
         client.table("ingredientes_receita")
         .select("*")
         .eq("receita_id", receita["id"])
         .order("criado_em")
-        .execute()
-        .data
     )
     return receita
 
@@ -284,7 +284,7 @@ def _listar_custos_adicionais(produto_id: UUID, receita_id: UUID | str | None) -
     )
     if receita_id:
         consulta = consulta.or_(f"receita_id.is.null,receita_id.eq.{receita_id}")
-    return consulta.order("criado_em").execute().data
+    return _executar_lista_opcional(consulta.order("criado_em"))
 
 
 def _calcular_custo_por_unidade(
@@ -374,3 +374,17 @@ def _arredondar_moeda(valor: Decimal) -> Decimal:
 
 def _arredondar_custo_unitario(valor: Decimal) -> Decimal:
     return Decimal(str(valor)).quantize(Decimal("0.000001"), rounding=ROUND_HALF_UP)
+
+
+def _executar_lista_opcional(consulta) -> list[dict]:
+    try:
+        return consulta.execute().data
+    except Exception as exc:
+        if _erro_tabela_ausente(exc):
+            return []
+        raise
+
+
+def _erro_tabela_ausente(exc: Exception) -> bool:
+    mensagem = str(exc)
+    return "PGRST205" in mensagem and "Could not find the table" in mensagem

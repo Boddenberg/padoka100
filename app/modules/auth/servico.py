@@ -136,18 +136,26 @@ def buscar_usuario_por_token(token: str) -> tuple[dict, dict]:
 
 def buscar_usuario_padrao_sem_token() -> dict:
     client = get_supabase_client()
-    usuario = first_or_none(
-        client.table("usuarios")
-        .select("*")
-        .eq("situacao", "ativo")
-        .order("criado_em")
-        .limit(1)
-        .execute()
-        .data
-    )
+    try:
+        usuario = first_or_none(
+            client.table("usuarios")
+            .select("*")
+            .eq("situacao", "ativo")
+            .order("criado_em")
+            .limit(1)
+            .execute()
+            .data
+        )
+    except Exception as exc:
+        if _erro_tabela_ausente(exc):
+            return _usuario_sem_token()
+        raise
     if usuario:
         return _usuario_publico(usuario)
+    return _usuario_sem_token()
 
+
+def _usuario_sem_token() -> dict:
     agora = datetime.now(UTC)
     return {
         "id": USUARIO_SEM_TOKEN_ID,
@@ -253,7 +261,12 @@ def trocar_senha(usuario_id: UUID | str, requisicao: RequisicaoTrocarSenha) -> d
 
 def listar_usuarios() -> list[dict]:
     client = get_supabase_client()
-    usuarios = client.table("usuarios").select("*").order("criado_em").execute().data
+    try:
+        usuarios = client.table("usuarios").select("*").order("criado_em").execute().data
+    except Exception as exc:
+        if _erro_tabela_ausente(exc):
+            return []
+        raise
     return [_usuario_publico(usuario) for usuario in usuarios]
 
 
@@ -272,9 +285,14 @@ def atualizar_papel_usuario(usuario_id: UUID, requisicao: RequisicaoAtualizarPap
 
 def buscar_linha_usuario(usuario_id: UUID | str) -> dict:
     client = get_supabase_client()
-    usuario = first_or_none(
-        client.table("usuarios").select("*").eq("id", str(usuario_id)).limit(1).execute().data
-    )
+    try:
+        usuario = first_or_none(
+            client.table("usuarios").select("*").eq("id", str(usuario_id)).limit(1).execute().data
+        )
+    except Exception as exc:
+        if _erro_tabela_ausente(exc):
+            raise NotFoundError("Usuario", str(usuario_id)) from exc
+        raise
     if not usuario:
         raise NotFoundError("Usuario", str(usuario_id))
     return usuario
@@ -297,3 +315,8 @@ def _contar_usuarios(client) -> int:
 
 def _usuario_publico(usuario: dict) -> dict:
     return {key: value for key, value in usuario.items() if key != "senha_hash"}
+
+
+def _erro_tabela_ausente(exc: Exception) -> bool:
+    mensagem = str(exc)
+    return "PGRST205" in mensagem and "Could not find the table" in mensagem

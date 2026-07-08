@@ -42,12 +42,10 @@ def buscar_resumo_do_dia_de_venda(
             .execute()
             .data
         )
-    decisoes_sobra = (
+    decisoes_sobra = _executar_lista_opcional(
         client.table("decisoes_sobra")
         .select("*")
         .eq("dia_destino_id", str(dia_de_venda_id))
-        .execute()
-        .data
     )
 
     produtos = _montar_resumos_dos_produtos(itens_producao, itens_venda, decisoes_sobra)
@@ -269,11 +267,23 @@ def _somar_dias(dias: list[dict]) -> dict:
 
 
 def _listar_correcoes_do_dia(client, dia_de_venda_id: UUID) -> list[dict]:
-    return (
+    return _executar_lista_opcional(
         client.table("correcoes_dia_fechado")
         .select("*")
         .eq("dia_de_venda_id", str(dia_de_venda_id))
         .order("criado_em", desc=True)
-        .execute()
-        .data
     )
+
+
+def _executar_lista_opcional(consulta) -> list[dict]:
+    try:
+        return consulta.execute().data
+    except Exception as exc:
+        if _erro_tabela_ausente(exc):
+            return []
+        raise
+
+
+def _erro_tabela_ausente(exc: Exception) -> bool:
+    mensagem = str(exc)
+    return "PGRST205" in mensagem and "Could not find the table" in mensagem
