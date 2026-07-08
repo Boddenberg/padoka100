@@ -110,3 +110,922 @@ Veja exemplos de uso em `docs/API_USAGE.md`.
 ## Deploy
 
 Para publicar a API, veja `docs/DEPLOYMENT.md`.
+
+
+# README — Back-end do App da Padaria
+
+## 1. Visão geral do projeto
+
+Este projeto é o back-end de um aplicativo para apoiar a rotina de uma pequena padaria familiar.
+
+O back-end é responsável por armazenar, organizar e expor os dados usados pelo aplicativo, incluindo produtos, catálogo, venda do dia, histórico, resumo financeiro, perfil, autenticação, correções retroativas e futuras análises com inteligência artificial.
+
+O sistema precisa ser simples para o usuário final, mas bem estruturado internamente para permitir evolução segura.
+
+---
+
+## 2. Objetivo do back-end
+
+O back-end deve cuidar de:
+
+- produtos;
+- catálogo;
+- venda do dia;
+- histórico;
+- resumo financeiro;
+- consulta por períodos;
+- autenticação;
+- perfil do usuário;
+- troca de senha;
+- edição retroativa de dias fechados;
+- dados estruturados para IA;
+- análises padrão e específicas;
+- entrada retroativa de vendas;
+- cálculo de custo dos produtos;
+- receitas;
+- insumos;
+- custos indiretos;
+- auditoria e rastreabilidade das alterações.
+
+---
+
+## 3. Conceitos principais do negócio
+
+## 3.1 Catálogo
+
+O catálogo representa todos os produtos cadastrados no sistema.
+
+Exemplos:
+
+```txt
+Pão de Queijo
+Pão Sovado
+Pão de Calabresa
+Trança de Calabresa
+Trança de Frango
+Bolo de Banana
+Pudim
+```
+
+O catálogo não significa que todos esses produtos estão disponíveis para venda em todos os dias.
+
+---
+
+## 3.2 Venda do dia
+
+A venda do dia representa somente os produtos que entraram para venda em uma data específica.
+
+A aba Venda do front-end deve receber somente os produtos que participaram daquele dia.
+
+Regra:
+
+```txt
+Se o produto entrou na venda do dia, aparece.
+Se entrou e esgotou, continua aparecendo.
+Se nunca entrou no dia, não aparece na venda.
+```
+
+---
+
+## 3.3 Dia aberto e dia fechado
+
+Enquanto o dia está aberto, o usuário consegue registrar vendas, adicionar produção, corrigir quantidades e fazer ajustes normais da operação.
+
+Quando o dia é fechado, ele representa o encerramento da venda daquele dia.
+
+Porém, o dia fechado não pode ser imutável, porque podem acontecer erros de lançamento.
+
+O sistema precisa permitir correções retroativas com histórico e rastreabilidade.
+
+---
+
+## 4. Separação entre catálogo e venda
+
+O back-end precisa separar claramente:
+
+```txt
+Catálogo:
+todos os produtos cadastrados.
+
+Venda do dia:
+somente produtos que entraram na venda daquele dia.
+```
+
+A tela Venda não deve receber todos os produtos do catálogo.
+
+Ela deve receber apenas os produtos que participaram do dia.
+
+Produto que nunca entrou na venda do dia não deve aparecer com zero na aba Venda.
+
+---
+
+## 5. Produtos esgotados
+
+Produto esgotado continua aparecendo na venda se ele entrou na venda do dia.
+
+Exemplo:
+
+```txt
+Pão de Queijo começou com 20 unidades.
+Foram vendidas as 20 unidades.
+Agora está com 0.
+```
+
+Ele deve continuar aparecendo porque participou do dia.
+
+Mas se Pão de Calabresa começou com 0 e nunca foi vendido no dia, ele não deve aparecer.
+
+Regra:
+
+```txt
+Entrou na venda do dia: aparece.
+Entrou e esgotou: aparece como esgotado.
+Nunca entrou: não aparece.
+```
+
+---
+
+## 6. Histórico estruturado
+
+O back-end não deve enviar logs técnicos para o front-end.
+
+Não deve aparecer para o usuário final algo como:
+
+```txt
+dia_D_venda_aberto
+produto_D_adicionado
+venda_D_cancelada
+```
+
+Os eventos devem ser estruturados.
+
+Exemplo:
+
+```json
+{
+  "tipo": "VENDA_REALIZADA",
+  "dataHora": "2026-07-08T10:30:00",
+  "dados": {
+    "produto": "Pão de Queijo",
+    "quantidade": 2,
+    "valorTotal": 30
+  }
+}
+```
+
+O front-end pode transformar isso em:
+
+```txt
+Venda realizada
+2 unidades de Pão de Queijo vendidas.
+```
+
+Tipos de evento esperados:
+
+```txt
+DIA_VENDA_ABERTO
+DIA_VENDA_FECHADO
+PRODUTO_ADICIONADO
+PRODUTO_REMOVIDO
+VENDA_REALIZADA
+VENDA_CANCELADA
+PRODUTO_ESGOTADO
+CORRECAO_DIA_FECHADO
+```
+
+---
+
+## 7. Correção de acentos e nomes
+
+O back-end precisa garantir que os nomes dos produtos estejam corretos.
+
+Não deve retornar:
+
+```txt
+Pao
+Tran?a
+```
+
+Deve retornar:
+
+```txt
+Pão
+Trança
+```
+
+O sistema deve trabalhar com encoding correto, preferencialmente UTF-8.
+
+Também é importante separar nome técnico de nome exibido.
+
+Exemplo:
+
+```json
+{
+  "id": "123",
+  "slug": "tranca_calabresa",
+  "nome": "Trança de Calabresa"
+}
+```
+
+O front-end deve exibir o campo `nome`, nunca o `slug`.
+
+---
+
+## 8. Consulta de períodos e calendário
+
+O back-end precisa permitir consultas por:
+
+- dia;
+- semana;
+- mês;
+- período personalizado;
+- produto;
+- eventualmente categoria.
+
+O back-end também deve bloquear datas futuras.
+
+Mesmo que o front-end bloqueie visualmente, a API não deve aceitar consulta, resumo ou análise de período futuro.
+
+Regra:
+
+```txt
+A data final do período não pode ser maior que a data atual.
+```
+
+Exemplo:
+
+Se hoje é 08/07/2026, não aceitar:
+
+```txt
+09/07/2026
+Agosto de 2026
+Julho de 2027
+```
+
+---
+
+## 9. Resumo de um dia específico
+
+O back-end precisa fornecer uma forma de consultar os dados completos de um dia específico.
+
+O retorno deve incluir:
+
+- data;
+- status do dia;
+- faturamento total;
+- total de itens vendidos;
+- produtos produzidos;
+- produtos vendidos;
+- produtos sobrando;
+- produtos esgotados;
+- histórico do dia;
+- correções feitas depois do fechamento, se existirem.
+
+Exemplo conceitual de retorno:
+
+```json
+{
+  "data": "2026-07-04",
+  "status": "FECHADO",
+  "faturamentoTotal": 40,
+  "itensVendidos": 4,
+  "produtos": [
+    {
+      "produtoId": "1",
+      "nome": "Pão de Queijo",
+      "quantidadeProduzida": 20,
+      "quantidadeVendida": 4,
+      "quantidadeSobrando": 16,
+      "faturamento": 40
+    }
+  ],
+  "historico": [],
+  "correcoes": []
+}
+```
+
+---
+
+## 10. Correção de dias fechados
+
+Dia fechado pode ser corrigido, mas como ajuste retroativo.
+
+Não é simplesmente reabrir o dia sem controle.
+
+A correção precisa gerar rastreabilidade.
+
+### 10.1 Conceito de ajuste retroativo
+
+Exemplo de estrutura:
+
+```json
+{
+  "tipo": "CORRECAO_DIA_FECHADO",
+  "dataCorrecao": "2026-07-08T14:30:00",
+  "diaCorrigido": "2026-07-04",
+  "usuarioId": "user-123",
+  "motivo": "Venda lançada com quantidade errada",
+  "alteracoes": [
+    {
+      "produto": "Pão de Queijo",
+      "campo": "quantidadeVendida",
+      "valorAnterior": 4,
+      "valorNovo": 5
+    }
+  ]
+}
+```
+
+### 10.2 O que precisa ser mantido
+
+O sistema deve preservar:
+
+- dado original;
+- dado corrigido;
+- data da correção;
+- usuário que corrigiu;
+- motivo opcional da correção;
+- histórico da alteração.
+
+Não deve apagar o passado sem rastro.
+
+---
+
+## 11. Recalcular resumos após correção
+
+Quando um dia fechado for corrigido, o back-end precisa recalcular:
+
+- faturamento do dia;
+- quantidade vendida;
+- quantidade restante;
+- sobras;
+- produtos esgotados;
+- resumo semanal;
+- resumo mensal;
+- gráfico do período;
+- dados usados pela IA.
+
+Se o dia 04/07 for alterado, o gráfico de julho também precisa refletir a correção.
+
+---
+
+## 12. Entrada retroativa de vendas
+
+O back-end precisa permitir cadastrar vendas e produções de dias anteriores.
+
+Exemplo:
+
+Hoje é 08/07, mas o usuário quer cadastrar dados de:
+
+```txt
+01/07
+02/07
+03/07
+04/07
+05/07
+06/07
+07/07
+```
+
+Isso é necessário porque o sistema pode começar a ser usado depois que a padaria já tem histórico.
+
+A entrada retroativa ajuda a alimentar o banco para análises futuras.
+
+---
+
+## 13. Autenticação
+
+A autenticação precisa entrar como funcionalidade real do projeto.
+
+O back-end deve suportar:
+
+- criação de usuário;
+- login com usuário/e-mail e senha;
+- armazenamento seguro de senha;
+- autenticação por token ou sessão;
+- proteção de rotas;
+- identificação do usuário autenticado;
+- logout, se aplicável ao modelo escolhido;
+- troca de senha;
+- alteração de e-mail ou usuário;
+- sessão expirada;
+- validação de permissões.
+
+A troca de senha deve ser segura e bem estruturada.
+
+---
+
+## 14. Perfil do usuário
+
+O perfil deve armazenar dados como:
+
+- foto;
+- nome;
+- data de nascimento;
+- telefone;
+- e-mail.
+
+Esses dados podem futuramente ajudar a IA a personalizar respostas ou entender melhor o contexto da conta.
+
+---
+
+## 15. Permissões futuras
+
+Como haverá autenticação, a arquitetura deve permitir permissões diferentes no futuro.
+
+Possibilidades:
+
+```txt
+Usuário comum:
+pode vender e consultar dados básicos.
+
+Administrador:
+pode corrigir dias fechados e alterar cadastro de produtos.
+
+Dono:
+pode consultar relatórios, IA e dados financeiros.
+```
+
+Não precisa implementar tudo imediatamente, mas a arquitetura deve permitir evolução.
+
+---
+
+## 16. Dados estruturados para Inteligência Artificial
+
+O back-end precisa organizar os dados para que a IA consiga analisar vendas sem receber dados crus e bagunçados.
+
+A ideia é montar estruturas por:
+
+- dia;
+- semana;
+- mês;
+- período personalizado;
+- produto;
+- categoria, se existir futuramente.
+
+Exemplo de resumo diário:
+
+```json
+{
+  "data": "2026-07-08",
+  "faturamentoTotal": 650,
+  "quantidadeTotalProduzida": 46,
+  "quantidadeTotalVendida": 25,
+  "quantidadeTotalSobrando": 21,
+  "produtos": [
+    {
+      "produto": "Pão de Queijo",
+      "quantidadeProduzida": 20,
+      "quantidadeVendida": 20,
+      "quantidadeSobrando": 0,
+      "faturamento": 300
+    }
+  ]
+}
+```
+
+Exemplo de resumo por período:
+
+```json
+{
+  "periodo": {
+    "inicio": "2026-07-01",
+    "fim": "2026-07-08"
+  },
+  "faturamentoTotal": 3200,
+  "quantidadeTotalVendida": 140,
+  "produtos": [
+    {
+      "produto": "Pão de Queijo",
+      "totalProduzido": 100,
+      "totalVendido": 90,
+      "totalSobrando": 10,
+      "faturamento": 1350
+    }
+  ]
+}
+```
+
+---
+
+## 17. Análise padrão com IA
+
+O back-end precisa permitir uma análise padrão baseada no período selecionado no front-end.
+
+Exemplo:
+
+```txt
+Usuário seleciona julho.
+Clica em Solicitar análise.
+O back-end monta os dados de julho.
+A IA gera uma análise geral.
+```
+
+A análise padrão deve considerar:
+
+- faturamento;
+- produtos vendidos;
+- produtos produzidos;
+- sobras;
+- produtos esgotados;
+- comparação entre dias;
+- histórico de vendas;
+- correções retroativas, se relevantes.
+
+---
+
+## 18. Análise específica com IA
+
+Além da análise padrão, o back-end precisa aceitar pedidos específicos do usuário.
+
+Exemplos:
+
+```txt
+Analise somente abril.
+Ignore os pudins.
+Veja só o pão de calabresa.
+Compare pão de queijo com pão sovado.
+Me diga o que mais sobrou.
+Me diga o que eu deveria produzir menos.
+```
+
+O back-end precisa receber:
+
+- período selecionado;
+- contexto opcional do usuário;
+- dados estruturados do período;
+- possíveis filtros solicitados pelo usuário.
+
+A IA deve conseguir responder com base nesses dados, sem inventar informações.
+
+---
+
+## 19. Cálculo de custo dos produtos
+
+Esta será uma das funcionalidades mais complexas do projeto.
+
+O objetivo é ajudar a identificar o custo real de cada produto.
+
+O dono da padaria pode não saber exatamente o custo do produto. Então o sistema precisa permitir que ele informe dados aos poucos.
+
+---
+
+### 19.1 Informações necessárias para custo
+
+O sistema precisa conseguir guardar:
+
+- insumos comprados;
+- preço dos insumos;
+- quantidade comprada;
+- unidade de medida;
+- receita do produto;
+- quantidade usada na receita;
+- rendimento da receita;
+- custos indiretos;
+- embalagem;
+- transporte;
+- status de confirmação das informações.
+
+---
+
+### 19.2 Insumos
+
+Exemplo:
+
+```json
+{
+  "nome": "Farinha de trigo",
+  "quantidadeComprada": 1,
+  "unidadeCompra": "kg",
+  "precoTotal": 5.00,
+  "custoPorUnidade": 5.00
+}
+```
+
+---
+
+### 19.3 Receita
+
+Exemplo:
+
+```json
+{
+  "produto": "Pão Sovado",
+  "rendimento": 10,
+  "ingredientes": [
+    {
+      "nome": "Farinha de trigo",
+      "quantidadeUsada": 800,
+      "unidade": "g"
+    },
+    {
+      "nome": "Leite",
+      "quantidadeUsada": 300,
+      "unidade": "ml"
+    }
+  ]
+}
+```
+
+---
+
+### 19.4 Custo calculado
+
+Exemplo:
+
+```json
+{
+  "produto": "Pão Sovado",
+  "custoTotalReceita": 28.50,
+  "rendimento": 10,
+  "custoPorUnidade": 2.85,
+  "custosIncluidos": {
+    "ingredientes": true,
+    "embalagem": true,
+    "gas": true,
+    "energia": false,
+    "transporte": false
+  },
+  "status": "CONFIRMADO"
+}
+```
+
+---
+
+### 19.5 Custos que precisam poder entrar no cálculo
+
+Ingredientes principais:
+
+- farinha;
+- leite;
+- ovos;
+- queijo;
+- calabresa;
+- presunto;
+- frango;
+- açúcar;
+- manteiga;
+- óleo;
+- fermento.
+
+Ingredientes pequenos:
+
+- sal;
+- temperos;
+- orégano;
+- alho;
+- cebola;
+- essência.
+
+Custos indiretos:
+
+- gás;
+- energia elétrica;
+- água;
+- tempo de forno;
+- geladeira/freezer, se fizer sentido;
+- desgaste de equipamento, futuramente.
+
+Embalagem:
+
+- saquinho;
+- bandeja;
+- etiqueta;
+- caixa;
+- papel;
+- plástico filme.
+
+Transporte:
+
+- gasolina;
+- estacionamento;
+- frete;
+- taxa de entrega.
+
+---
+
+### 19.6 Status das informações
+
+Como algumas informações podem estar incompletas ou estimadas, o sistema precisa marcar o status.
+
+Exemplos:
+
+```txt
+CONFIRMADO
+ESTIMADO
+PENDENTE
+PRECISA_REVISAR
+```
+
+Exemplo:
+
+```json
+{
+  "nome": "Gás",
+  "valor": 3.00,
+  "status": "ESTIMADO"
+}
+```
+
+A IA precisa saber se um dado é confirmado ou estimado.
+
+---
+
+### 19.7 IA para custo
+
+A IA deve ajudar a montar o custo, mas não pode inventar dados.
+
+Regra principal:
+
+```txt
+Se não souber, pergunta.
+Se for estimativa, marca como estimativa.
+Se for confirmado pelo usuário, marca como confirmado.
+```
+
+O usuário pode informar dados por:
+
+- texto;
+- áudio;
+- foto de nota fiscal;
+- formulário;
+- correção posterior.
+
+A IA deve extrair informações e perguntar o que falta.
+
+Exemplo:
+
+```txt
+Usuário:
+Comprei 1 kg de farinha por 5 reais e usei 800 gramas para fazer pão sovado.
+
+IA:
+Entendi. Essa receita rendeu quantos pães sovados?
+```
+
+Antes de salvar, a IA precisa pedir confirmação.
+
+---
+
+### 19.8 Correções por voz
+
+O usuário precisa conseguir corrigir informações naturalmente.
+
+Exemplo:
+
+```txt
+Usei 1 kg de farinha.
+Na verdade, foram 800 gramas.
+```
+
+O sistema deve entender que a informação anterior precisa ser substituída, mas deve confirmar antes de salvar.
+
+Exemplo:
+
+```txt
+Entendi. Vou corrigir a farinha de 1 kg para 800 g. Está correto?
+```
+
+---
+
+### 19.9 Foto de nota fiscal ou recibo
+
+No futuro, o usuário pode mandar foto da nota.
+
+O sistema pode tentar extrair itens e preços, mas precisa confirmar tudo antes de salvar.
+
+Exemplo:
+
+```txt
+Identifiquei estes itens na nota:
+
+Farinha 1 kg — R$ 5,00
+Leite 1 L — R$ 6,00
+Ovos 12 unidades — R$ 12,00
+
+Está correto?
+```
+
+Se a imagem estiver ruim, deve avisar:
+
+```txt
+Não consegui ler todos os itens com segurança. Pode confirmar manualmente?
+```
+
+---
+
+## 20. Refatoração da arquitetura do back-end
+
+O back-end também precisa ser revisado.
+
+A revisão deve observar:
+
+- organização de camadas;
+- controllers;
+- services;
+- repositories;
+- models;
+- DTOs;
+- validações;
+- autenticação;
+- autorização;
+- tratamento de erros;
+- regras de negócio;
+- nomes de endpoints;
+- padronização de respostas;
+- estrutura para IA;
+- estrutura de custo;
+- histórico de alterações;
+- testes;
+- documentação de API.
+
+O objetivo é deixar o back-end previsível, seguro e preparado para evolução.
+
+---
+
+## 21. Sugestão de arquitetura desejada
+
+A arquitetura final pode seguir algo semelhante a:
+
+```txt
+src/
+  controllers/
+  services/
+  repositories/
+  models/
+  dto/
+  middlewares/
+  auth/
+  modules/
+    produtos/
+    vendas/
+    catalogo/
+    resumo/
+    historico/
+    perfil/
+    ia/
+    custos/
+  utils/
+  config/
+  tests/
+```
+
+Essa estrutura deve ser adaptada à tecnologia real do projeto.
+
+A ideia principal é separar:
+
+- entrada HTTP;
+- regra de negócio;
+- acesso a dados;
+- validação;
+- autenticação;
+- resposta para o front-end.
+
+---
+
+## 22. Tecnologias
+
+Este README deve ser atualizado com as tecnologias reais do projeto.
+
+Preencher conforme o projeto atual:
+
+```txt
+Linguagem:
+Framework:
+Banco de dados:
+ORM/ODM:
+Autenticação:
+Testes:
+Gerenciador de pacotes:
+Ambiente:
+Deploy:
+```
+
+---
+
+## 23. Panorama futuro do back-end
+
+O back-end deve evoluir para ser a base de um sistema simples de apoio à decisão para a padaria.
+
+No futuro, o sistema deve ajudar a responder:
+
+- quanto vendemos hoje?
+- quanto vendemos no mês?
+- o que mais vende?
+- o que mais sobra?
+- o que devemos produzir menos?
+- o que devemos produzir mais?
+- qual produto dá mais lucro?
+- qual produto custa mais caro para produzir?
+- existe padrão por dia da semana?
+- a produção está acima ou abaixo do ideal?
+
+---
+
+## 24. Tarefa atual  ---- INICIAR AQUI
+
+A tarefa atual é documentar o projeto.
+
+Antes de implementar novas funcionalidades, o back-end precisa ter este README como referência.
+
+Não implementar agora sem antes alinhar o plano geral, a arquitetura e as regras de negócio.
