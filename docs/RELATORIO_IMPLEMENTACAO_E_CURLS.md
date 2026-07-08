@@ -12,6 +12,13 @@ BASE_URL="http://localhost:8000/api/v1"
 Em Windows PowerShell, use a URL literal nos comandos ou adapte as variaveis para
 `$env:BASE_URL`.
 
+## Regra atual de Bearer
+
+- Nao exigem Bearer token: endpoints antigos de produtos, catalogo, midia,
+  dias de venda, vendas, relatorios, historico, correcoes e IA operacional.
+- Exigem Bearer token: perfil, logout, troca de senha, gestao de usuarios,
+  dados estruturados/analises de IA e custos.
+
 ## 1. O que foi implementado
 
 ### Catalogo, venda do dia e historico
@@ -37,7 +44,8 @@ Em Windows PowerShell, use a URL literal nos comandos ou adapte as variaveis par
 - Perfil do usuario com foto, nome, data de nascimento, telefone e e-mail.
 - Papeis: `usuario`, `administrador`, `dono`.
 - Primeiro usuario cadastrado vira `dono`.
-- Rotas sensiveis protegidas por papel.
+- Rotas novas de conta, analise e custos protegidas por papel.
+- Endpoints antigos continuam compativeis sem Bearer token.
 
 ### IA e dados estruturados
 
@@ -177,12 +185,11 @@ curl -X PATCH http://localhost:8000/api/v1/auth/usuarios/USUARIO_ID/papel \
 
 ### Criar produto
 
-Exige `administrador` ou `dono`.
+Endpoint antigo: nao exige Bearer token.
 
 ```bash
 curl -X POST http://localhost:8000/api/v1/produtos \
   -H "Content-Type: application/json" \
-  -H "Authorization: Bearer $TOKEN" \
   -d '{
     "nome": "Pao de Queijo",
     "descricao": "Pao de queijo tradicional",
@@ -202,12 +209,11 @@ curl http://localhost:8000/api/v1/produtos
 
 ### Alterar preco
 
-Exige `administrador` ou `dono`.
+Endpoint antigo: nao exige Bearer token.
 
 ```bash
 curl -X POST http://localhost:8000/api/v1/produtos/PRODUTO_ID/precos \
   -H "Content-Type: application/json" \
-  -H "Authorization: Bearer $TOKEN" \
   -d '{
     "preco_venda": 12.00,
     "preco_custo": 4.50,
@@ -218,14 +224,13 @@ curl -X POST http://localhost:8000/api/v1/produtos/PRODUTO_ID/precos \
 
 ## 5. Dia de venda e operacao diaria
 
-Rotas de `dias-de-venda`, `vendas` e `ia` exigem ao menos papel `usuario`.
+Endpoints antigos de `dias-de-venda`, `vendas` e IA operacional nao exigem Bearer token.
 
 ### Abrir dia com producao
 
 ```bash
 curl -X POST http://localhost:8000/api/v1/dias-de-venda \
   -H "Content-Type: application/json" \
-  -H "Authorization: Bearer $TOKEN" \
   -d '{
     "data_venda": "2026-07-04",
     "nome_local": "Condominio Primavera",
@@ -243,7 +248,6 @@ curl -X POST http://localhost:8000/api/v1/dias-de-venda \
 ```bash
 curl -X POST http://localhost:8000/api/v1/dias-de-venda/iniciar-hoje \
   -H "Content-Type: application/json" \
-  -H "Authorization: Bearer $TOKEN" \
   -d '{}'
 ```
 
@@ -252,7 +256,6 @@ curl -X POST http://localhost:8000/api/v1/dias-de-venda/iniciar-hoje \
 ```bash
 curl -X POST http://localhost:8000/api/v1/dias-de-venda/DIA_DE_VENDA_ID/itens-producao \
   -H "Content-Type: application/json" \
-  -H "Authorization: Bearer $TOKEN" \
   -d '{
     "produto_id": "PRODUTO_ID",
     "quantidade_produzida": 20
@@ -264,7 +267,6 @@ curl -X POST http://localhost:8000/api/v1/dias-de-venda/DIA_DE_VENDA_ID/itens-pr
 ```bash
 curl -X POST http://localhost:8000/api/v1/vendas \
   -H "Content-Type: application/json" \
-  -H "Authorization: Bearer $TOKEN" \
   -d '{
     "dia_de_venda_id": "DIA_DE_VENDA_ID",
     "tipo_entrada": "manual",
@@ -282,7 +284,6 @@ curl -X POST http://localhost:8000/api/v1/vendas \
 ```bash
 curl -X POST http://localhost:8000/api/v1/vendas/VENDA_ID/cancelar \
   -H "Content-Type: application/json" \
-  -H "Authorization: Bearer $TOKEN" \
   -d '{
     "motivo": "Lancamento errado"
   }'
@@ -293,7 +294,6 @@ curl -X POST http://localhost:8000/api/v1/vendas/VENDA_ID/cancelar \
 ```bash
 curl -X POST http://localhost:8000/api/v1/dias-de-venda/DIA_DE_VENDA_ID/fechar \
   -H "Content-Type: application/json" \
-  -H "Authorization: Bearer $TOKEN" \
   -d '{
     "observacoes": "Dia encerrado"
   }'
@@ -301,53 +301,47 @@ curl -X POST http://localhost:8000/api/v1/dias-de-venda/DIA_DE_VENDA_ID/fechar \
 
 ## 6. Relatorios e venda do dia
 
-Rotas de relatorio exigem papel `dono`.
+Endpoints antigos de relatorio nao exigem Bearer token.
 
 ### Resumo do dia por id
 
 ```bash
-curl http://localhost:8000/api/v1/relatorios/dias/DIA_DE_VENDA_ID/resumo \
-  -H "Authorization: Bearer $TOKEN"
+curl http://localhost:8000/api/v1/relatorios/dias/DIA_DE_VENDA_ID/resumo
 ```
 
 ### Resumo do dia por data
 
 ```bash
-curl http://localhost:8000/api/v1/relatorios/dias/por-data/2026-07-04/resumo \
-  -H "Authorization: Bearer $TOKEN"
+curl http://localhost:8000/api/v1/relatorios/dias/por-data/2026-07-04/resumo
 ```
 
 ### Produtos que participaram da venda do dia
 
 ```bash
-curl http://localhost:8000/api/v1/relatorios/dias/DIA_DE_VENDA_ID/produtos-venda \
-  -H "Authorization: Bearer $TOKEN"
+curl http://localhost:8000/api/v1/relatorios/dias/DIA_DE_VENDA_ID/produtos-venda
 ```
 
 ### Resumo de periodo
 
 ```bash
-curl "http://localhost:8000/api/v1/relatorios/periodo?data_inicio=2026-07-01&data_fim=2026-07-08" \
-  -H "Authorization: Bearer $TOKEN"
+curl "http://localhost:8000/api/v1/relatorios/periodo?data_inicio=2026-07-01&data_fim=2026-07-08"
 ```
 
 ### Resumo de periodo filtrando produto
 
 ```bash
-curl "http://localhost:8000/api/v1/relatorios/periodo?data_inicio=2026-07-01&data_fim=2026-07-08&produto_id=PRODUTO_ID" \
-  -H "Authorization: Bearer $TOKEN"
+curl "http://localhost:8000/api/v1/relatorios/periodo?data_inicio=2026-07-01&data_fim=2026-07-08&produto_id=PRODUTO_ID"
 ```
 
 ## 7. Correcoes retroativas
 
-Exige `administrador` ou `dono`.
+Endpoint antigo: nao exige Bearer token.
 
 ### Corrigir item de venda em dia fechado
 
 ```bash
 curl -X POST http://localhost:8000/api/v1/dias-de-venda/DIA_DE_VENDA_ID/correcoes \
   -H "Content-Type: application/json" \
-  -H "Authorization: Bearer $TOKEN" \
   -d '{
     "usuario_id": "USUARIO_ID",
     "motivo": "Venda lancada com quantidade errada",
@@ -365,7 +359,6 @@ curl -X POST http://localhost:8000/api/v1/dias-de-venda/DIA_DE_VENDA_ID/correcoe
 ```bash
 curl -X POST http://localhost:8000/api/v1/dias-de-venda/DIA_DE_VENDA_ID/correcoes \
   -H "Content-Type: application/json" \
-  -H "Authorization: Bearer $TOKEN" \
   -d '{
     "usuario_id": "USUARIO_ID",
     "motivo": "Venda esquecida",
@@ -388,7 +381,6 @@ curl -X POST http://localhost:8000/api/v1/dias-de-venda/DIA_DE_VENDA_ID/correcoe
 ```bash
 curl -X POST http://localhost:8000/api/v1/dias-de-venda/DIA_DE_VENDA_ID/correcoes \
   -H "Content-Type: application/json" \
-  -H "Authorization: Bearer $TOKEN" \
   -d '{
     "usuario_id": "USUARIO_ID",
     "motivo": "Producao informada errada",
@@ -424,7 +416,6 @@ O retorno inclui campos antigos e tambem:
 ```bash
 curl -X POST http://localhost:8000/api/v1/ia/interpretar-comando \
   -H "Content-Type: application/json" \
-  -H "Authorization: Bearer $TOKEN" \
   -d '{
     "dia_de_venda_id": "DIA_DE_VENDA_ID",
     "texto": "vendi 2 paes de queijo"
@@ -434,15 +425,13 @@ curl -X POST http://localhost:8000/api/v1/ia/interpretar-comando \
 ### Confirmar comando
 
 ```bash
-curl -X POST http://localhost:8000/api/v1/ia/interacoes/INTERACAO_IA_ID/confirmar \
-  -H "Authorization: Bearer $TOKEN"
+curl -X POST http://localhost:8000/api/v1/ia/interacoes/INTERACAO_IA_ID/confirmar
 ```
 
 ### Transcrever audio
 
 ```bash
 curl -X POST http://localhost:8000/api/v1/ia/transcrever-audio \
-  -H "Authorization: Bearer $TOKEN" \
   -F "file=@venda.webm" \
   -F "dia_de_venda_id=DIA_DE_VENDA_ID" \
   -F "interpretar=true"

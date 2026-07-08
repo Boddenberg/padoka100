@@ -1,8 +1,7 @@
 from uuid import UUID
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter
 
-from app.modules.auth.dependencias import exigir_papel
 from app.modules.vendas import servico
 from app.modules.vendas.esquemas import (
     RequisicaoCancelarVenda,
@@ -10,11 +9,7 @@ from app.modules.vendas.esquemas import (
     VendaSaida,
 )
 
-router = APIRouter(
-    prefix="/vendas",
-    tags=["vendas"],
-    dependencies=[Depends(exigir_papel("usuario"))],
-)
+router = APIRouter(prefix="/vendas", tags=["vendas"])
 
 
 @router.post("", response_model=VendaSaida, status_code=201)

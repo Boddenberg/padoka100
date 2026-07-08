@@ -2,9 +2,8 @@ from datetime import date
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Query
 
-from app.modules.auth.dependencias import exigir_papel
 from app.modules.dias_de_venda import servico
 from app.modules.dias_de_venda.esquemas import (
     DiaDeVendaSaida,
@@ -19,11 +18,7 @@ from app.modules.dias_de_venda.esquemas import (
 )
 from app.shared.esquemas import CorrecaoDiaFechadoSaida
 
-router = APIRouter(
-    prefix="/dias-de-venda",
-    tags=["dias-de-venda"],
-    dependencies=[Depends(exigir_papel("usuario"))],
-)
+router = APIRouter(prefix="/dias-de-venda", tags=["dias-de-venda"])
 
 
 @router.get("", response_model=list[DiaDeVendaSaida])
@@ -89,7 +84,6 @@ def fechar_dia_de_venda(
     "/{dia_de_venda_id}/correcoes",
     response_model=CorrecaoDiaFechadoSaida,
     status_code=201,
-    dependencies=[Depends(exigir_papel("administrador", "dono"))],
 )
 def corrigir_dia_fechado(
     dia_de_venda_id: UUID,

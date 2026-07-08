@@ -2,17 +2,12 @@ from datetime import date
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Query
 
-from app.modules.auth.dependencias import exigir_papel
 from app.modules.relatorios import servico
 from app.modules.relatorios.esquemas import ResumoDoDiaDeVenda, ResumoDoPeriodo, ResumoProdutoNoDia
 
-router = APIRouter(
-    prefix="/relatorios",
-    tags=["relatorios"],
-    dependencies=[Depends(exigir_papel("dono"))],
-)
+router = APIRouter(prefix="/relatorios", tags=["relatorios"])
 
 
 @router.get("/dias/{dia_de_venda_id}/resumo", response_model=ResumoDoDiaDeVenda)

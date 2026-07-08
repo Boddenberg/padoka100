@@ -2,9 +2,8 @@ from datetime import date
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, File, Form, Query, UploadFile
+from fastapi import APIRouter, File, Form, Query, UploadFile
 
-from app.modules.auth.dependencias import exigir_papel
 from app.modules.midia import servico as servico_de_midia
 from app.modules.midia.esquemas import MidiaSaida
 from app.modules.produtos import servico
@@ -31,7 +30,6 @@ def listar_produtos(
     "",
     response_model=ProdutoSaida,
     status_code=201,
-    dependencies=[Depends(exigir_papel("administrador", "dono"))],
 )
 def criar_produto(requisicao: RequisicaoCriarProduto) -> dict:
     return servico.criar_produto(requisicao)
@@ -48,7 +46,6 @@ def buscar_produto(
 @router.patch(
     "/{produto_id}",
     response_model=ProdutoSaida,
-    dependencies=[Depends(exigir_papel("administrador", "dono"))],
 )
 def atualizar_produto(produto_id: UUID, requisicao: RequisicaoAtualizarProduto) -> dict:
     return servico.atualizar_produto(produto_id, requisicao)
@@ -63,7 +60,6 @@ def listar_versoes_de_preco(produto_id: UUID) -> list[dict]:
     "/{produto_id}/precos",
     response_model=VersaoDePrecoSaida,
     status_code=201,
-    dependencies=[Depends(exigir_papel("administrador", "dono"))],
 )
 def criar_versao_de_preco(
     produto_id: UUID,
@@ -76,7 +72,6 @@ def criar_versao_de_preco(
     "/{produto_id}/midia",
     response_model=MidiaSaida,
     status_code=201,
-    dependencies=[Depends(exigir_papel("administrador", "dono"))],
 )
 async def enviar_midia_do_produto(
     produto_id: UUID,

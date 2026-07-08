@@ -32,16 +32,27 @@ curl -X POST http://localhost:8000/api/v1/auth/login \
   }'
 ```
 
-Use o token nas rotas protegidas:
+Use o token apenas nas rotas protegidas novas:
 
 ```bash
 curl http://localhost:8000/api/v1/perfil/me \
   -H "Authorization: Bearer ACCESS_TOKEN"
 ```
 
-Operacao diaria (`dias-de-venda`, `vendas` e `ia`) exige ao menos papel
-`usuario`. Produtos, correcoes, relatorios e custos exigem papeis mais altos
-conforme a rota.
+Endpoints antigos continuam sem Bearer token para manter compatibilidade com o
+front atual:
+
+- produtos, catalogo e midia;
+- dias de venda, vendas e correcoes;
+- relatorios e historico;
+- IA operacional: interpretar, confirmar e transcrever.
+
+Endpoints que exigem Bearer token hoje:
+
+- perfil, logout e troca de senha;
+- gestao de usuarios, apenas `dono`;
+- dados estruturados e analises de IA, apenas `dono`;
+- custos, insumos e receitas, apenas `dono`.
 
 Rotas de perfil e seguranca:
 
@@ -68,7 +79,6 @@ curl -X PATCH http://localhost:8000/api/v1/auth/usuarios/USUARIO_ID/papel \
 ```bash
 curl -X POST http://localhost:8000/api/v1/produtos \
   -H "Content-Type: application/json" \
-  -H "Authorization: Bearer ACCESS_TOKEN" \
   -d '{
     "nome": "Pao de calabresa",
     "descricao": "Pao recheado com calabresa",
@@ -84,7 +94,6 @@ curl -X POST http://localhost:8000/api/v1/produtos \
 
 ```bash
 curl -X POST http://localhost:8000/api/v1/produtos/PRODUTO_ID/midia \
-  -H "Authorization: Bearer ACCESS_TOKEN" \
   -F "file=@calabresa.jpg" \
   -F "descricao=Foto do pao de calabresa" \
   -F "texto_alternativo=Pao de calabresa em cima da mesa" \
@@ -96,7 +105,6 @@ curl -X POST http://localhost:8000/api/v1/produtos/PRODUTO_ID/midia \
 ```bash
 curl -X POST http://localhost:8000/api/v1/produtos/PRODUTO_ID/precos \
   -H "Content-Type: application/json" \
-  -H "Authorization: Bearer ACCESS_TOKEN" \
   -d '{
     "preco_venda": 12.00,
     "preco_custo": 4.50,
@@ -112,7 +120,6 @@ Vendas antes de `2026-07-10` continuam com o preco antigo porque `itens_venda` s
 ```bash
 curl -X POST http://localhost:8000/api/v1/dias-de-venda \
   -H "Content-Type: application/json" \
-  -H "Authorization: Bearer ACCESS_TOKEN" \
   -d '{
     "data_venda": "2026-07-04",
     "nome_local": "Condominio Primavera",
@@ -130,7 +137,6 @@ se o dia de hoje ja estiver aberto, apenas devolve o dia atual.
 ```bash
 curl -X POST http://localhost:8000/api/v1/dias-de-venda/iniciar-hoje \
   -H "Content-Type: application/json" \
-  -H "Authorization: Bearer ACCESS_TOKEN" \
   -d '{}'
 ```
 
@@ -159,7 +165,6 @@ Se `quantidade_nao_usada_hoje` for omitida, a API calcula o restante automaticam
 ```bash
 curl -X POST http://localhost:8000/api/v1/dias-de-venda/iniciar-hoje \
   -H "Content-Type: application/json" \
-  -H "Authorization: Bearer ACCESS_TOKEN" \
   -d '{
     "decisoes_sobra": [
       {
@@ -184,7 +189,6 @@ Nesse exemplo, o relatorio do novo dia mostra:
 ```bash
 curl -X POST http://localhost:8000/api/v1/vendas \
   -H "Content-Type: application/json" \
-  -H "Authorization: Bearer ACCESS_TOKEN" \
   -d '{
     "dia_de_venda_id": "DIA_DE_VENDA_ID",
     "tipo_entrada": "manual",
@@ -199,7 +203,6 @@ curl -X POST http://localhost:8000/api/v1/vendas \
 ```bash
 curl -X POST http://localhost:8000/api/v1/ia/interpretar-comando \
   -H "Content-Type: application/json" \
-  -H "Authorization: Bearer ACCESS_TOKEN" \
   -d '{
     "dia_de_venda_id": "DIA_DE_VENDA_ID",
     "texto": "producao de hoje foi 10 paes de calabresa e 10 paes de queijo"
@@ -224,8 +227,7 @@ No cancelamento parcial, a API nao apaga itens: ela preserva historico canceland
 ## 8. Confirmar comando interpretado
 
 ```bash
-curl -X POST http://localhost:8000/api/v1/ia/interacoes/INTERACAO_IA_ID/confirmar \
-  -H "Authorization: Bearer ACCESS_TOKEN"
+curl -X POST http://localhost:8000/api/v1/ia/interacoes/INTERACAO_IA_ID/confirmar
 ```
 
 Quando a confirmacao conseguir aplicar a operacao, a resposta vem com `sucesso: true` e `resultado.aplicado: true`. Se a operacao nao puder ser aplicada porque algum dado ficou invalido ou sumiu entre a interpretacao e a confirmacao, a API responde sem erro HTTP, com `sucesso: false`, `resultado.aplicado: false` e uma mensagem amigavel em `mensagem_assistente` e `resultado.mensagem`.
@@ -241,7 +243,6 @@ curl -X POST http://localhost:8000/api/v1/ia/interacoes/INTERACAO_IA_ID/confirma
 
 ```bash
 curl -X POST http://localhost:8000/api/v1/ia/transcrever-audio \
-  -H "Authorization: Bearer ACCESS_TOKEN" \
   -F "file=@venda.webm" \
   -F "dia_de_venda_id=DIA_DE_VENDA_ID" \
   -F "interpretar=true"
@@ -252,8 +253,7 @@ O audio e salvo no Supabase Storage e associado a `interacoes_ia` quando `interp
 ## 10. Ver resumo do dia
 
 ```bash
-curl http://localhost:8000/api/v1/relatorios/dias/DIA_DE_VENDA_ID/resumo \
-  -H "Authorization: Bearer ACCESS_TOKEN"
+curl http://localhost:8000/api/v1/relatorios/dias/DIA_DE_VENDA_ID/resumo
 ```
 
 O resumo retorna:
@@ -277,8 +277,7 @@ O resumo retorna:
 Tambem e possivel buscar por data:
 
 ```bash
-curl http://localhost:8000/api/v1/relatorios/dias/por-data/2026-07-04/resumo \
-  -H "Authorization: Bearer ACCESS_TOKEN"
+curl http://localhost:8000/api/v1/relatorios/dias/por-data/2026-07-04/resumo
 ```
 
 Para a aba de venda, use a lista filtrada de produtos que participaram do dia.
@@ -286,15 +285,13 @@ Produtos do catalogo que nao entraram no dia nao aparecem.
 Produtos que entraram e esgotaram continuam aparecendo com `esgotado: true`.
 
 ```bash
-curl http://localhost:8000/api/v1/relatorios/dias/DIA_DE_VENDA_ID/produtos-venda \
-  -H "Authorization: Bearer ACCESS_TOKEN"
+curl http://localhost:8000/api/v1/relatorios/dias/DIA_DE_VENDA_ID/produtos-venda
 ```
 
 O resumo de periodo bloqueia datas futuras e aceita filtro opcional por produto:
 
 ```bash
-curl "http://localhost:8000/api/v1/relatorios/periodo?data_inicio=2026-07-01&data_fim=2026-07-08&produto_id=PRODUTO_ID" \
-  -H "Authorization: Bearer ACCESS_TOKEN"
+curl "http://localhost:8000/api/v1/relatorios/periodo?data_inicio=2026-07-01&data_fim=2026-07-08&produto_id=PRODUTO_ID"
 ```
 
 ## 11. Corrigir dia fechado
@@ -305,7 +302,6 @@ o antes/depois em `correcoes_dia_fechado` e registrar evento `CORRECAO_DIA_FECHA
 ```bash
 curl -X POST http://localhost:8000/api/v1/dias-de-venda/DIA_DE_VENDA_ID/correcoes \
   -H "Content-Type: application/json" \
-  -H "Authorization: Bearer ACCESS_TOKEN" \
   -d '{
     "usuario_id": "user-123",
     "motivo": "Venda lancada com quantidade errada",

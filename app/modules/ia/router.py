@@ -20,11 +20,7 @@ from app.modules.ia.esquemas import (
     RespostaTranscreverAudioDeVenda,
 )
 
-router = APIRouter(
-    prefix="/ia",
-    tags=["ia"],
-    dependencies=[Depends(exigir_papel("usuario"))],
-)
+router = APIRouter(prefix="/ia", tags=["ia"])
 
 
 @router.get(
