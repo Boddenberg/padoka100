@@ -53,6 +53,43 @@ class RequisicaoFecharDiaDeVenda(ApiModel):
     observacoes: str | None = None
 
 
+class RequisicaoCorrigirProducaoDiaFechado(ApiModel):
+    produto_id: UUID
+    quantidade_produzida: int = Field(ge=0)
+    observacoes: str | None = None
+
+
+class RequisicaoCorrigirItemVendaDiaFechado(ApiModel):
+    item_venda_id: UUID
+    quantidade: int = Field(gt=0)
+
+
+class RequisicaoItemVendaRetroativaDiaFechado(ApiModel):
+    produto_id: UUID
+    quantidade: int = Field(gt=0)
+
+
+class RequisicaoVendaRetroativaDiaFechado(ApiModel):
+    itens: list[RequisicaoItemVendaRetroativaDiaFechado] = Field(min_length=1)
+    ocorrido_em: datetime | None = None
+    observacoes: str | None = None
+    texto_original: str | None = None
+
+
+class RequisicaoCancelarVendaDiaFechado(ApiModel):
+    venda_id: UUID
+    motivo: str | None = None
+
+
+class RequisicaoCorrigirDiaFechado(ApiModel):
+    usuario_id: str | None = None
+    motivo: str | None = None
+    producoes: list[RequisicaoCorrigirProducaoDiaFechado] = Field(default_factory=list)
+    itens_venda: list[RequisicaoCorrigirItemVendaDiaFechado] = Field(default_factory=list)
+    vendas_adicionadas: list[RequisicaoVendaRetroativaDiaFechado] = Field(default_factory=list)
+    vendas_canceladas: list[RequisicaoCancelarVendaDiaFechado] = Field(default_factory=list)
+
+
 class RequisicaoIniciarDiaDeVenda(ApiModel):
     data_venda: date | None = None
     local_id: UUID | None = None

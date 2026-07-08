@@ -1,4 +1,5 @@
 from datetime import date
+from typing import Annotated
 from uuid import UUID
 
 from fastapi import APIRouter, Query
@@ -9,20 +10,22 @@ from app.modules.dias_de_venda.esquemas import (
     IniciarDiaDeVendaSaida,
     ItemProducaoSaida,
     RequisicaoAtualizarDiaDeVenda,
+    RequisicaoCorrigirDiaFechado,
     RequisicaoCriarDiaDeVenda,
     RequisicaoCriarItemProducao,
     RequisicaoFecharDiaDeVenda,
     RequisicaoIniciarDiaDeVenda,
 )
+from app.shared.esquemas import CorrecaoDiaFechadoSaida
 
 router = APIRouter(prefix="/dias-de-venda", tags=["dias-de-venda"])
 
 
 @router.get("", response_model=list[DiaDeVendaSaida])
 def listar_dias_de_venda(
-    data_inicio: date | None = Query(default=None),
-    data_fim: date | None = Query(default=None),
-    situacao: str | None = Query(default=None, pattern="^(aberto|fechado)$"),
+    data_inicio: Annotated[date | None, Query()] = None,
+    data_fim: Annotated[date | None, Query()] = None,
+    situacao: Annotated[str | None, Query(pattern="^(aberto|fechado)$")] = None,
 ) -> list[dict]:
     return servico.listar_dias_de_venda(
         data_inicio=data_inicio,
@@ -37,7 +40,9 @@ def criar_dia_de_venda(requisicao: RequisicaoCriarDiaDeVenda) -> dict:
 
 
 @router.get("/atual", response_model=DiaDeVendaSaida)
-def buscar_dia_de_venda_atual(data_venda: date | None = Query(default=None)) -> dict:
+def buscar_dia_de_venda_atual(
+    data_venda: Annotated[date | None, Query()] = None,
+) -> dict:
     return servico.buscar_dia_de_venda_atual(data_venda=data_venda)
 
 
@@ -73,3 +78,15 @@ def fechar_dia_de_venda(
     requisicao: RequisicaoFecharDiaDeVenda,
 ) -> dict:
     return servico.fechar_dia_de_venda(dia_de_venda_id, requisicao)
+
+
+@router.post(
+    "/{dia_de_venda_id}/correcoes",
+    response_model=CorrecaoDiaFechadoSaida,
+    status_code=201,
+)
+def corrigir_dia_fechado(
+    dia_de_venda_id: UUID,
+    requisicao: RequisicaoCorrigirDiaFechado,
+) -> dict:
+    return servico.corrigir_dia_fechado(dia_de_venda_id, requisicao)

@@ -24,6 +24,18 @@ class EventoLinhaDoTempoSaida(ApiModel):
     tipo_entidade: str
     entidade_id: UUID | None = None
     tipo_evento: str
+    tipo: str
     titulo: str
     detalhes: dict
+    dados: dict
+    dataHora: datetime
+    criado_em: datetime
+
+
+class CorrecaoDiaFechadoSaida(ApiModel):
+    id: UUID
+    dia_de_venda_id: UUID
+    usuario_id: str | None = None
+    motivo: str | None = None
+    alteracoes: list[dict] = Field(default_factory=list)
     criado_em: datetime

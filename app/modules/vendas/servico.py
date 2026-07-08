@@ -1,9 +1,8 @@
 from collections import defaultdict
-from datetime import date, datetime, timezone
+from datetime import UTC, date, datetime
 from decimal import Decimal
+from typing import Any
 from uuid import UUID
-
-from supabase import Client
 
 from app.core.errors import BadRequestError, NotFoundError
 from app.db.supabase import get_supabase_client
@@ -12,15 +11,21 @@ from app.modules.produtos import servico as servico_de_produtos
 from app.modules.vendas.esquemas import RequisicaoCancelarVenda, RequisicaoRegistrarVenda
 from app.shared.db import first_or_none, to_db_payload
 from app.shared.linha_do_tempo import registrar_evento_na_linha_do_tempo
+from supabase import Client
 
 
-def registrar_venda(requisicao: RequisicaoRegistrarVenda) -> dict:
+def registrar_venda(
+    requisicao: RequisicaoRegistrarVenda,
+    *,
+    permitir_dia_fechado: bool = False,
+    detalhes_evento: dict[str, Any] | None = None,
+) -> dict:
     client = get_supabase_client()
     dia_de_venda = servico_de_dias_de_venda.buscar_linha_dia_de_venda(
         client,
         requisicao.dia_de_venda_id,
     )
-    if dia_de_venda["situacao"] == "fechado":
+    if dia_de_venda["situacao"] == "fechado" and not permitir_dia_fechado:
         raise BadRequestError("Nao e possivel registrar venda em um dia fechado.")
 
     dados_venda = to_db_payload(
@@ -42,21 +47,31 @@ def registrar_venda(requisicao: RequisicaoRegistrarVenda) -> dict:
     ]
     client.table("itens_venda").insert(linhas_itens).execute()
 
+    detalhes = {
+        "tipo_entrada": requisicao.tipo_entrada,
+        "itens": [
+            {
+                "produto_id": item["produto_id"],
+                "produto": item["nome_produto_no_momento"],
+                "quantidade": item["quantidade"],
+                "valor_total": item["valor_total_venda"],
+            }
+            for item in linhas_itens
+        ],
+    }
+    if detalhes_evento:
+        detalhes.update(detalhes_evento)
+
     registrar_evento_na_linha_do_tempo(
         client,
-        tipo_evento="venda_registrada",
+        tipo_evento="VENDA_REALIZADA",
         titulo="Venda registrada",
         tipo_entidade="venda",
         entidade_id=venda["id"],
         dia_de_venda_id=requisicao.dia_de_venda_id,
-        detalhes={
-            "tipo_entrada": requisicao.tipo_entrada,
-            "itens": [
-                {"produto_id": str(item.produto_id), "quantidade": item.quantidade}
-                for item in requisicao.itens
-            ],
-        },
+        detalhes=detalhes,
     )
+    _registrar_eventos_de_esgotamento(client, dia_de_venda, linhas_itens)
     return buscar_venda(UUID(venda["id"]))
 
 
@@ -92,7 +107,7 @@ def cancelar_venda(venda_id: UUID, requisicao: RequisicaoCancelarVenda) -> dict:
             to_db_payload(
                 {
                     "situacao": "cancelada",
-                    "cancelado_em": datetime.now(timezone.utc),
+                    "cancelado_em": datetime.now(UTC),
                     "motivo_cancelamento": requisicao.motivo,
                 }
             )
@@ -133,6 +148,108 @@ def _anexar_itens_as_vendas(client: Client, vendas: list[dict]) -> list[dict]:
     for venda in vendas:
         venda["itens"] = itens_agrupados[venda["id"]]
     return vendas
+
+
+def _registrar_eventos_de_esgotamento(
+    client: Client,
+    dia_de_venda: dict,
+    itens_vendidos: list[dict],
+) -> None:
+    itens_por_produto = defaultdict(lambda: {"quantidade": 0, "produto": None})
+    for item in itens_vendidos:
+        produto_id = item["produto_id"]
+        itens_por_produto[produto_id]["quantidade"] += item["quantidade"]
+        itens_por_produto[produto_id]["produto"] = item
+
+    for produto_id, resumo_item in itens_por_produto.items():
+        quantidade_disponivel = _calcular_quantidade_disponivel_do_produto(
+            client,
+            dia_de_venda["id"],
+            produto_id,
+        )
+        if quantidade_disponivel <= 0:
+            continue
+
+        quantidade_vendida = _calcular_quantidade_vendida_ativa_do_produto(
+            client,
+            dia_de_venda["id"],
+            produto_id,
+        )
+        quantidade_vendida_antes = quantidade_vendida - resumo_item["quantidade"]
+        if quantidade_vendida_antes >= quantidade_disponivel:
+            continue
+        if quantidade_vendida < quantidade_disponivel:
+            continue
+
+        item = resumo_item["produto"]
+        registrar_evento_na_linha_do_tempo(
+            client,
+            tipo_evento="PRODUTO_ESGOTADO",
+            titulo=f"Produto esgotado: {item['nome_produto_no_momento']}",
+            tipo_entidade="produto",
+            entidade_id=produto_id,
+            dia_de_venda_id=dia_de_venda["id"],
+            detalhes={
+                "produto_id": produto_id,
+                "produto": item["nome_produto_no_momento"],
+                "quantidade_disponivel": quantidade_disponivel,
+                "quantidade_vendida": quantidade_vendida,
+            },
+        )
+
+
+def _calcular_quantidade_disponivel_do_produto(
+    client: Client,
+    dia_de_venda_id: UUID | str,
+    produto_id: UUID | str,
+) -> int:
+    itens_producao = (
+        client.table("itens_producao")
+        .select("quantidade_produzida")
+        .eq("dia_de_venda_id", str(dia_de_venda_id))
+        .eq("produto_id", str(produto_id))
+        .execute()
+        .data
+    )
+    decisoes_sobra = (
+        client.table("decisoes_sobra")
+        .select("quantidade_usada_hoje")
+        .eq("dia_destino_id", str(dia_de_venda_id))
+        .eq("produto_id", str(produto_id))
+        .execute()
+        .data
+    )
+    return sum(item["quantidade_produzida"] for item in itens_producao) + sum(
+        decisao["quantidade_usada_hoje"] for decisao in decisoes_sobra
+    )
+
+
+def _calcular_quantidade_vendida_ativa_do_produto(
+    client: Client,
+    dia_de_venda_id: UUID | str,
+    produto_id: UUID | str,
+) -> int:
+    vendas_ativas = (
+        client.table("vendas")
+        .select("id")
+        .eq("dia_de_venda_id", str(dia_de_venda_id))
+        .eq("situacao", "ativa")
+        .execute()
+        .data
+    )
+    venda_ids = [venda["id"] for venda in vendas_ativas]
+    if not venda_ids:
+        return 0
+
+    itens_venda = (
+        client.table("itens_venda")
+        .select("quantidade")
+        .in_("venda_id", venda_ids)
+        .eq("produto_id", str(produto_id))
+        .execute()
+        .data
+    )
+    return sum(item["quantidade"] for item in itens_venda)
 
 
 def _montar_dados_item_vendido(

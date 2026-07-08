@@ -199,12 +199,63 @@ O resumo retorna:
 - custo estimado
 - lucro estimado
 - detalhes por produto
+- produtos produzidos
+- produtos vendidos
+- produtos sobrando
+- produtos esgotados
+- historico estruturado do dia
+- correcoes retroativas do dia
 
-## 10. Ver historico
+Tambem e possivel buscar por data:
+
+```bash
+curl http://localhost:8000/api/v1/relatorios/dias/por-data/2026-07-04/resumo
+```
+
+Para a aba de venda, use a lista filtrada de produtos que participaram do dia.
+Produtos do catalogo que nao entraram no dia nao aparecem.
+Produtos que entraram e esgotaram continuam aparecendo com `esgotado: true`.
+
+```bash
+curl http://localhost:8000/api/v1/relatorios/dias/DIA_DE_VENDA_ID/produtos-venda
+```
+
+O resumo de periodo bloqueia datas futuras e aceita filtro opcional por produto:
+
+```bash
+curl "http://localhost:8000/api/v1/relatorios/periodo?data_inicio=2026-07-01&data_fim=2026-07-08&produto_id=PRODUTO_ID"
+```
+
+## 10. Corrigir dia fechado
+
+Dia fechado nao e reaberto sem controle. Use correcao retroativa para preservar
+o antes/depois em `correcoes_dia_fechado` e registrar evento `CORRECAO_DIA_FECHADO`.
+
+```bash
+curl -X POST http://localhost:8000/api/v1/dias-de-venda/DIA_DE_VENDA_ID/correcoes \
+  -H "Content-Type: application/json" \
+  -d '{
+    "usuario_id": "user-123",
+    "motivo": "Venda lancada com quantidade errada",
+    "itens_venda": [
+      { "item_venda_id": "ITEM_VENDA_ID", "quantidade": 5 }
+    ]
+  }'
+```
+
+Campos aceitos na correcao:
+
+- `producoes`: ajusta ou adiciona producao no dia fechado.
+- `itens_venda`: corrige quantidade de um item de venda existente.
+- `vendas_adicionadas`: adiciona venda retroativa ao dia fechado.
+- `vendas_canceladas`: cancela venda existente do dia fechado.
+
+## 11. Ver historico
 
 ```bash
 curl http://localhost:8000/api/v1/historico/linha-do-tempo?dia_de_venda_id=DIA_DE_VENDA_ID
 ```
 
-Eventos importantes entram em `eventos_linha_do_tempo`: produto criado, preco alterado, dia aberto, producao adicionada, venda registrada, venda cancelada e midia enviada.
+Eventos importantes entram em `eventos_linha_do_tempo` com `tipo` publico em caixa alta,
+`dataHora` e `dados`, alem dos campos antigos mantidos por compatibilidade.
 

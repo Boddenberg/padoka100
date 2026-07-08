@@ -1,6 +1,7 @@
 from uuid import UUID
 
 from app.db.supabase import get_supabase_client
+from app.shared.linha_do_tempo import montar_evento_publico
 
 
 def listar_eventos_da_linha_do_tempo(
@@ -11,11 +12,16 @@ def listar_eventos_da_linha_do_tempo(
     limite: int = 100,
 ) -> list[dict]:
     client = get_supabase_client()
-    consulta = client.table("eventos_linha_do_tempo").select("*").order("criado_em", desc=True).limit(limite)
+    consulta = (
+        client.table("eventos_linha_do_tempo")
+        .select("*")
+        .order("criado_em", desc=True)
+        .limit(limite)
+    )
     if dia_de_venda_id:
         consulta = consulta.eq("dia_de_venda_id", str(dia_de_venda_id))
     if tipo_entidade:
         consulta = consulta.eq("tipo_entidade", tipo_entidade)
     if entidade_id:
         consulta = consulta.eq("entidade_id", str(entidade_id))
-    return consulta.execute().data
+    return [montar_evento_publico(evento) for evento in consulta.execute().data]
