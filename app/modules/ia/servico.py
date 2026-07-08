@@ -24,9 +24,10 @@ from app.modules.ia.esquemas import (
 )
 from app.modules.midia.servico import enviar_midia_em_bytes
 from app.modules.produtos import servico as servico_de_produtos
+from app.modules.relatorios import servico as servico_de_relatorios
 from app.modules.vendas import servico as servico_de_vendas
 from app.modules.vendas.esquemas import RequisicaoCancelarVenda, RequisicaoRegistrarVenda
-from app.shared.db import first_or_none, to_db_payload
+from app.shared.db import encode_value, first_or_none, to_db_payload
 
 ACAO_REGISTRAR_VENDA = "registrar_venda"
 ACAO_REGISTRAR_PRODUCAO = "registrar_producao"
@@ -211,6 +212,117 @@ def interpretar_comando(
         "itens_nao_identificados": interpretacao["itens_nao_identificados"],
         "dados_confirmacao": dados_confirmacao,
         "modelo_usado": modelo_usado,
+    }
+
+
+def montar_dados_estruturados_periodo(
+    *,
+    data_inicio: str,
+    data_fim: str,
+    produto_id: UUID | None = None,
+) -> dict:
+    data_inicio_valor = date.fromisoformat(data_inicio)
+    data_fim_valor = date.fromisoformat(data_fim)
+    resumo = servico_de_relatorios.buscar_resumo_do_periodo(
+        data_inicio_valor,
+        data_fim_valor,
+        produto_id=produto_id,
+    )
+    produtos_por_id: dict[str, dict] = {}
+    correcoes = []
+    dias = []
+    for dia in resumo["dias"]:
+        dias.append(
+            {
+                "data": dia["data"],
+                "status": dia["status"],
+                "faturamentoTotal": dia["faturamento_total"],
+                "quantidadeTotalProduzida": dia["total_produzido"],
+                "quantidadeTotalVendida": dia["total_vendido"],
+                "quantidadeTotalSobrando": dia["total_sobra"],
+                "produtosEsgotados": [
+                    produto["nome_produto"] for produto in dia["produtos_esgotados"]
+                ],
+            }
+        )
+        correcoes.extend(dia.get("correcoes", []))
+        for produto in dia["produtos"]:
+            produto_id_chave = produto["produto_id"]
+            acumulado = produtos_por_id.setdefault(
+                produto_id_chave,
+                {
+                    "produtoId": produto_id_chave,
+                    "produto": produto["nome_produto"],
+                    "totalProduzido": 0,
+                    "totalVendido": 0,
+                    "totalSobrando": 0,
+                    "faturamento": 0,
+                    "diasEsgotado": 0,
+                },
+            )
+            acumulado["totalProduzido"] += produto["quantidade_produzida"]
+            acumulado["totalVendido"] += produto["quantidade_vendida"]
+            acumulado["totalSobrando"] += produto["quantidade_sobra"]
+            acumulado["faturamento"] += produto["faturamento_bruto"]
+            if produto["esgotado"]:
+                acumulado["diasEsgotado"] += 1
+
+    dados = {
+        "periodo": {"inicio": data_inicio, "fim": data_fim},
+        "faturamentoTotal": resumo["faturamento_bruto"],
+        "quantidadeTotalProduzida": resumo["total_produzido"],
+        "quantidadeTotalVendida": resumo["total_vendido"],
+        "quantidadeTotalSobrando": resumo["total_sobra"],
+        "produtos": sorted(
+            produtos_por_id.values(),
+            key=lambda produto: produto["totalVendido"],
+            reverse=True,
+        ),
+        "dias": dias,
+        "correcoesRetroativas": correcoes,
+    }
+    return encode_value(dados)
+
+
+def analisar_periodo_padrao(requisicao) -> dict:
+    dados = montar_dados_estruturados_periodo(
+        data_inicio=requisicao.data_inicio,
+        data_fim=requisicao.data_fim,
+        produto_id=requisicao.produto_id,
+    )
+    analise, modelo_usado = _gerar_analise_com_ia(
+        dados=dados,
+        pergunta=None,
+        contexto_usuario=requisicao.contexto_usuario,
+        filtros=requisicao.filtros,
+    )
+    return {
+        "periodo": dados["periodo"],
+        "tipo": "padrao",
+        "modelo_usado": modelo_usado,
+        "dados_estruturados": dados,
+        "analise": analise,
+    }
+
+
+def analisar_periodo_especifico(requisicao) -> dict:
+    dados = montar_dados_estruturados_periodo(
+        data_inicio=requisicao.data_inicio,
+        data_fim=requisicao.data_fim,
+        produto_id=requisicao.produto_id,
+    )
+    analise, modelo_usado = _gerar_analise_com_ia(
+        dados=dados,
+        pergunta=requisicao.pergunta,
+        contexto_usuario=requisicao.contexto_usuario,
+        filtros=requisicao.filtros,
+    )
+    return {
+        "periodo": dados["periodo"],
+        "tipo": "especifica",
+        "modelo_usado": modelo_usado,
+        "dados_estruturados": dados,
+        "analise": analise,
     }
 
 
@@ -529,6 +641,72 @@ def _interpretar_com_openai(texto: str, produtos: list[dict]) -> dict:
         },
     )
     return json.loads(resposta.output_text)
+
+
+def _gerar_analise_com_ia(
+    *,
+    dados: dict,
+    pergunta: str | None,
+    contexto_usuario: str | None,
+    filtros: dict,
+) -> tuple[str, str]:
+    settings = get_settings()
+    if not settings.openai_text_configured:
+        return _gerar_analise_local(dados, pergunta), "analise-local"
+
+    resposta = get_openai_client().responses.create(
+        model=settings.openai_text_model_resolved,
+        instructions=(
+            "Voce analisa dados estruturados de vendas de uma pequena padaria familiar. "
+            "Use apenas os dados fornecidos. Nao invente vendas, custos, datas ou produtos. "
+            "Se algo nao estiver nos dados, diga que a informacao nao esta disponivel. "
+            "Considere faturamento, producao, vendas, sobras, produtos esgotados, "
+            "comparacao entre dias e correcoes retroativas. "
+            "Quando houver dados estimados ou incompletos, sinalize a limitacao. "
+            "Responda em portugues brasileiro, de forma direta e acionavel."
+        ),
+        input=json.dumps(
+            {
+                "pergunta_especifica": pergunta,
+                "contexto_usuario": contexto_usuario,
+                "filtros": filtros,
+                "dados": dados,
+            },
+            ensure_ascii=False,
+        ),
+    )
+    return resposta.output_text, settings.openai_text_model_resolved
+
+
+def _gerar_analise_local(dados: dict, pergunta: str | None) -> str:
+    produtos = dados["produtos"]
+    produto_mais_vendido = produtos[0] if produtos else None
+    produto_mais_sobra = max(produtos, key=lambda produto: produto["totalSobrando"], default=None)
+    partes = [
+        f"Periodo analisado: {dados['periodo']['inicio']} a {dados['periodo']['fim']}.",
+        f"Faturamento total: R$ {Decimal(str(dados['faturamentoTotal'])):.2f}.",
+        f"Total produzido: {dados['quantidadeTotalProduzida']}.",
+        f"Total vendido: {dados['quantidadeTotalVendida']}.",
+        f"Total sobrando: {dados['quantidadeTotalSobrando']}.",
+    ]
+    if produto_mais_vendido:
+        partes.append(
+            "Produto mais vendido: "
+            f"{produto_mais_vendido['produto']} ({produto_mais_vendido['totalVendido']} unidades)."
+        )
+    if produto_mais_sobra:
+        partes.append(
+            "Produto com maior sobra: "
+            f"{produto_mais_sobra['produto']} ({produto_mais_sobra['totalSobrando']} unidades)."
+        )
+    if dados["correcoesRetroativas"]:
+        partes.append("Ha correcoes retroativas no periodo; revise os dias corrigidos.")
+    if pergunta:
+        partes.append(
+            "A pergunta especifica foi registrada, mas a analise local nao interpreta filtros "
+            "em linguagem natural. Configure OpenAI para resposta contextual completa."
+        )
+    return " ".join(partes)
 
 
 def _interpretar_com_fallback(texto: str, produtos: list[dict]) -> dict:

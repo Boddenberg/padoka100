@@ -6,11 +6,69 @@ Base local:
 http://localhost:8000/api/v1
 ```
 
-## 1. Criar produto visual
+## 1. Autenticacao e perfil
+
+O primeiro usuario cadastrado vira `dono`. Os proximos entram como `usuario`.
+
+```bash
+curl -X POST http://localhost:8000/api/v1/auth/registrar \
+  -H "Content-Type: application/json" \
+  -d '{
+    "email": "dono@padoka.local",
+    "senha": "senha-segura-123",
+    "nome": "Dono da Padoka",
+    "telefone": "11999999999"
+  }'
+```
+
+Login:
+
+```bash
+curl -X POST http://localhost:8000/api/v1/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{
+    "email": "dono@padoka.local",
+    "senha": "senha-segura-123"
+  }'
+```
+
+Use o token nas rotas protegidas:
+
+```bash
+curl http://localhost:8000/api/v1/perfil/me \
+  -H "Authorization: Bearer ACCESS_TOKEN"
+```
+
+Operacao diaria (`dias-de-venda`, `vendas` e `ia`) exige ao menos papel
+`usuario`. Produtos, correcoes, relatorios e custos exigem papeis mais altos
+conforme a rota.
+
+Rotas de perfil e seguranca:
+
+```bash
+curl -X PATCH http://localhost:8000/api/v1/perfil/me \
+  -H "Authorization: Bearer ACCESS_TOKEN"
+curl -X POST http://localhost:8000/api/v1/auth/trocar-senha \
+  -H "Authorization: Bearer ACCESS_TOKEN"
+curl -X POST http://localhost:8000/api/v1/auth/logout \
+  -H "Authorization: Bearer ACCESS_TOKEN"
+```
+
+Rotas de permissao para `dono`:
+
+```bash
+curl http://localhost:8000/api/v1/auth/usuarios \
+  -H "Authorization: Bearer ACCESS_TOKEN"
+curl -X PATCH http://localhost:8000/api/v1/auth/usuarios/USUARIO_ID/papel \
+  -H "Authorization: Bearer ACCESS_TOKEN"
+```
+
+## 2. Criar produto visual
 
 ```bash
 curl -X POST http://localhost:8000/api/v1/produtos \
   -H "Content-Type: application/json" \
+  -H "Authorization: Bearer ACCESS_TOKEN" \
   -d '{
     "nome": "Pao de calabresa",
     "descricao": "Pao recheado com calabresa",
@@ -22,21 +80,23 @@ curl -X POST http://localhost:8000/api/v1/produtos \
   }'
 ```
 
-## 2. Enviar foto do produto
+## 3. Enviar foto do produto
 
 ```bash
 curl -X POST http://localhost:8000/api/v1/produtos/PRODUTO_ID/midia \
+  -H "Authorization: Bearer ACCESS_TOKEN" \
   -F "file=@calabresa.jpg" \
   -F "descricao=Foto do pao de calabresa" \
   -F "texto_alternativo=Pao de calabresa em cima da mesa" \
   -F "definir_como_principal=true"
 ```
 
-## 3. Mudar preco sem afetar passado
+## 4. Mudar preco sem afetar passado
 
 ```bash
 curl -X POST http://localhost:8000/api/v1/produtos/PRODUTO_ID/precos \
   -H "Content-Type: application/json" \
+  -H "Authorization: Bearer ACCESS_TOKEN" \
   -d '{
     "preco_venda": 12.00,
     "preco_custo": 4.50,
@@ -47,11 +107,12 @@ curl -X POST http://localhost:8000/api/v1/produtos/PRODUTO_ID/precos \
 
 Vendas antes de `2026-07-10` continuam com o preco antigo porque `itens_venda` salva `preco_venda_unitario_no_momento`.
 
-## 4. Abrir dia com producao
+## 5. Abrir dia com producao
 
 ```bash
 curl -X POST http://localhost:8000/api/v1/dias-de-venda \
   -H "Content-Type: application/json" \
+  -H "Authorization: Bearer ACCESS_TOKEN" \
   -d '{
     "data_venda": "2026-07-04",
     "nome_local": "Condominio Primavera",
@@ -61,7 +122,7 @@ curl -X POST http://localhost:8000/api/v1/dias-de-venda \
   }'
 ```
 
-## 4.1. Iniciar hoje com virada automatica
+## 5.1. Iniciar hoje com virada automatica
 
 Use este endpoint na abertura do app ou no primeiro acesso do dia. Ele e idempotente:
 se o dia de hoje ja estiver aberto, apenas devolve o dia atual.
@@ -69,6 +130,7 @@ se o dia de hoje ja estiver aberto, apenas devolve o dia atual.
 ```bash
 curl -X POST http://localhost:8000/api/v1/dias-de-venda/iniciar-hoje \
   -H "Content-Type: application/json" \
+  -H "Authorization: Bearer ACCESS_TOKEN" \
   -d '{}'
 ```
 
@@ -97,6 +159,7 @@ Se `quantidade_nao_usada_hoje` for omitida, a API calcula o restante automaticam
 ```bash
 curl -X POST http://localhost:8000/api/v1/dias-de-venda/iniciar-hoje \
   -H "Content-Type: application/json" \
+  -H "Authorization: Bearer ACCESS_TOKEN" \
   -d '{
     "decisoes_sobra": [
       {
@@ -116,11 +179,12 @@ Nesse exemplo, o relatorio do novo dia mostra:
 - sobra aproveitada: 8
 - disponivel: 38
 
-## 5. Registrar venda manual
+## 6. Registrar venda manual
 
 ```bash
 curl -X POST http://localhost:8000/api/v1/vendas \
   -H "Content-Type: application/json" \
+  -H "Authorization: Bearer ACCESS_TOKEN" \
   -d '{
     "dia_de_venda_id": "DIA_DE_VENDA_ID",
     "tipo_entrada": "manual",
@@ -130,11 +194,12 @@ curl -X POST http://localhost:8000/api/v1/vendas \
   }'
 ```
 
-## 6. Interpretar comando por texto
+## 7. Interpretar comando por texto
 
 ```bash
 curl -X POST http://localhost:8000/api/v1/ia/interpretar-comando \
   -H "Content-Type: application/json" \
+  -H "Authorization: Bearer ACCESS_TOKEN" \
   -d '{
     "dia_de_venda_id": "DIA_DE_VENDA_ID",
     "texto": "producao de hoje foi 10 paes de calabresa e 10 paes de queijo"
@@ -156,10 +221,11 @@ Comandos suportados pelo fluxo generico:
 
 No cancelamento parcial, a API nao apaga itens: ela preserva historico cancelando a venda original e registrando uma venda corrigida depois da confirmacao.
 
-## 7. Confirmar comando interpretado
+## 8. Confirmar comando interpretado
 
 ```bash
-curl -X POST http://localhost:8000/api/v1/ia/interacoes/INTERACAO_IA_ID/confirmar
+curl -X POST http://localhost:8000/api/v1/ia/interacoes/INTERACAO_IA_ID/confirmar \
+  -H "Authorization: Bearer ACCESS_TOKEN"
 ```
 
 Quando a confirmacao conseguir aplicar a operacao, a resposta vem com `sucesso: true` e `resultado.aplicado: true`. Se a operacao nao puder ser aplicada porque algum dado ficou invalido ou sumiu entre a interpretacao e a confirmacao, a API responde sem erro HTTP, com `sucesso: false`, `resultado.aplicado: false` e uma mensagem amigavel em `mensagem_assistente` e `resultado.mensagem`.
@@ -171,10 +237,11 @@ curl -X POST http://localhost:8000/api/v1/ia/interpretar-comando-de-venda
 curl -X POST http://localhost:8000/api/v1/ia/interacoes/INTERACAO_IA_ID/confirmar-venda
 ```
 
-## 8. Enviar audio
+## 9. Enviar audio
 
 ```bash
 curl -X POST http://localhost:8000/api/v1/ia/transcrever-audio \
+  -H "Authorization: Bearer ACCESS_TOKEN" \
   -F "file=@venda.webm" \
   -F "dia_de_venda_id=DIA_DE_VENDA_ID" \
   -F "interpretar=true"
@@ -182,10 +249,11 @@ curl -X POST http://localhost:8000/api/v1/ia/transcrever-audio \
 
 O audio e salvo no Supabase Storage e associado a `interacoes_ia` quando `interpretar=true`.
 
-## 9. Ver resumo do dia
+## 10. Ver resumo do dia
 
 ```bash
-curl http://localhost:8000/api/v1/relatorios/dias/DIA_DE_VENDA_ID/resumo
+curl http://localhost:8000/api/v1/relatorios/dias/DIA_DE_VENDA_ID/resumo \
+  -H "Authorization: Bearer ACCESS_TOKEN"
 ```
 
 O resumo retorna:
@@ -209,7 +277,8 @@ O resumo retorna:
 Tambem e possivel buscar por data:
 
 ```bash
-curl http://localhost:8000/api/v1/relatorios/dias/por-data/2026-07-04/resumo
+curl http://localhost:8000/api/v1/relatorios/dias/por-data/2026-07-04/resumo \
+  -H "Authorization: Bearer ACCESS_TOKEN"
 ```
 
 Para a aba de venda, use a lista filtrada de produtos que participaram do dia.
@@ -217,16 +286,18 @@ Produtos do catalogo que nao entraram no dia nao aparecem.
 Produtos que entraram e esgotaram continuam aparecendo com `esgotado: true`.
 
 ```bash
-curl http://localhost:8000/api/v1/relatorios/dias/DIA_DE_VENDA_ID/produtos-venda
+curl http://localhost:8000/api/v1/relatorios/dias/DIA_DE_VENDA_ID/produtos-venda \
+  -H "Authorization: Bearer ACCESS_TOKEN"
 ```
 
 O resumo de periodo bloqueia datas futuras e aceita filtro opcional por produto:
 
 ```bash
-curl "http://localhost:8000/api/v1/relatorios/periodo?data_inicio=2026-07-01&data_fim=2026-07-08&produto_id=PRODUTO_ID"
+curl "http://localhost:8000/api/v1/relatorios/periodo?data_inicio=2026-07-01&data_fim=2026-07-08&produto_id=PRODUTO_ID" \
+  -H "Authorization: Bearer ACCESS_TOKEN"
 ```
 
-## 10. Corrigir dia fechado
+## 11. Corrigir dia fechado
 
 Dia fechado nao e reaberto sem controle. Use correcao retroativa para preservar
 o antes/depois em `correcoes_dia_fechado` e registrar evento `CORRECAO_DIA_FECHADO`.
@@ -234,6 +305,7 @@ o antes/depois em `correcoes_dia_fechado` e registrar evento `CORRECAO_DIA_FECHA
 ```bash
 curl -X POST http://localhost:8000/api/v1/dias-de-venda/DIA_DE_VENDA_ID/correcoes \
   -H "Content-Type: application/json" \
+  -H "Authorization: Bearer ACCESS_TOKEN" \
   -d '{
     "usuario_id": "user-123",
     "motivo": "Venda lancada com quantidade errada",
@@ -250,7 +322,102 @@ Campos aceitos na correcao:
 - `vendas_adicionadas`: adiciona venda retroativa ao dia fechado.
 - `vendas_canceladas`: cancela venda existente do dia fechado.
 
-## 11. Ver historico
+## 12. Dados estruturados e analises com IA
+
+Dados estruturados por periodo:
+
+```bash
+curl "http://localhost:8000/api/v1/ia/dados-estruturados/periodo?data_inicio=2026-07-01&data_fim=2026-07-08" \
+  -H "Authorization: Bearer ACCESS_TOKEN"
+```
+
+Analise padrao:
+
+```bash
+curl -X POST http://localhost:8000/api/v1/ia/analises/padrao \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer ACCESS_TOKEN" \
+  -d '{
+    "data_inicio": "2026-07-01",
+    "data_fim": "2026-07-08"
+  }'
+```
+
+Analise especifica:
+
+```bash
+curl -X POST http://localhost:8000/api/v1/ia/analises/especifica \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer ACCESS_TOKEN" \
+  -d '{
+    "data_inicio": "2026-07-01",
+    "data_fim": "2026-07-08",
+    "pergunta": "O que mais sobrou e o que devo produzir menos?"
+  }'
+```
+
+Se `OPENAI_API_KEY` e `OPENAI_TEXT_MODEL` nao estiverem configurados, a API retorna
+uma analise local simples sem inventar dados.
+
+## 13. Custos, insumos e receitas
+
+Criar insumo:
+
+```bash
+curl -X POST http://localhost:8000/api/v1/custos/insumos \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer ACCESS_TOKEN" \
+  -d '{
+    "nome": "Farinha de trigo",
+    "quantidade_comprada": 1,
+    "unidade_compra": "kg",
+    "preco_total": 5.00,
+    "status": "CONFIRMADO"
+  }'
+```
+
+Criar receita:
+
+```bash
+curl -X POST http://localhost:8000/api/v1/custos/produtos/PRODUTO_ID/receitas \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer ACCESS_TOKEN" \
+  -d '{
+    "rendimento": 10,
+    "ingredientes": [
+      {
+        "insumo_id": "INSUMO_ID",
+        "nome": "Farinha de trigo",
+        "quantidade_usada": 800,
+        "unidade": "g",
+        "status": "CONFIRMADO"
+      }
+    ]
+  }'
+```
+
+Adicionar custo extra:
+
+```bash
+curl -X POST http://localhost:8000/api/v1/custos/produtos/PRODUTO_ID/custos-adicionais \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer ACCESS_TOKEN" \
+  -d '{
+    "tipo": "indireto",
+    "nome": "gas",
+    "valor": 3.00,
+    "status": "ESTIMADO"
+  }'
+```
+
+Calcular custo:
+
+```bash
+curl http://localhost:8000/api/v1/custos/produtos/PRODUTO_ID/calculo \
+  -H "Authorization: Bearer ACCESS_TOKEN"
+```
+
+## 14. Ver historico
 
 ```bash
 curl http://localhost:8000/api/v1/historico/linha-do-tempo?dia_de_venda_id=DIA_DE_VENDA_ID

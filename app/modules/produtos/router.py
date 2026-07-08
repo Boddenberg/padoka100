@@ -1,8 +1,10 @@
 from datetime import date
+from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, File, Form, Query, UploadFile
+from fastapi import APIRouter, Depends, File, Form, Query, UploadFile
 
+from app.modules.auth.dependencias import exigir_papel
 from app.modules.midia import servico as servico_de_midia
 from app.modules.midia.esquemas import MidiaSaida
 from app.modules.produtos import servico
@@ -20,22 +22,34 @@ router = APIRouter(prefix="/produtos", tags=["produtos"])
 @router.get("", response_model=list[ProdutoSaida])
 def listar_produtos(
     somente_ativos: bool = True,
-    data_preco: date | None = Query(default=None),
+    data_preco: Annotated[date | None, Query()] = None,
 ) -> list[dict]:
     return servico.listar_produtos(somente_ativos=somente_ativos, data_preco=data_preco)
 
 
-@router.post("", response_model=ProdutoSaida, status_code=201)
+@router.post(
+    "",
+    response_model=ProdutoSaida,
+    status_code=201,
+    dependencies=[Depends(exigir_papel("administrador", "dono"))],
+)
 def criar_produto(requisicao: RequisicaoCriarProduto) -> dict:
     return servico.criar_produto(requisicao)
 
 
 @router.get("/{produto_id}", response_model=ProdutoSaida)
-def buscar_produto(produto_id: UUID, data_preco: date | None = Query(default=None)) -> dict:
+def buscar_produto(
+    produto_id: UUID,
+    data_preco: Annotated[date | None, Query()] = None,
+) -> dict:
     return servico.buscar_produto(produto_id, data_preco=data_preco)
 
 
-@router.patch("/{produto_id}", response_model=ProdutoSaida)
+@router.patch(
+    "/{produto_id}",
+    response_model=ProdutoSaida,
+    dependencies=[Depends(exigir_papel("administrador", "dono"))],
+)
 def atualizar_produto(produto_id: UUID, requisicao: RequisicaoAtualizarProduto) -> dict:
     return servico.atualizar_produto(produto_id, requisicao)
 
@@ -45,7 +59,12 @@ def listar_versoes_de_preco(produto_id: UUID) -> list[dict]:
     return servico.listar_versoes_de_preco(produto_id)
 
 
-@router.post("/{produto_id}/precos", response_model=VersaoDePrecoSaida, status_code=201)
+@router.post(
+    "/{produto_id}/precos",
+    response_model=VersaoDePrecoSaida,
+    status_code=201,
+    dependencies=[Depends(exigir_papel("administrador", "dono"))],
+)
 def criar_versao_de_preco(
     produto_id: UUID,
     requisicao: RequisicaoCriarVersaoDePreco,
@@ -53,13 +72,18 @@ def criar_versao_de_preco(
     return servico.criar_versao_de_preco(produto_id, requisicao)
 
 
-@router.post("/{produto_id}/midia", response_model=MidiaSaida, status_code=201)
+@router.post(
+    "/{produto_id}/midia",
+    response_model=MidiaSaida,
+    status_code=201,
+    dependencies=[Depends(exigir_papel("administrador", "dono"))],
+)
 async def enviar_midia_do_produto(
     produto_id: UUID,
-    file: UploadFile = File(...),
-    descricao: str | None = Form(default=None),
-    texto_alternativo: str | None = Form(default=None),
-    definir_como_principal: bool = Form(default=True),
+    file: Annotated[UploadFile, File()],
+    descricao: Annotated[str | None, Form()] = None,
+    texto_alternativo: Annotated[str | None, Form()] = None,
+    definir_como_principal: Annotated[bool, Form()] = True,
 ) -> dict:
     return await servico_de_midia.enviar_midia(
         tipo_entidade="produto",

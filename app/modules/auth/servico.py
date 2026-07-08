@@ -1,0 +1,230 @@
+from datetime import UTC, datetime, timedelta
+from uuid import UUID
+
+from app.core.errors import AppError, ConflictError, NotFoundError
+from app.db.supabase import get_supabase_client
+from app.modules.auth.esquemas import (
+    RequisicaoAtualizarPapel,
+    RequisicaoAtualizarPerfil,
+    RequisicaoLogin,
+    RequisicaoRegistrarUsuario,
+    RequisicaoTrocarSenha,
+)
+from app.modules.auth.seguranca import (
+    gerar_hash_senha,
+    gerar_hash_token,
+    gerar_token_acesso,
+    normalizar_email,
+    verificar_senha,
+)
+from app.shared.db import first_or_none, to_db_payload
+
+HORAS_EXPIRACAO_SESSAO = 24 * 14
+PAPEIS_ORDENADOS = {"usuario": 1, "administrador": 2, "dono": 3}
+
+
+def registrar_usuario(requisicao: RequisicaoRegistrarUsuario) -> dict:
+    client = get_supabase_client()
+    email = normalizar_email(str(requisicao.email))
+    if _buscar_usuario_por_email(client, email):
+        raise ConflictError("Ja existe usuario cadastrado com esse e-mail.", {"email": email})
+
+    primeiro_usuario = _contar_usuarios(client) == 0
+    usuario = (
+        client.table("usuarios")
+        .insert(
+            to_db_payload(
+                {
+                    "email": email,
+                    "senha_hash": gerar_hash_senha(requisicao.senha),
+                    "nome": requisicao.nome,
+                    "foto_url": requisicao.foto_url,
+                    "data_nascimento": requisicao.data_nascimento,
+                    "telefone": requisicao.telefone,
+                    "papel": "dono" if primeiro_usuario else "usuario",
+                    "situacao": "ativo",
+                }
+            )
+        )
+        .execute()
+        .data[0]
+    )
+    return _usuario_publico(usuario)
+
+
+def login(requisicao: RequisicaoLogin) -> dict:
+    client = get_supabase_client()
+    email = normalizar_email(str(requisicao.email))
+    usuario = _buscar_usuario_por_email(client, email)
+    if not usuario or not verificar_senha(requisicao.senha, usuario["senha_hash"]):
+        raise AppError(
+            status_code=401,
+            code="invalid_credentials",
+            message="E-mail ou senha invalidos.",
+            details={},
+        )
+    if usuario["situacao"] != "ativo":
+        raise AppError(
+            status_code=403,
+            code="inactive_user",
+            message="Usuario inativo.",
+            details={"usuario_id": usuario["id"]},
+        )
+
+    token = gerar_token_acesso()
+    expira_em = datetime.now(UTC) + timedelta(hours=HORAS_EXPIRACAO_SESSAO)
+    client.table("sessoes_usuario").insert(
+        to_db_payload(
+            {
+                "usuario_id": usuario["id"],
+                "token_hash": gerar_hash_token(token),
+                "expira_em": expira_em,
+            }
+        )
+    ).execute()
+    return {
+        "access_token": token,
+        "token_type": "bearer",
+        "expira_em": expira_em,
+        "usuario": _usuario_publico(usuario),
+    }
+
+
+def buscar_usuario_por_token(token: str) -> tuple[dict, dict]:
+    client = get_supabase_client()
+    sessao = first_or_none(
+        client.table("sessoes_usuario")
+        .select("*")
+        .eq("token_hash", gerar_hash_token(token))
+        .is_("revogado_em", "null")
+        .limit(1)
+        .execute()
+        .data
+    )
+    if not sessao:
+        raise AppError(
+            status_code=401,
+            code="invalid_token",
+            message="Sessao invalida ou expirada.",
+            details={},
+        )
+    if datetime.fromisoformat(sessao["expira_em"].replace("Z", "+00:00")) < datetime.now(UTC):
+        raise AppError(
+            status_code=401,
+            code="expired_token",
+            message="Sessao expirada.",
+            details={},
+        )
+
+    usuario = buscar_linha_usuario(sessao["usuario_id"])
+    if usuario["situacao"] != "ativo":
+        raise AppError(
+            status_code=403,
+            code="inactive_user",
+            message="Usuario inativo.",
+            details={"usuario_id": usuario["id"]},
+        )
+    client.table("sessoes_usuario").update(
+        to_db_payload({"ultimo_uso_em": datetime.now(UTC)})
+    ).eq("id", sessao["id"]).execute()
+    return _usuario_publico(usuario), sessao
+
+
+def logout(sessao_id: UUID | str) -> dict:
+    client = get_supabase_client()
+    client.table("sessoes_usuario").update(
+        to_db_payload({"revogado_em": datetime.now(UTC)})
+    ).eq("id", str(sessao_id)).execute()
+    return {"sucesso": True}
+
+
+def atualizar_perfil(usuario_id: UUID | str, requisicao: RequisicaoAtualizarPerfil) -> dict:
+    client = get_supabase_client()
+    usuario = buscar_linha_usuario(usuario_id)
+    dados = requisicao.model_dump(exclude_unset=True)
+    if "email" in dados and dados["email"] is not None:
+        novo_email = normalizar_email(str(dados["email"]))
+        existente = _buscar_usuario_por_email(client, novo_email)
+        if existente and existente["id"] != usuario["id"]:
+            raise ConflictError(
+                "Ja existe usuario cadastrado com esse e-mail.",
+                {"email": novo_email},
+            )
+        dados["email"] = novo_email
+    if not dados:
+        return _usuario_publico(usuario)
+    atualizado = (
+        client.table("usuarios")
+        .update(to_db_payload(dados))
+        .eq("id", str(usuario_id))
+        .execute()
+        .data[0]
+    )
+    return _usuario_publico(atualizado)
+
+
+def trocar_senha(usuario_id: UUID | str, requisicao: RequisicaoTrocarSenha) -> dict:
+    client = get_supabase_client()
+    usuario = buscar_linha_usuario(usuario_id)
+    if not verificar_senha(requisicao.senha_atual, usuario["senha_hash"]):
+        raise AppError(
+            status_code=401,
+            code="invalid_current_password",
+            message="Senha atual invalida.",
+            details={},
+        )
+    client.table("usuarios").update(
+        to_db_payload({"senha_hash": gerar_hash_senha(requisicao.nova_senha)})
+    ).eq("id", str(usuario_id)).execute()
+    client.table("sessoes_usuario").update(
+        to_db_payload({"revogado_em": datetime.now(UTC)})
+    ).eq("usuario_id", str(usuario_id)).is_("revogado_em", "null").execute()
+    return {"sucesso": True}
+
+
+def listar_usuarios() -> list[dict]:
+    client = get_supabase_client()
+    usuarios = client.table("usuarios").select("*").order("criado_em").execute().data
+    return [_usuario_publico(usuario) for usuario in usuarios]
+
+
+def atualizar_papel_usuario(usuario_id: UUID, requisicao: RequisicaoAtualizarPapel) -> dict:
+    client = get_supabase_client()
+    buscar_linha_usuario(usuario_id)
+    usuario = (
+        client.table("usuarios")
+        .update(to_db_payload({"papel": requisicao.papel}))
+        .eq("id", str(usuario_id))
+        .execute()
+        .data[0]
+    )
+    return _usuario_publico(usuario)
+
+
+def buscar_linha_usuario(usuario_id: UUID | str) -> dict:
+    client = get_supabase_client()
+    usuario = first_or_none(
+        client.table("usuarios").select("*").eq("id", str(usuario_id)).limit(1).execute().data
+    )
+    if not usuario:
+        raise NotFoundError("Usuario", str(usuario_id))
+    return usuario
+
+
+def papel_atende(usuario: dict, papeis: tuple[str, ...]) -> bool:
+    papel_usuario = usuario.get("papel", "usuario")
+    return any(PAPEIS_ORDENADOS[papel_usuario] >= PAPEIS_ORDENADOS[papel] for papel in papeis)
+
+
+def _buscar_usuario_por_email(client, email: str) -> dict | None:
+    return first_or_none(
+        client.table("usuarios").select("*").eq("email", email).limit(1).execute().data
+    )
+
+
+def _contar_usuarios(client) -> int:
+    return len(client.table("usuarios").select("id").limit(2).execute().data)
+
+
+def _usuario_publico(usuario: dict) -> dict:
+    return {key: value for key, value in usuario.items() if key != "senha_hash"}

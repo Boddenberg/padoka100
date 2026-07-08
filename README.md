@@ -84,6 +84,24 @@ A documentacao interativa fica em:
 - `POST /api/v1/ia/interpretar-comando-de-venda`
 - `POST /api/v1/ia/transcrever-audio-de-venda`
 - `POST /api/v1/ia/interacoes/{interacao_ia_id}/confirmar-venda`
+- `GET /api/v1/ia/dados-estruturados/periodo`
+- `POST /api/v1/ia/analises/padrao`
+- `POST /api/v1/ia/analises/especifica`
+- `POST /api/v1/auth/registrar`
+- `POST /api/v1/auth/login`
+- `POST /api/v1/auth/logout`
+- `POST /api/v1/auth/trocar-senha`
+- `GET /api/v1/auth/usuarios`
+- `PATCH /api/v1/auth/usuarios/{usuario_id}/papel`
+- `GET /api/v1/perfil/me`
+- `PATCH /api/v1/perfil/me`
+- `GET /api/v1/custos/insumos`
+- `POST /api/v1/custos/insumos`
+- `PATCH /api/v1/custos/insumos/{insumo_id}`
+- `GET /api/v1/custos/produtos/{produto_id}/receitas`
+- `POST /api/v1/custos/produtos/{produto_id}/receitas`
+- `POST /api/v1/custos/produtos/{produto_id}/custos-adicionais`
+- `GET /api/v1/custos/produtos/{produto_id}/calculo`
 
 Exemplos de uso ficam em `docs/API_USAGE.md`.
 
@@ -147,16 +165,16 @@ Ja existe:
 - bloqueio de datas futuras em consultas sensiveis;
 - historico estruturado para o front;
 - upload de midia;
-- interpretacao de comandos por texto/audio com confirmacao antes de salvar.
+- interpretacao de comandos por texto/audio com confirmacao antes de salvar;
+- autenticacao real com senha hash PBKDF2, bearer token e logout;
+- perfil do usuario com foto, nome, nascimento, telefone e e-mail;
+- papeis `usuario`, `administrador` e `dono` em rotas sensiveis;
+- dados estruturados para IA por periodo;
+- analise padrao e especifica com IA ou resumo local quando OpenAI nao estiver configurada;
+- modulo inicial de custos com insumos, receitas, custos adicionais e calculo por produto.
 
 Ainda nao existe como funcionalidade completa:
 
-- autenticacao real de usuario/e-mail e senha;
-- perfil do usuario;
-- papeis e permissoes;
-- analise padrao de periodo com IA;
-- analise especifica com IA;
-- modulo de custos reais, insumos, receitas e compras;
 - extracao de nota fiscal por foto;
 - testes automatizados de integracao.
 

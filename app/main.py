@@ -1,7 +1,6 @@
 from secrets import compare_digest
 
-from fastapi import FastAPI
-from fastapi import Request
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
@@ -36,7 +35,17 @@ def create_app() -> FastAPI:
             and request.url.path.startswith(settings.api_prefix)
         ):
             header_api_key = request.headers.get("x-api-key", "")
-            if not compare_digest(header_api_key, settings.api_key):
+            authorization = request.headers.get("authorization", "")
+            tem_bearer = authorization.lower().startswith("bearer ")
+            rota_publica_auth = request.url.path in {
+                f"{settings.api_prefix}/auth/login",
+                f"{settings.api_prefix}/auth/registrar",
+            }
+            if (
+                not rota_publica_auth
+                and not tem_bearer
+                and not compare_digest(header_api_key, settings.api_key)
+            ):
                 return JSONResponse(
                     status_code=401,
                     content={

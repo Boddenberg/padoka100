@@ -1,21 +1,65 @@
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, File, Form, UploadFile
+from fastapi import APIRouter, Depends, File, Form, UploadFile
 
+from app.modules.auth.dependencias import exigir_papel
 from app.modules.ia import servico
 from app.modules.ia.esquemas import (
+    RequisicaoAnaliseEspecifica,
+    RequisicaoAnalisePadrao,
     RequisicaoInterpretarComandoDeIA,
     RequisicaoInterpretarComandoDeVenda,
+    RespostaAnaliseIA,
     RespostaConfirmarComandoDeIA,
     RespostaConfirmarVenda,
+    RespostaDadosEstruturadosIA,
     RespostaInterpretarComandoDeIA,
     RespostaInterpretarComandoDeVenda,
     RespostaTranscreverAudioDeIA,
     RespostaTranscreverAudioDeVenda,
 )
 
-router = APIRouter(prefix="/ia", tags=["ia"])
+router = APIRouter(
+    prefix="/ia",
+    tags=["ia"],
+    dependencies=[Depends(exigir_papel("usuario"))],
+)
+
+
+@router.get(
+    "/dados-estruturados/periodo",
+    response_model=RespostaDadosEstruturadosIA,
+    dependencies=[Depends(exigir_papel("dono"))],
+)
+def montar_dados_estruturados_periodo(
+    data_inicio: str,
+    data_fim: str,
+    produto_id: UUID | None = None,
+) -> dict:
+    return servico.montar_dados_estruturados_periodo(
+        data_inicio=data_inicio,
+        data_fim=data_fim,
+        produto_id=produto_id,
+    )
+
+
+@router.post(
+    "/analises/padrao",
+    response_model=RespostaAnaliseIA,
+    dependencies=[Depends(exigir_papel("dono"))],
+)
+def analisar_periodo_padrao(requisicao: RequisicaoAnalisePadrao) -> dict:
+    return servico.analisar_periodo_padrao(requisicao)
+
+
+@router.post(
+    "/analises/especifica",
+    response_model=RespostaAnaliseIA,
+    dependencies=[Depends(exigir_papel("dono"))],
+)
+def analisar_periodo_especifico(requisicao: RequisicaoAnaliseEspecifica) -> dict:
+    return servico.analisar_periodo_especifico(requisicao)
 
 
 @router.post("/interpretar-comando", response_model=RespostaInterpretarComandoDeIA)

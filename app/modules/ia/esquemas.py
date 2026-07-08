@@ -16,6 +16,37 @@ class RequisicaoInterpretarComandoDeVenda(RequisicaoInterpretarComandoDeIA):
     pass
 
 
+class RequisicaoAnalisePadrao(ApiModel):
+    data_inicio: str = Field(pattern=r"^\d{4}-\d{2}-\d{2}$")
+    data_fim: str = Field(pattern=r"^\d{4}-\d{2}-\d{2}$")
+    produto_id: UUID | None = None
+    contexto_usuario: str | None = None
+    filtros: dict = Field(default_factory=dict)
+
+
+class RequisicaoAnaliseEspecifica(RequisicaoAnalisePadrao):
+    pergunta: str = Field(min_length=1)
+
+
+class RespostaDadosEstruturadosIA(ApiModel):
+    periodo: dict
+    faturamentoTotal: float
+    quantidadeTotalProduzida: int
+    quantidadeTotalVendida: int
+    quantidadeTotalSobrando: int
+    produtos: list[dict] = Field(default_factory=list)
+    dias: list[dict] = Field(default_factory=list)
+    correcoesRetroativas: list[dict] = Field(default_factory=list)
+
+
+class RespostaAnaliseIA(ApiModel):
+    periodo: dict
+    tipo: str
+    modelo_usado: str
+    dados_estruturados: dict
+    analise: str
+
+
 class ItemInterpretado(ApiModel):
     produto_id: UUID
     nome_produto: str
