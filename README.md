@@ -103,6 +103,14 @@ A documentacao interativa fica em:
 - `POST /api/v1/custos/produtos/{produto_id}/receitas`
 - `POST /api/v1/custos/produtos/{produto_id}/custos-adicionais`
 - `GET /api/v1/custos/produtos/{produto_id}/calculo`
+- `POST /api/v1/custos/assistente/sessoes`
+- `GET /api/v1/custos/assistente/sessoes/{sessao_id}`
+- `POST /api/v1/custos/assistente/sessoes/{sessao_id}/entradas/texto`
+- `POST /api/v1/custos/assistente/sessoes/{sessao_id}/entradas/formulario`
+- `POST /api/v1/custos/assistente/sessoes/{sessao_id}/entradas/arquivo`
+- `PATCH /api/v1/custos/assistente/sessoes/{sessao_id}/rascunho`
+- `POST /api/v1/custos/assistente/sessoes/{sessao_id}/confirmar`
+- `POST /api/v1/custos/assistente/sessoes/{sessao_id}/descartar`
 
 Exemplos de uso ficam em `docs/API_USAGE.md`.
 
@@ -155,7 +163,8 @@ Ja existe:
 - estrutura FastAPI com `app.main:app`, CORS, healthcheck e configuracao por `.env`;
 - modulos em portugues dentro de `app/modules`;
 - integracao com Supabase e OpenAI;
-- migrations SQL para schema inicial, sobras, correcoes, auth/perfil, custos e midia de usuario;
+- migrations SQL para schema inicial, sobras, correcoes, auth/perfil, custos,
+  midia de usuario e custeio assistido;
 - cadastro, listagem, atualizacao e consulta de produtos;
 - historico de precos por versao;
 - cadastro e atualizacao de locais;
@@ -176,11 +185,14 @@ Ja existe:
 - papeis `usuario`, `administrador` e `dono` em rotas novas sensiveis;
 - dados estruturados para IA por periodo;
 - analise padrao e especifica com secoes estruturadas e resumo local quando OpenAI nao estiver configurada;
-- modulo inicial de custos com insumos, receitas, custos adicionais e calculo por produto.
+- modulo inicial de custos com insumos, receitas, custos adicionais e calculo por produto;
+- assistente de custeio com sessoes, rascunho revisavel, entrada por texto,
+  formulario, audio e imagem/print, simulacao de custo, perguntas pendentes,
+  confirmacao final e atualizacao do custo vigente do produto.
 
 Ainda nao existe como funcionalidade completa:
 
-- extracao de nota fiscal por foto;
+- integracao fiscal oficial por XML/chave de acesso de nota;
 - testes automatizados de integracao.
 
 ## Autenticacao e perfil planejados
@@ -412,9 +424,9 @@ A IA pode ajudar a montar custos, mas nao pode inventar dados:
 - se for confirmado pelo usuario, marca como confirmado;
 - antes de salvar, sempre pede confirmacao.
 
-Entradas futuras podem vir por texto, audio, foto de nota fiscal, formulario ou
-correcao posterior. Foto ruim ou leitura insegura deve gerar pedido de
-confirmacao manual.
+Entradas podem vir por texto, audio, imagem/print, formulario ou correcao
+posterior via assistente de custeio. Foto ruim ou leitura insegura deve gerar
+pedido de confirmacao manual antes de salvar.
 
 ## Arquitetura atual
 

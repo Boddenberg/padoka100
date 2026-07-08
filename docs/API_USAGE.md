@@ -533,7 +533,71 @@ Calcular custo:
 curl http://localhost:8000/api/v1/custos/produtos/PRODUTO_ID/calculo
 ```
 
-## 14. Ver historico
+## 14. Custeio assistido
+
+O fluxo premium de custo deve usar as rotas de sessao do assistente. O front
+cria uma sessao, envia texto/audio/imagem/formulario, renderiza o rascunho
+devolvido e confirma somente quando `pode_confirmar` estiver `true`.
+
+Criar sessao atrelada ao produto:
+
+```bash
+curl -X POST http://localhost:8000/api/v1/custos/assistente/sessoes \
+  -H "Content-Type: application/json" \
+  -d '{
+    "produto_id": "PRODUTO_ID"
+  }'
+```
+
+Enviar texto:
+
+```bash
+curl -X POST http://localhost:8000/api/v1/custos/assistente/sessoes/SESSAO_ID/entradas/texto \
+  -H "Content-Type: application/json" \
+  -d '{
+    "texto": "Usei 800g de farinha. O pacote de 5kg custou 22 reais. Rendeu 12 unidades. Embalagem 35 centavos por unidade."
+  }'
+```
+
+Enviar arquivo de audio ou imagem:
+
+```bash
+curl -X POST http://localhost:8000/api/v1/custos/assistente/sessoes/SESSAO_ID/entradas/arquivo \
+  -F "tipo=imagem" \
+  -F "file=@nota-ou-print.jpg"
+```
+
+Corrigir rascunho:
+
+```bash
+curl -X PATCH http://localhost:8000/api/v1/custos/assistente/sessoes/SESSAO_ID/rascunho \
+  -H "Content-Type: application/json" \
+  -d '{
+    "modo": "mesclar",
+    "rascunho": {
+      "receita": {
+        "rendimento": 10
+      }
+    }
+  }'
+```
+
+Confirmar e atrelar ao produto:
+
+```bash
+curl -X POST http://localhost:8000/api/v1/custos/assistente/sessoes/SESSAO_ID/confirmar \
+  -H "Content-Type: application/json" \
+  -d '{
+    "permitir_pendencias": false,
+    "atualizar_preco_custo_produto": true,
+    "vigente_desde": "2026-07-08",
+    "motivo_preco": "Custo calculado pelo assistente"
+  }'
+```
+
+Contrato detalhado para o front: `docs/CUSTEIO_ASSISTIDO_FRONT.md`.
+
+## 15. Ver historico
 
 ```bash
 curl http://localhost:8000/api/v1/historico/linha-do-tempo?dia_de_venda_id=DIA_DE_VENDA_ID

@@ -70,6 +70,9 @@ compatibilidade, mas o front nao precisa enviar `Authorization`.
   - pendencias.
 - Status suportados: `CONFIRMADO`, `ESTIMADO`, `PENDENTE`,
   `PRECISA_REVISAR`.
+- Assistente de custeio com sessao, rascunho revisavel, entrada por texto,
+  formulario, audio e imagem/print, simulacao, perguntas pendentes e
+  confirmacao final atrelada ao produto.
 
 ## 2. Migrations novas
 
@@ -82,6 +85,7 @@ supabase/migrations/003_correcoes_dia_fechado.sql
 supabase/migrations/004_auth_perfil.sql
 supabase/migrations/005_custos.sql
 supabase/migrations/006_midias_usuario.sql
+supabase/migrations/007_custeio_assistido.sql
 ```
 
 ## 3. Autenticacao e perfil
@@ -647,5 +651,6 @@ Exemplo esperado para farinha de R$ 5,00 por 1 kg:
 - Ainda nao ha tela/front para gerir usuarios e papeis.
 - Analise com IA depende de `OPENAI_API_KEY` e `OPENAI_TEXT_MODEL`; sem isso,
   retorna as mesmas secoes estruturadas com analise local simples.
-- Foto de nota fiscal e extracao OCR ainda nao foram implementadas.
+- O assistente de custeio aceita imagem/print com leitura por OpenAI Vision,
+  mas ainda nao ha integracao fiscal oficial por XML ou chave de acesso.
 - Ainda falta suite automatizada de testes de integracao.
