@@ -24,6 +24,7 @@ from app.shared.db import first_or_none, to_db_payload
 
 HORAS_EXPIRACAO_SESSAO = 24 * 14
 PAPEIS_ORDENADOS = {"usuario": 1, "administrador": 2, "dono": 3}
+USUARIO_SEM_TOKEN_ID = "00000000-0000-0000-0000-000000000000"
 
 
 def registrar_usuario(requisicao: RequisicaoRegistrarUsuario) -> dict:
@@ -133,6 +134,35 @@ def buscar_usuario_por_token(token: str) -> tuple[dict, dict]:
     return _usuario_publico(usuario), sessao
 
 
+def buscar_usuario_padrao_sem_token() -> dict:
+    client = get_supabase_client()
+    usuario = first_or_none(
+        client.table("usuarios")
+        .select("*")
+        .eq("situacao", "ativo")
+        .order("criado_em")
+        .limit(1)
+        .execute()
+        .data
+    )
+    if usuario:
+        return _usuario_publico(usuario)
+
+    agora = datetime.now(UTC)
+    return {
+        "id": USUARIO_SEM_TOKEN_ID,
+        "email": "sem-token@padoka.local",
+        "nome": "Acesso sem token",
+        "foto_url": None,
+        "data_nascimento": None,
+        "telefone": None,
+        "papel": "dono",
+        "situacao": "ativo",
+        "criado_em": agora,
+        "atualizado_em": agora,
+    }
+
+
 def logout(sessao_id: UUID | str) -> dict:
     client = get_supabase_client()
     client.table("sessoes_usuario").update(
@@ -174,6 +204,7 @@ async def atualizar_foto_perfil(usuario_id: UUID | str | None, file: UploadFile)
             message="Nao ha usuario autenticado para atualizar foto de perfil.",
             details={},
         )
+    buscar_linha_usuario(usuario_id)
     client = get_supabase_client()
     midia = await servico_de_midia.enviar_midia(
         tipo_entidade="usuario",

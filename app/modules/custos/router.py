@@ -1,9 +1,8 @@
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Query
 
-from app.modules.auth.dependencias import exigir_papel
 from app.modules.custos import servico
 from app.modules.custos.esquemas import (
     CalculoCustoProdutoSaida,
@@ -16,11 +15,7 @@ from app.modules.custos.esquemas import (
     RequisicaoCriarReceita,
 )
 
-router = APIRouter(
-    prefix="/custos",
-    tags=["custos"],
-    dependencies=[Depends(exigir_papel("dono"))],
-)
+router = APIRouter(prefix="/custos", tags=["custos"])
 
 
 @router.get("/insumos", response_model=list[InsumoSaida])

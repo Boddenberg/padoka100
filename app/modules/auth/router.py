@@ -4,7 +4,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, File, UploadFile
 
 from app.modules.auth import servico
-from app.modules.auth.dependencias import exigir_papel, obter_sessao_autenticada
+from app.modules.auth.dependencias import obter_sessao_autenticada
 from app.modules.auth.esquemas import (
     RequisicaoAtualizarPapel,
     RequisicaoAtualizarPerfil,
@@ -17,7 +17,6 @@ from app.modules.auth.esquemas import (
 
 router = APIRouter(tags=["auth"])
 SessaoAtual = Annotated[dict, Depends(obter_sessao_autenticada)]
-DonoAtual = Annotated[dict, Depends(exigir_papel("dono"))]
 
 
 @router.post("/auth/registrar", response_model=UsuarioSaida, status_code=201)
@@ -32,7 +31,7 @@ def login(requisicao: RequisicaoLogin) -> dict:
 
 @router.post("/auth/logout")
 def logout(sessao: SessaoAtual) -> dict:
-    if sessao["via_api_key"]:
+    if sessao["via_api_key"] or not sessao.get("sessao_id"):
         return {"sucesso": True}
     return servico.logout(sessao["sessao_id"])
 
@@ -46,7 +45,7 @@ def trocar_senha(
 
 
 @router.get("/auth/usuarios", response_model=list[UsuarioSaida])
-def listar_usuarios(_: DonoAtual) -> list[dict]:
+def listar_usuarios() -> list[dict]:
     return servico.listar_usuarios()
 
 
@@ -54,7 +53,6 @@ def listar_usuarios(_: DonoAtual) -> list[dict]:
 def atualizar_papel_usuario(
     usuario_id: UUID,
     requisicao: RequisicaoAtualizarPapel,
-    _: DonoAtual,
 ) -> dict:
     return servico.atualizar_papel_usuario(usuario_id, requisicao)
 

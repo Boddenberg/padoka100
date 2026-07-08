@@ -27,15 +27,15 @@ def obter_sessao_autenticada(
         }
 
     if not authorization or not authorization.lower().startswith("bearer "):
-        raise AppError(
-            status_code=401,
-            code="missing_bearer_token",
-            message="Token bearer ausente.",
-            details={"header": "Authorization"},
-        )
+        return {
+            "usuario": servico.buscar_usuario_padrao_sem_token(),
+            "sessao_id": None,
+            "via_api_key": False,
+            "sem_token": True,
+        }
     token = authorization.split(" ", 1)[1].strip()
     usuario, sessao = servico.buscar_usuario_por_token(token)
-    return {"usuario": usuario, "sessao_id": sessao["id"], "via_api_key": False}
+    return {"usuario": usuario, "sessao_id": sessao["id"], "via_api_key": False, "sem_token": False}
 
 
 def obter_usuario_autenticado(

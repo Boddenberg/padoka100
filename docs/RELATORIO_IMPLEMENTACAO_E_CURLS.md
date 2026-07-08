@@ -12,12 +12,10 @@ BASE_URL="http://localhost:8000/api/v1"
 Em Windows PowerShell, use a URL literal nos comandos ou adapte as variaveis para
 `$env:BASE_URL`.
 
-## Regra atual de Bearer
+## Regra atual de autenticacao
 
-- Nao exigem Bearer token: endpoints antigos de produtos, catalogo, midia,
-  dias de venda, vendas, relatorios, historico, correcoes e IA operacional.
-- Exigem Bearer token: perfil, logout, troca de senha, gestao de usuarios,
-  dados estruturados/analises de IA e custos.
+Nenhum endpoint exige Bearer token. O login ainda devolve `access_token` por
+compatibilidade, mas o front nao precisa enviar `Authorization`.
 
 ## 1. O que foi implementado
 
@@ -44,8 +42,7 @@ Em Windows PowerShell, use a URL literal nos comandos ou adapte as variaveis par
 - Perfil do usuario com foto, nome, data de nascimento, telefone e e-mail.
 - Papeis: `usuario`, `administrador`, `dono`.
 - Primeiro usuario cadastrado vira `dono`.
-- Rotas novas de conta, analise e custos protegidas por papel.
-- Endpoints antigos continuam compativeis sem Bearer token.
+- Rotas novas de conta, analise e custos funcionando sem Bearer token.
 
 ### IA e dados estruturados
 
@@ -115,7 +112,7 @@ curl -X POST http://localhost:8000/api/v1/auth/login \
   }'
 ```
 
-Guarde `access_token` da resposta e use:
+O `access_token` da resposta e opcional e existe por compatibilidade:
 
 ```bash
 TOKEN="COLE_O_ACCESS_TOKEN_AQUI"
@@ -125,7 +122,6 @@ TOKEN="COLE_O_ACCESS_TOKEN_AQUI"
 
 ```bash
 curl http://localhost:8000/api/v1/perfil/me \
-  -H "Authorization: Bearer $TOKEN"
 ```
 
 ### Atualizar perfil
@@ -133,7 +129,6 @@ curl http://localhost:8000/api/v1/perfil/me \
 ```bash
 curl -X PATCH http://localhost:8000/api/v1/perfil/me \
   -H "Content-Type: application/json" \
-  -H "Authorization: Bearer $TOKEN" \
   -d '{
     "nome": "Dono da Padoka 100",
     "email": "novo-email@padoka.local",
@@ -149,7 +144,6 @@ curl -X PATCH http://localhost:8000/api/v1/perfil/me \
 
 ```bash
 curl -X POST http://localhost:8000/api/v1/perfil/me/foto \
-  -H "Authorization: Bearer $TOKEN" \
   -F "file=@perfil.jpg"
 ```
 
@@ -160,7 +154,6 @@ O retorno e `UsuarioSaida` com `foto_url` atualizado.
 ```bash
 curl -X POST http://localhost:8000/api/v1/auth/trocar-senha \
   -H "Content-Type: application/json" \
-  -H "Authorization: Bearer $TOKEN" \
   -d '{
     "senha_atual": "senha-segura-123",
     "nova_senha": "nova-senha-segura-456"
@@ -170,27 +163,20 @@ curl -X POST http://localhost:8000/api/v1/auth/trocar-senha \
 ### Logout
 
 ```bash
-curl -X POST http://localhost:8000/api/v1/auth/logout \
-  -H "Authorization: Bearer $TOKEN"
+curl -X POST http://localhost:8000/api/v1/auth/logout
 ```
 
 ### Listar usuarios
 
-Exige papel `dono`.
-
 ```bash
-curl http://localhost:8000/api/v1/auth/usuarios \
-  -H "Authorization: Bearer $TOKEN"
+curl http://localhost:8000/api/v1/auth/usuarios
 ```
 
 ### Alterar papel de usuario
 
-Exige papel `dono`.
-
 ```bash
 curl -X PATCH http://localhost:8000/api/v1/auth/usuarios/USUARIO_ID/papel \
   -H "Content-Type: application/json" \
-  -H "Authorization: Bearer $TOKEN" \
   -d '{
     "papel": "administrador"
   }'
@@ -495,13 +481,12 @@ curl -X POST http://localhost:8000/api/v1/ia/transcrever-audio \
 
 ## 10. Dados estruturados e analises com IA
 
-Rotas de analise exigem papel `dono`.
+Rotas de analise nao exigem Bearer token.
 
 ### Dados estruturados por periodo
 
 ```bash
-curl "http://localhost:8000/api/v1/ia/dados-estruturados/periodo?data_inicio=2026-07-01&data_fim=2026-07-08" \
-  -H "Authorization: Bearer $TOKEN"
+curl "http://localhost:8000/api/v1/ia/dados-estruturados/periodo?data_inicio=2026-07-01&data_fim=2026-07-08"
 ```
 
 ### Analise padrao
@@ -509,7 +494,6 @@ curl "http://localhost:8000/api/v1/ia/dados-estruturados/periodo?data_inicio=202
 ```bash
 curl -X POST http://localhost:8000/api/v1/ia/analises/padrao \
   -H "Content-Type: application/json" \
-  -H "Authorization: Bearer $TOKEN" \
   -d '{
     "data_inicio": "2026-07-01",
     "data_fim": "2026-07-08",
@@ -522,7 +506,6 @@ curl -X POST http://localhost:8000/api/v1/ia/analises/padrao \
 ```bash
 curl -X POST http://localhost:8000/api/v1/ia/analises/especifica \
   -H "Content-Type: application/json" \
-  -H "Authorization: Bearer $TOKEN" \
   -d '{
     "data_inicio": "2026-07-01",
     "data_fim": "2026-07-08",
@@ -577,14 +560,13 @@ curl -X POST http://localhost:8000/api/v1/ia/analises/especifica \
 
 ## 11. Custos, insumos e receitas
 
-Rotas de custos exigem papel `dono`.
+Rotas de custos nao exigem Bearer token.
 
 ### Criar insumo
 
 ```bash
 curl -X POST http://localhost:8000/api/v1/custos/insumos \
   -H "Content-Type: application/json" \
-  -H "Authorization: Bearer $TOKEN" \
   -d '{
     "nome": "Farinha de trigo",
     "categoria": "ingrediente principal",
@@ -598,8 +580,7 @@ curl -X POST http://localhost:8000/api/v1/custos/insumos \
 ### Listar insumos
 
 ```bash
-curl http://localhost:8000/api/v1/custos/insumos \
-  -H "Authorization: Bearer $TOKEN"
+curl http://localhost:8000/api/v1/custos/insumos
 ```
 
 ### Atualizar insumo
@@ -607,7 +588,6 @@ curl http://localhost:8000/api/v1/custos/insumos \
 ```bash
 curl -X PATCH http://localhost:8000/api/v1/custos/insumos/INSUMO_ID \
   -H "Content-Type: application/json" \
-  -H "Authorization: Bearer $TOKEN" \
   -d '{
     "preco_total": 5.50,
     "status": "CONFIRMADO"
@@ -619,7 +599,6 @@ curl -X PATCH http://localhost:8000/api/v1/custos/insumos/INSUMO_ID \
 ```bash
 curl -X POST http://localhost:8000/api/v1/custos/produtos/PRODUTO_ID/receitas \
   -H "Content-Type: application/json" \
-  -H "Authorization: Bearer $TOKEN" \
   -d '{
     "nome": "Receita base de Pao Sovado",
     "rendimento": 10,
@@ -642,7 +621,6 @@ curl -X POST http://localhost:8000/api/v1/custos/produtos/PRODUTO_ID/receitas \
 ```bash
 curl -X POST http://localhost:8000/api/v1/custos/produtos/PRODUTO_ID/custos-adicionais \
   -H "Content-Type: application/json" \
-  -H "Authorization: Bearer $TOKEN" \
   -d '{
     "tipo": "indireto",
     "nome": "gas",
@@ -654,8 +632,7 @@ curl -X POST http://localhost:8000/api/v1/custos/produtos/PRODUTO_ID/custos-adic
 ### Calcular custo do produto
 
 ```bash
-curl http://localhost:8000/api/v1/custos/produtos/PRODUTO_ID/calculo \
-  -H "Authorization: Bearer $TOKEN"
+curl http://localhost:8000/api/v1/custos/produtos/PRODUTO_ID/calculo
 ```
 
 Exemplo esperado para farinha de R$ 5,00 por 1 kg:

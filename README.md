@@ -106,10 +106,9 @@ A documentacao interativa fica em:
 
 Exemplos de uso ficam em `docs/API_USAGE.md`.
 
-Compatibilidade de autenticacao: endpoints antigos de produtos, midia,
-dias de venda, vendas, relatorios, historico, correcoes e IA operacional nao
-exigem Bearer token. As rotas novas de perfil/seguranca, gestao de usuarios,
-analises/dados estruturados de IA e custos exigem Bearer token conforme o papel.
+Autenticacao atual: nenhum endpoint exige Bearer token. O login ainda devolve
+`access_token` por compatibilidade, mas o front pode chamar todas as rotas sem
+enviar `Authorization`.
 
 ## Regras de negocio centrais
 

@@ -32,34 +32,28 @@ curl -X POST http://localhost:8000/api/v1/auth/login \
   }'
 ```
 
-Use o token apenas nas rotas protegidas novas:
+Bearer token nao e obrigatorio em nenhuma rota. O login ainda devolve
+`access_token` por compatibilidade, mas o front nao precisa enviar
+`Authorization`.
 
 ```bash
-curl http://localhost:8000/api/v1/perfil/me \
-  -H "Authorization: Bearer ACCESS_TOKEN"
+curl http://localhost:8000/api/v1/perfil/me
 ```
 
-Endpoints antigos continuam sem Bearer token para manter compatibilidade com o
-front atual:
+Todas as rotas funcionam sem Bearer token:
 
 - produtos, catalogo e midia;
 - dias de venda, vendas e correcoes;
 - relatorios e historico;
-- IA operacional: interpretar, confirmar e transcrever.
-
-Endpoints que exigem Bearer token hoje:
-
-- perfil, logout e troca de senha;
-- gestao de usuarios, apenas `dono`;
-- dados estruturados e analises de IA, apenas `dono`;
-- custos, insumos e receitas, apenas `dono`.
+- IA operacional: interpretar, confirmar e transcrever;
+- perfil, logout, troca de senha e gestao de usuarios;
+- dados estruturados, analises de IA e custos.
 
 Atualizar perfil, incluindo troca de e-mail:
 
 ```bash
 curl -X PATCH http://localhost:8000/api/v1/perfil/me \
   -H "Content-Type: application/json" \
-  -H "Authorization: Bearer ACCESS_TOKEN" \
   -d '{
     "nome": "Dono da Padoka",
     "email": "novo-email@padoka.local",
@@ -75,7 +69,6 @@ Enviar foto de perfil do aparelho e salvar a URL no usuario:
 
 ```bash
 curl -X POST http://localhost:8000/api/v1/perfil/me/foto \
-  -H "Authorization: Bearer ACCESS_TOKEN" \
   -F "file=@perfil.jpg"
 ```
 
@@ -101,13 +94,11 @@ Trocar senha e sair:
 ```bash
 curl -X POST http://localhost:8000/api/v1/auth/trocar-senha \
   -H "Content-Type: application/json" \
-  -H "Authorization: Bearer ACCESS_TOKEN" \
   -d '{
     "senha_atual": "senha-segura-123",
     "nova_senha": "nova-senha-segura-456"
   }'
-curl -X POST http://localhost:8000/api/v1/auth/logout \
-  -H "Authorization: Bearer ACCESS_TOKEN"
+curl -X POST http://localhost:8000/api/v1/auth/logout
 ```
 
 Nao existe refresh token ainda. Quando receber `401`, o app deve derrubar a
@@ -116,10 +107,8 @@ sessao local e pedir login novamente.
 Rotas de permissao para `dono`:
 
 ```bash
-curl http://localhost:8000/api/v1/auth/usuarios \
-  -H "Authorization: Bearer ACCESS_TOKEN"
-curl -X PATCH http://localhost:8000/api/v1/auth/usuarios/USUARIO_ID/papel \
-  -H "Authorization: Bearer ACCESS_TOKEN"
+curl http://localhost:8000/api/v1/auth/usuarios
+curl -X PATCH http://localhost:8000/api/v1/auth/usuarios/USUARIO_ID/papel
 ```
 
 ## 2. Criar produto visual
@@ -417,8 +406,7 @@ Campos aceitos na correcao:
 Dados estruturados por periodo:
 
 ```bash
-curl "http://localhost:8000/api/v1/ia/dados-estruturados/periodo?data_inicio=2026-07-01&data_fim=2026-07-08" \
-  -H "Authorization: Bearer ACCESS_TOKEN"
+curl "http://localhost:8000/api/v1/ia/dados-estruturados/periodo?data_inicio=2026-07-01&data_fim=2026-07-08"
 ```
 
 Analise padrao:
@@ -426,7 +414,6 @@ Analise padrao:
 ```bash
 curl -X POST http://localhost:8000/api/v1/ia/analises/padrao \
   -H "Content-Type: application/json" \
-  -H "Authorization: Bearer ACCESS_TOKEN" \
   -d '{
     "data_inicio": "2026-07-01",
     "data_fim": "2026-07-08"
@@ -438,7 +425,6 @@ Analise especifica:
 ```bash
 curl -X POST http://localhost:8000/api/v1/ia/analises/especifica \
   -H "Content-Type: application/json" \
-  -H "Authorization: Bearer ACCESS_TOKEN" \
   -d '{
     "data_inicio": "2026-07-01",
     "data_fim": "2026-07-08",
@@ -500,7 +486,6 @@ Criar insumo:
 ```bash
 curl -X POST http://localhost:8000/api/v1/custos/insumos \
   -H "Content-Type: application/json" \
-  -H "Authorization: Bearer ACCESS_TOKEN" \
   -d '{
     "nome": "Farinha de trigo",
     "quantidade_comprada": 1,
@@ -515,7 +500,6 @@ Criar receita:
 ```bash
 curl -X POST http://localhost:8000/api/v1/custos/produtos/PRODUTO_ID/receitas \
   -H "Content-Type: application/json" \
-  -H "Authorization: Bearer ACCESS_TOKEN" \
   -d '{
     "rendimento": 10,
     "ingredientes": [
@@ -535,7 +519,6 @@ Adicionar custo extra:
 ```bash
 curl -X POST http://localhost:8000/api/v1/custos/produtos/PRODUTO_ID/custos-adicionais \
   -H "Content-Type: application/json" \
-  -H "Authorization: Bearer ACCESS_TOKEN" \
   -d '{
     "tipo": "indireto",
     "nome": "gas",
@@ -547,8 +530,7 @@ curl -X POST http://localhost:8000/api/v1/custos/produtos/PRODUTO_ID/custos-adic
 Calcular custo:
 
 ```bash
-curl http://localhost:8000/api/v1/custos/produtos/PRODUTO_ID/calculo \
-  -H "Authorization: Bearer ACCESS_TOKEN"
+curl http://localhost:8000/api/v1/custos/produtos/PRODUTO_ID/calculo
 ```
 
 ## 14. Ver historico
