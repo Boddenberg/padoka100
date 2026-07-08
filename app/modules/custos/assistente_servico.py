@@ -46,8 +46,21 @@ APLICACOES_CUSTO = {"por_receita", "por_unidade"}
 SESSOES_IMUTAVEIS = {"confirmado", "descartado"}
 FINALIDADES_ENTRADA = {"auto", "receita", "compras", "completo"}
 DESCRITORES_INGREDIENTE = {
+    "branca",
+    "brancas",
+    "branco",
+    "brancos",
+    "especial",
+    "especiais",
+    "extra",
+    "grande",
+    "grandes",
+    "iodada",
+    "iodado",
     "ralado",
     "ralada",
+    "refinada",
+    "refinado",
     "picado",
     "picada",
     "fatiado",
@@ -56,8 +69,27 @@ DESCRITORES_INGREDIENTE = {
     "moida",
     "triturado",
     "triturada",
+    "tradicional",
+    "tradicionais",
 }
-STOPWORDS_INGREDIENTE = {"de", "da", "do", "das", "dos", "para", "com", "sem", "tipo"}
+STOPWORDS_INGREDIENTE = {
+    "a",
+    "as",
+    "com",
+    "da",
+    "das",
+    "de",
+    "do",
+    "dos",
+    "e",
+    "o",
+    "os",
+    "ou",
+    "para",
+    "sem",
+    "tipo",
+}
+INGREDIENTES_GENERICOS_PARA_MATCH = {"queijo"}
 
 
 def criar_sessao(requisicao: RequisicaoCriarSessaoCusteio) -> dict:
@@ -773,9 +805,15 @@ def _encontrar_ingrediente_compativel(
 
 def _mesclar_ingrediente(atual: dict, novo: dict) -> dict:
     resultado = _mesclar_dict_sem_nones(atual, novo)
-    resultado["nome"] = _escolher_nome_ingrediente(atual.get("nome"), novo.get("nome"))
 
     novo_tem_dados_de_compra = _tem_algum_dado_de_compra(novo)
+    if novo_tem_dados_de_compra and (
+        atual.get("quantidade_usada") is not None or atual.get("unidade_usada") is not None
+    ):
+        resultado["nome"] = atual.get("nome") or novo.get("nome")
+    else:
+        resultado["nome"] = _escolher_nome_ingrediente(atual.get("nome"), novo.get("nome"))
+
     if novo_tem_dados_de_compra:
         for chave in ("quantidade_usada", "unidade_usada"):
             if atual.get(chave) is not None and novo.get(chave) is not None:
@@ -1440,6 +1478,11 @@ def _instrucoes_extracao_custeio() -> str:
         "Com finalidade 'compras', preencha quantidade_comprada, "
         "unidade_compra e preco_total; deixe quantidade_usada, unidade_usada, preparo e "
         "rendimento como null, salvo se o usuario trouxer isso explicitamente junto. "
+        "Ao ler nota/cupom, compare com o rascunho atual e use o nome do ingrediente "
+        "da receita quando for equivalente: 'ovos grandes brancos' deve atualizar 'ovos', "
+        "'sal iodado/refinado' deve atualizar 'sal' e 'queijo mussarela ralado' pode "
+        "atualizar 'queijo meia cura e/ou mussarela ralado'. Nao crie outro ingrediente "
+        "so porque a nota tem marca, tipo, cor, tamanho ou descricao comercial. "
         "Com finalidade 'completo', aceite receita e compras na mesma entrada, mas nunca "
         "copie quantidade usada para quantidade comprada por deducao. Para embalagem normalmente "
         "use aplicacao por_unidade; para gas, "
@@ -2074,6 +2117,11 @@ def _nomes_ingredientes_compativeis(nome_a: str | None, nome_b: str | None) -> b
 
     tokens_a = set(normalizado_a.split())
     tokens_b = set(normalizado_b.split())
+    tokens_menores = tokens_a if len(tokens_a) <= len(tokens_b) else tokens_b
+    tokens_maiores = tokens_b if len(tokens_a) <= len(tokens_b) else tokens_a
+    if tokens_menores and tokens_menores <= tokens_maiores:
+        return bool(tokens_menores - INGREDIENTES_GENERICOS_PARA_MATCH)
+
     if len(tokens_a) < 2 and len(tokens_b) < 2:
         return False
     comuns = tokens_a & tokens_b
@@ -2090,6 +2138,8 @@ def _normalizar_nome_ingrediente(nome: str) -> str:
         "mucarela": "mussarela",
         "mozarela": "mussarela",
         "mozzarella": "mussarela",
+        "ovos": "ovo",
+        "queijos": "queijo",
     }
     tokens = []
     for token in texto.split():
