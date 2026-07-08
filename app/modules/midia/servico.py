@@ -10,7 +10,14 @@ from app.db.supabase import get_supabase_client
 from app.shared.db import to_db_payload
 from app.shared.linha_do_tempo import registrar_evento_na_linha_do_tempo
 
-TIPOS_DE_ENTIDADE_COM_MIDIA = {"produto", "local", "dia_de_venda", "venda", "interacao_ia"}
+TIPOS_DE_ENTIDADE_COM_MIDIA = {
+    "produto",
+    "local",
+    "dia_de_venda",
+    "venda",
+    "interacao_ia",
+    "usuario",
+}
 
 
 async def enviar_midia(
@@ -47,7 +54,10 @@ def enviar_midia_em_bytes(
     definir_como_principal: bool = False,
 ) -> dict:
     if tipo_entidade not in TIPOS_DE_ENTIDADE_COM_MIDIA:
-        raise BadRequestError("Tipo de entidade de midia invalido.", {"tipo_entidade": tipo_entidade})
+        raise BadRequestError(
+            "Tipo de entidade de midia invalido.",
+            {"tipo_entidade": tipo_entidade},
+        )
 
     if not conteudo:
         raise BadRequestError("Arquivo vazio.")
@@ -108,7 +118,11 @@ def enviar_midia_em_bytes(
     return midia
 
 
-def _montar_caminho_do_arquivo(tipo_entidade: str, entidade_id: UUID, nome_arquivo: str | None) -> str:
+def _montar_caminho_do_arquivo(
+    tipo_entidade: str,
+    entidade_id: UUID,
+    nome_arquivo: str | None,
+) -> str:
     sufixo = Path(nome_arquivo or "upload").suffix.lower()
     nome_seguro = _normalizar_nome_arquivo(Path(nome_arquivo or "upload").stem)
     return f"{tipo_entidade}/{entidade_id}/{uuid4()}-{nome_seguro}{sufixo}"

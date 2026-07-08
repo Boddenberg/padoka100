@@ -1,7 +1,7 @@
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, File, UploadFile
 
 from app.modules.auth import servico
 from app.modules.auth.dependencias import exigir_papel, obter_sessao_autenticada
@@ -70,3 +70,11 @@ def atualizar_meu_perfil(
     sessao: SessaoAtual,
 ) -> dict:
     return servico.atualizar_perfil(sessao["usuario"]["id"], requisicao)
+
+
+@router.post("/perfil/me/foto", response_model=UsuarioSaida)
+async def atualizar_foto_do_perfil(
+    file: Annotated[UploadFile, File()],
+    sessao: SessaoAtual,
+) -> dict:
+    return await servico.atualizar_foto_perfil(sessao["usuario"]["id"], file)

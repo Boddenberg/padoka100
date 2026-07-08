@@ -95,6 +95,7 @@ A documentacao interativa fica em:
 - `PATCH /api/v1/auth/usuarios/{usuario_id}/papel`
 - `GET /api/v1/perfil/me`
 - `PATCH /api/v1/perfil/me`
+- `POST /api/v1/perfil/me/foto`
 - `GET /api/v1/custos/insumos`
 - `POST /api/v1/custos/insumos`
 - `PATCH /api/v1/custos/insumos/{insumo_id}`
@@ -155,7 +156,7 @@ Ja existe:
 - estrutura FastAPI com `app.main:app`, CORS, healthcheck e configuracao por `.env`;
 - modulos em portugues dentro de `app/modules`;
 - integracao com Supabase e OpenAI;
-- migrations SQL para schema inicial, sobras e correcoes de dia fechado;
+- migrations SQL para schema inicial, sobras, correcoes, auth/perfil, custos e midia de usuario;
 - cadastro, listagem, atualizacao e consulta de produtos;
 - historico de precos por versao;
 - cadastro e atualizacao de locais;
@@ -172,10 +173,10 @@ Ja existe:
 - upload de midia;
 - interpretacao de comandos por texto/audio com confirmacao antes de salvar;
 - autenticacao real com senha hash PBKDF2, bearer token e logout;
-- perfil do usuario com foto, nome, nascimento, telefone e e-mail;
+- perfil do usuario com foto, upload de foto, nome, nascimento, telefone e e-mail;
 - papeis `usuario`, `administrador` e `dono` em rotas novas sensiveis;
 - dados estruturados para IA por periodo;
-- analise padrao e especifica com IA ou resumo local quando OpenAI nao estiver configurada;
+- analise padrao e especifica com secoes estruturadas e resumo local quando OpenAI nao estiver configurada;
 - modulo inicial de custos com insumos, receitas, custos adicionais e calculo por produto.
 
 Ainda nao existe como funcionalidade completa:

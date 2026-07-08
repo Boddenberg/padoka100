@@ -45,6 +45,12 @@ class RespostaAnaliseIA(ApiModel):
     modelo_usado: str
     dados_estruturados: dict
     analise: str
+    resumo: str
+    principais_achados: list[str] = Field(default_factory=list)
+    mais_venderam: list[dict] = Field(default_factory=list)
+    mais_sobraram: list[dict] = Field(default_factory=list)
+    sugestoes: list[str] = Field(default_factory=list)
+    pontos_atencao: list[str] = Field(default_factory=list)
 
 
 class ItemInterpretado(ApiModel):

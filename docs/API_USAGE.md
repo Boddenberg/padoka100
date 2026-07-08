@@ -54,16 +54,64 @@ Endpoints que exigem Bearer token hoje:
 - dados estruturados e analises de IA, apenas `dono`;
 - custos, insumos e receitas, apenas `dono`.
 
-Rotas de perfil e seguranca:
+Atualizar perfil, incluindo troca de e-mail:
 
 ```bash
 curl -X PATCH http://localhost:8000/api/v1/perfil/me \
-  -H "Authorization: Bearer ACCESS_TOKEN"
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer ACCESS_TOKEN" \
+  -d '{
+    "nome": "Dono da Padoka",
+    "email": "novo-email@padoka.local",
+    "telefone": "11988887777",
+    "foto_url": "https://exemplo.com/foto.jpg"
+  }'
+```
+
+O campo `email` e aceito no `PATCH /perfil/me`. A API normaliza para minusculo
+e retorna `409` se o e-mail ja estiver em uso por outro usuario.
+
+Enviar foto de perfil do aparelho e salvar a URL no usuario:
+
+```bash
+curl -X POST http://localhost:8000/api/v1/perfil/me/foto \
+  -H "Authorization: Bearer ACCESS_TOKEN" \
+  -F "file=@perfil.jpg"
+```
+
+O retorno e `UsuarioSaida` com `foto_url` atualizado:
+
+```json
+{
+  "id": "USUARIO_ID",
+  "email": "novo-email@padoka.local",
+  "nome": "Dono da Padoka",
+  "foto_url": "https://.../usuario/USUARIO_ID/arquivo.jpg",
+  "data_nascimento": null,
+  "telefone": "11988887777",
+  "papel": "dono",
+  "situacao": "ativo",
+  "criado_em": "2026-07-08T10:00:00Z",
+  "atualizado_em": "2026-07-08T10:05:00Z"
+}
+```
+
+Trocar senha e sair:
+
+```bash
 curl -X POST http://localhost:8000/api/v1/auth/trocar-senha \
-  -H "Authorization: Bearer ACCESS_TOKEN"
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer ACCESS_TOKEN" \
+  -d '{
+    "senha_atual": "senha-segura-123",
+    "nova_senha": "nova-senha-segura-456"
+  }'
 curl -X POST http://localhost:8000/api/v1/auth/logout \
   -H "Authorization: Bearer ACCESS_TOKEN"
 ```
+
+Nao existe refresh token ainda. Quando receber `401`, o app deve derrubar a
+sessao local e pedir login novamente.
 
 Rotas de permissao para `dono`:
 
@@ -274,6 +322,52 @@ O resumo retorna:
 - historico estruturado do dia
 - correcoes retroativas do dia
 
+Exemplo com os nomes exatos dos campos:
+
+```json
+{
+  "dia_de_venda_id": "DIA_DE_VENDA_ID",
+  "data_venda": "2026-07-04",
+  "data": "2026-07-04",
+  "nome_local": "Condominio Primavera",
+  "situacao": "fechado",
+  "status": "FECHADO",
+  "total_produzido": 30,
+  "total_sobra_aproveitada": 8,
+  "total_disponivel": 38,
+  "total_vendido": 25,
+  "itens_vendidos": 25,
+  "total_sobra": 13,
+  "faturamento_bruto": "250.00",
+  "faturamento_total": "250.00",
+  "custo_estimado": "100.00",
+  "lucro_estimado": "150.00",
+  "produtos": [
+    {
+      "produto_id": "PRODUTO_ID",
+      "nome_produto": "Pao de calabresa",
+      "url_imagem_produto": "https://exemplo.com/calabresa.jpg",
+      "participou_da_venda": true,
+      "esgotado": false,
+      "quantidade_produzida": 30,
+      "quantidade_sobra_aproveitada": 8,
+      "quantidade_disponivel": 38,
+      "quantidade_vendida": 25,
+      "quantidade_sobra": 13,
+      "faturamento_bruto": "250.00",
+      "custo_estimado": "100.00",
+      "lucro_estimado": "150.00"
+    }
+  ],
+  "produtos_produzidos": [],
+  "produtos_vendidos": [],
+  "produtos_sobrando": [],
+  "produtos_esgotados": [],
+  "historico": [],
+  "correcoes": []
+}
+```
+
 Tambem e possivel buscar por data:
 
 ```bash
@@ -352,8 +446,52 @@ curl -X POST http://localhost:8000/api/v1/ia/analises/especifica \
   }'
 ```
 
-Se `OPENAI_API_KEY` e `OPENAI_TEXT_MODEL` nao estiverem configurados, a API retorna
-uma analise local simples sem inventar dados.
+`/analises/padrao` e `/analises/especifica` retornam o mesmo formato. O campo
+`analise` continua existindo para compatibilidade com texto corrido, mas o app
+pode renderizar preferencialmente as secoes estruturadas:
+
+```json
+{
+  "periodo": {
+    "inicio": "2026-07-01",
+    "fim": "2026-07-08"
+  },
+  "tipo": "padrao",
+  "modelo_usado": "analise-local",
+  "dados_estruturados": {},
+  "analise": "Periodo de 2026-07-01 a 2026-07-08...",
+  "resumo": "Periodo de 2026-07-01 a 2026-07-08: faturamento total de R$ 650.00, 25 unidades vendidas e 13 unidades sobrando.",
+  "principais_achados": [
+    "Total produzido: 30 unidades.",
+    "Total vendido: 25 unidades.",
+    "Total sobrando: 13 unidades."
+  ],
+  "mais_venderam": [
+    {
+      "produto_id": "PRODUTO_ID",
+      "produto": "Pao de calabresa",
+      "quantidade_vendida": 25,
+      "faturamento": "250.00"
+    }
+  ],
+  "mais_sobraram": [
+    {
+      "produto_id": "PRODUTO_ID",
+      "produto": "Pao de calabresa",
+      "quantidade_sobra": 13
+    }
+  ],
+  "sugestoes": [
+    "Revisar a producao de Pao de calabresa, que concentrou a maior sobra."
+  ],
+  "pontos_atencao": [
+    "Ha correcoes retroativas no periodo analisado."
+  ]
+}
+```
+
+Se `OPENAI_API_KEY` e `OPENAI_TEXT_MODEL` nao estiverem configurados, a API
+preenche esses mesmos campos com uma analise local simples sem inventar dados.
 
 ## 13. Custos, insumos e receitas
 

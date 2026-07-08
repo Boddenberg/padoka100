@@ -1,6 +1,8 @@
 from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
+from fastapi import UploadFile
+
 from app.core.errors import AppError, ConflictError, NotFoundError
 from app.db.supabase import get_supabase_client
 from app.modules.auth.esquemas import (
@@ -17,6 +19,7 @@ from app.modules.auth.seguranca import (
     normalizar_email,
     verificar_senha,
 )
+from app.modules.midia import servico as servico_de_midia
 from app.shared.db import first_or_none, to_db_payload
 
 HORAS_EXPIRACAO_SESSAO = 24 * 14
@@ -156,6 +159,41 @@ def atualizar_perfil(usuario_id: UUID | str, requisicao: RequisicaoAtualizarPerf
     atualizado = (
         client.table("usuarios")
         .update(to_db_payload(dados))
+        .eq("id", str(usuario_id))
+        .execute()
+        .data[0]
+    )
+    return _usuario_publico(atualizado)
+
+
+async def atualizar_foto_perfil(usuario_id: UUID | str | None, file: UploadFile) -> dict:
+    if not usuario_id:
+        raise AppError(
+            status_code=400,
+            code="profile_unavailable",
+            message="Nao ha usuario autenticado para atualizar foto de perfil.",
+            details={},
+        )
+    client = get_supabase_client()
+    midia = await servico_de_midia.enviar_midia(
+        tipo_entidade="usuario",
+        entidade_id=UUID(str(usuario_id)),
+        file=file,
+        descricao="Foto de perfil",
+        texto_alternativo="Foto de perfil do usuario",
+        definir_como_principal=False,
+    )
+    foto_url = midia.get("url_publica")
+    if not foto_url:
+        raise AppError(
+            status_code=500,
+            code="profile_photo_url_unavailable",
+            message="Nao foi possivel gerar a URL publica da foto de perfil.",
+            details={"midia_id": midia.get("id")},
+        )
+    atualizado = (
+        client.table("usuarios")
+        .update(to_db_payload({"foto_url": foto_url}))
         .eq("id", str(usuario_id))
         .execute()
         .data[0]

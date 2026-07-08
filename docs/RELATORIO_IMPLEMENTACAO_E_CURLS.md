@@ -84,6 +84,7 @@ supabase/migrations/002_decisoes_sobra.sql
 supabase/migrations/003_correcoes_dia_fechado.sql
 supabase/migrations/004_auth_perfil.sql
 supabase/migrations/005_custos.sql
+supabase/migrations/006_midias_usuario.sql
 ```
 
 ## 3. Autenticacao e perfil
@@ -135,10 +136,24 @@ curl -X PATCH http://localhost:8000/api/v1/perfil/me \
   -H "Authorization: Bearer $TOKEN" \
   -d '{
     "nome": "Dono da Padoka 100",
+    "email": "novo-email@padoka.local",
     "telefone": "11988887777",
     "foto_url": "https://exemplo.com/foto.jpg"
   }'
 ```
+
+`PATCH /perfil/me` aceita troca de e-mail. A API normaliza o e-mail e retorna
+`409` se ele ja estiver em uso.
+
+### Enviar foto de perfil
+
+```bash
+curl -X POST http://localhost:8000/api/v1/perfil/me/foto \
+  -H "Authorization: Bearer $TOKEN" \
+  -F "file=@perfil.jpg"
+```
+
+O retorno e `UsuarioSaida` com `foto_url` atualizado.
 
 ### Trocar senha
 
@@ -333,6 +348,47 @@ curl "http://localhost:8000/api/v1/relatorios/periodo?data_inicio=2026-07-01&dat
 curl "http://localhost:8000/api/v1/relatorios/periodo?data_inicio=2026-07-01&data_fim=2026-07-08&produto_id=PRODUTO_ID"
 ```
 
+### Exemplo de resposta do resumo do dia
+
+```json
+{
+  "dia_de_venda_id": "DIA_DE_VENDA_ID",
+  "data_venda": "2026-07-04",
+  "data": "2026-07-04",
+  "nome_local": "Condominio Primavera",
+  "situacao": "fechado",
+  "status": "FECHADO",
+  "total_produzido": 30,
+  "total_sobra_aproveitada": 8,
+  "total_disponivel": 38,
+  "total_vendido": 25,
+  "itens_vendidos": 25,
+  "total_sobra": 13,
+  "faturamento_bruto": "250.00",
+  "faturamento_total": "250.00",
+  "custo_estimado": "100.00",
+  "lucro_estimado": "150.00",
+  "produtos": [
+    {
+      "produto_id": "PRODUTO_ID",
+      "nome_produto": "Pao de calabresa",
+      "quantidade_produzida": 30,
+      "quantidade_sobra_aproveitada": 8,
+      "quantidade_disponivel": 38,
+      "quantidade_vendida": 25,
+      "quantidade_sobra": 13,
+      "esgotado": false
+    }
+  ],
+  "produtos_produzidos": [],
+  "produtos_vendidos": [],
+  "produtos_sobrando": [],
+  "produtos_esgotados": [],
+  "historico": [],
+  "correcoes": []
+}
+```
+
 ## 7. Correcoes retroativas
 
 Endpoint antigo: nao exige Bearer token.
@@ -474,6 +530,51 @@ curl -X POST http://localhost:8000/api/v1/ia/analises/especifica \
   }'
 ```
 
+### Resposta padronizada da analise
+
+`/analises/padrao` e `/analises/especifica` retornam as mesmas secoes. O campo
+`analise` continua disponivel como texto corrido.
+
+```json
+{
+  "periodo": {
+    "inicio": "2026-07-01",
+    "fim": "2026-07-08"
+  },
+  "tipo": "padrao",
+  "modelo_usado": "analise-local",
+  "dados_estruturados": {},
+  "analise": "Periodo de 2026-07-01 a 2026-07-08...",
+  "resumo": "Periodo de 2026-07-01 a 2026-07-08: faturamento total de R$ 650.00, 25 unidades vendidas e 13 unidades sobrando.",
+  "principais_achados": [
+    "Total produzido: 30 unidades.",
+    "Total vendido: 25 unidades.",
+    "Total sobrando: 13 unidades."
+  ],
+  "mais_venderam": [
+    {
+      "produto_id": "PRODUTO_ID",
+      "produto": "Pao de calabresa",
+      "quantidade_vendida": 25,
+      "faturamento": "250.00"
+    }
+  ],
+  "mais_sobraram": [
+    {
+      "produto_id": "PRODUTO_ID",
+      "produto": "Pao de calabresa",
+      "quantidade_sobra": 13
+    }
+  ],
+  "sugestoes": [
+    "Revisar a producao de Pao de calabresa, que concentrou a maior sobra."
+  ],
+  "pontos_atencao": [
+    "Ha correcoes retroativas no periodo analisado."
+  ]
+}
+```
+
 ## 11. Custos, insumos e receitas
 
 Rotas de custos exigem papel `dono`.
@@ -568,6 +669,6 @@ Exemplo esperado para farinha de R$ 5,00 por 1 kg:
 - A API cria auth proprio com PBKDF2 e bearer token; ainda nao ha refresh token.
 - Ainda nao ha tela/front para gerir usuarios e papeis.
 - Analise com IA depende de `OPENAI_API_KEY` e `OPENAI_TEXT_MODEL`; sem isso,
-  retorna resumo local simples.
+  retorna as mesmas secoes estruturadas com analise local simples.
 - Foto de nota fiscal e extracao OCR ainda nao foram implementadas.
 - Ainda falta suite automatizada de testes de integracao.
