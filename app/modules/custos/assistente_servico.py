@@ -545,9 +545,15 @@ def _montar_sessao_saida(sessao: dict, entradas: list[dict] | None = None) -> di
 def _montar_estado_da_sessao(rascunho: dict, *, produto_id: UUID | None) -> dict:
     rascunho_normalizado = _normalizar_rascunho(rascunho, produto_id=produto_id)
     custo_simulado = _simular_custo(rascunho_normalizado, produto_id=produto_id)
-    pendencias = custo_simulado["pendencias"]
+    fase = _resolver_fase_do_rascunho(rascunho_normalizado, produto_id=produto_id)
+    pendencias = _consolidar_pendencias_para_fase(
+        custo_simulado["pendencias"],
+        rascunho_normalizado,
+        fase=fase,
+    )
+    custo_simulado["pendencias"] = pendencias
     avisos = _deduplicar_textos(custo_simulado["avisos"] + rascunho_normalizado.get("avisos", []))
-    perguntas = _montar_perguntas(rascunho_normalizado, pendencias)
+    perguntas = _montar_perguntas(rascunho_normalizado, pendencias, fase=fase)
     confianca = _calcular_confianca_geral(rascunho_normalizado, pendencias)
     status = custo_simulado["status"]
     if pendencias:
@@ -947,7 +953,7 @@ def _simular_ingrediente(ingrediente: dict) -> tuple[Decimal | None, Decimal | N
         return None, None, f"{nome}: {exc.message}"
 
 
-def _montar_perguntas(rascunho: dict, pendencias: list[str]) -> list[dict]:
+def _montar_perguntas(rascunho: dict, pendencias: list[str], *, fase: str) -> list[dict]:
     perguntas = []
     if not rascunho.get("produto_id"):
         perguntas.append(
@@ -969,29 +975,47 @@ def _montar_perguntas(rascunho: dict, pendencias: list[str]) -> list[dict]:
                 "prioridade": 1,
             }
         )
-    for indice, ingrediente in enumerate(rascunho["ingredientes"], start=1):
-        nome = ingrediente.get("nome") or f"ingrediente {indice}"
-        if not ingrediente.get("quantidade_usada"):
-            perguntas.append(
-                {
-                    "id": f"ingredientes.{indice}.quantidade_usada",
-                    "campo": f"ingredientes[{indice - 1}].quantidade_usada",
-                    "pergunta": f"Quanto de {nome} entra na receita?",
-                    "tipo_resposta": "numero",
-                    "prioridade": 1,
-                }
-            )
-        if not ingrediente.get("insumo_id") and not ingrediente.get("preco_total"):
-            perguntas.append(
-                {
-                    "id": f"ingredientes.{indice}.preco_total",
-                    "campo": f"ingredientes[{indice - 1}].preco_total",
-                    "pergunta": f"Quanto custou a compra de {nome}?",
-                    "tipo_resposta": "dinheiro",
-                    "prioridade": 2,
-                }
-            )
-    for pergunta in rascunho.get("perguntas_sugeridas", []):
+
+    ingredientes_sem_medida = _ingredientes_sem_dados_de_receita(rascunho["ingredientes"])
+    if ingredientes_sem_medida:
+        perguntas.append(
+            {
+                "id": "ingredientes.medidas_receita",
+                "campo": None,
+                "pergunta": (
+                    "Complete as quantidades usadas na receita para: "
+                    f"{_formatar_lista_nomes(ingredientes_sem_medida)}. "
+                    "Pode responder tudo junto, por exemplo: "
+                    "'ovos 2 unidades, leite 250 ml, oleo 1/2 copo'."
+                ),
+                "tipo_resposta": "texto",
+                "prioridade": 1,
+            }
+        )
+
+    ingredientes_sem_compra = _ingredientes_sem_dados_de_compra(rascunho["ingredientes"])
+    if _fase_permite_perguntas_de_preco(fase) and ingredientes_sem_compra:
+        perguntas.append(
+            {
+                "id": "ingredientes.dados_de_compra",
+                "campo": None,
+                "pergunta": (
+                    "Agora preciso dos dados de compra para calcular o custo de: "
+                    f"{_formatar_lista_nomes(ingredientes_sem_compra)}. "
+                    "Voce pode responder em uma mensagem so com quantidade comprada e preco, "
+                    "ou enviar a foto/print da notinha do mercado."
+                ),
+                "tipo_resposta": "texto_ou_arquivo",
+                "prioridade": 2,
+            }
+        )
+
+    for pergunta in _perguntas_sugeridas_para_fase(
+        rascunho,
+        fase=fase,
+        ignorar_perguntas_de_medida=bool(ingredientes_sem_medida),
+        ignorar_perguntas_de_rendimento=not _decimal_ou_none(rascunho["receita"].get("rendimento")),
+    ):
         perguntas.append(
             {
                 "id": _normalizar_chave(pergunta)[:60],
@@ -1012,6 +1036,169 @@ def _montar_perguntas(rascunho: dict, pendencias: list[str]) -> list[dict]:
             }
         )
     return perguntas
+
+
+def _ingredientes_sem_dados_de_receita(ingredientes: list[dict]) -> list[str]:
+    nomes = []
+    for indice, ingrediente in enumerate(ingredientes, start=1):
+        if _ingrediente_precisa_de_dados_de_receita(ingrediente):
+            nomes.append(ingrediente.get("nome") or f"ingrediente {indice}")
+    return nomes
+
+
+def _ingrediente_precisa_de_dados_de_receita(ingrediente: dict) -> bool:
+    if not ingrediente.get("quantidade_usada") or not ingrediente.get("unidade_usada"):
+        return True
+    unidade_usada = ingrediente.get("unidade_usada")
+    return bool(unidade_usada and not servico_de_custos.unidade_suportada(unidade_usada))
+
+
+def _ingredientes_sem_dados_de_compra(ingredientes: list[dict]) -> list[str]:
+    nomes = []
+    for indice, ingrediente in enumerate(ingredientes, start=1):
+        if _ingrediente_precisa_de_preco_ou_unidade(ingrediente):
+            nomes.append(ingrediente.get("nome") or f"ingrediente {indice}")
+    return nomes
+
+
+def _fase_permite_perguntas_de_preco(fase: str) -> bool:
+    return fase in {"coletando_precos", "revisando"}
+
+
+def _formatar_lista_nomes(nomes: list[str], *, limite: int = 6) -> str:
+    nomes_limpos = [nome for nome in _deduplicar_textos(nomes) if nome]
+    if not nomes_limpos:
+        return "os ingredientes pendentes"
+    exibidos = nomes_limpos[:limite]
+    texto = ", ".join(exibidos)
+    restantes = len(nomes_limpos) - len(exibidos)
+    if restantes > 0:
+        texto = f"{texto} e mais {restantes}"
+    return texto
+
+
+def _perguntas_sugeridas_para_fase(
+    rascunho: dict,
+    *,
+    fase: str,
+    ignorar_perguntas_de_medida: bool = False,
+    ignorar_perguntas_de_rendimento: bool = False,
+) -> list[str]:
+    perguntas = []
+    for pergunta in rascunho.get("perguntas_sugeridas", []):
+        if not _fase_permite_perguntas_de_preco(fase) and _texto_indica_preco_ou_compra(pergunta):
+            continue
+        if ignorar_perguntas_de_medida and _texto_indica_medida_de_receita(pergunta):
+            continue
+        if ignorar_perguntas_de_rendimento and _texto_indica_rendimento(pergunta):
+            continue
+        perguntas.append(pergunta)
+    return _deduplicar_textos(perguntas)[:3]
+
+
+def _texto_indica_preco_ou_compra(texto: str | None) -> bool:
+    texto_normalizado = _normalizar_chave(texto or "")
+    palavras = {
+        "preco",
+        "precos",
+        "custou",
+        "custa",
+        "compra",
+        "compras",
+        "comprado",
+        "comprada",
+        "comprou",
+        "mercado",
+        "nota",
+        "notinha",
+        "cupom",
+        "fiscal",
+        "valor",
+        "valores",
+    }
+    tokens = set(texto_normalizado.split())
+    return bool(tokens & palavras) or "r " in texto_normalizado
+
+
+def _texto_indica_medida_de_receita(texto: str | None) -> bool:
+    texto_normalizado = _normalizar_chave(texto or "")
+    palavras = {
+        "quantidade",
+        "quantidades",
+        "quanto",
+        "quantos",
+        "unidade",
+        "unidades",
+        "peso",
+        "gramatura",
+        "gramas",
+        "ml",
+    }
+    return bool(set(texto_normalizado.split()) & palavras)
+
+
+def _texto_indica_rendimento(texto: str | None) -> bool:
+    texto_normalizado = _normalizar_chave(texto or "")
+    return any(palavra in texto_normalizado.split() for palavra in {"rendimento", "rende"})
+
+
+def _consolidar_pendencias_para_fase(
+    pendencias: list[str],
+    rascunho: dict,
+    *,
+    fase: str,
+) -> list[str]:
+    pendencias_de_medida = [
+        pendencia for pendencia in pendencias if _pendencia_indica_medida_de_receita(pendencia)
+    ]
+    pendencias_sem_preco_ou_medida = [
+        pendencia
+        for pendencia in pendencias
+        if not _pendencia_indica_preco_ou_compra(pendencia)
+        and not _pendencia_indica_medida_de_receita(pendencia)
+    ]
+    pendencias_de_preco = [
+        pendencia for pendencia in pendencias if _pendencia_indica_preco_ou_compra(pendencia)
+    ]
+
+    pendencias_consolidadas = list(pendencias_sem_preco_ou_medida)
+    if pendencias_de_medida:
+        ingredientes_sem_medida = _ingredientes_sem_dados_de_receita(rascunho["ingredientes"])
+        pendencias_consolidadas.append(
+            "Complete as quantidades/unidades usadas na receita: "
+            f"{_formatar_lista_nomes(ingredientes_sem_medida)}."
+        )
+
+    if not pendencias_de_preco:
+        return _deduplicar_textos(pendencias_consolidadas)
+
+    if not _fase_permite_perguntas_de_preco(fase):
+        return _deduplicar_textos(pendencias_consolidadas)
+
+    ingredientes_sem_compra = _ingredientes_sem_dados_de_compra(rascunho["ingredientes"])
+    resumo = (
+        "Informe os dados de compra/preco dos ingredientes para calcular o custo: "
+        f"{_formatar_lista_nomes(ingredientes_sem_compra)}."
+    )
+    return _deduplicar_textos(pendencias_consolidadas + [resumo])
+
+
+def _pendencia_indica_preco_ou_compra(texto: str | None) -> bool:
+    texto_normalizado = _normalizar_chave(texto or "")
+    return (
+        "sem preco quantidade de compra" in texto_normalizado
+        or "dados de compra preco" in texto_normalizado
+        or "unidade de compra" in texto_normalizado
+    )
+
+
+def _pendencia_indica_medida_de_receita(texto: str | None) -> bool:
+    texto_normalizado = _normalizar_chave(texto or "")
+    return (
+        "sem quantidade usada" in texto_normalizado
+        or "sem unidade usada" in texto_normalizado
+        or "unidade usada" in texto_normalizado
+    )
 
 
 def _calcular_confianca_geral(rascunho: dict, pendencias: list[str]) -> Decimal:
@@ -1243,7 +1430,9 @@ def _instrucoes_extracao_custeio() -> str:
         "em imagem de receita, medidas como '250 ml de leite' ou '1/2 copo de oleo' "
         "sao sempre quantidade_usada/unidade_usada, nao quantidade_comprada/unidade_compra; "
         "deixe quantidade_comprada, unidade_compra e preco_total como null, mesmo que a "
-        "receita tenha medidas. Com finalidade 'compras', preencha quantidade_comprada, "
+        "receita tenha medidas, e nao gere perguntas sobre preco, nota ou compra nessa etapa. "
+        "Quando faltarem dados de varios ingredientes, agrupe em uma unica pergunta objetiva. "
+        "Com finalidade 'compras', preencha quantidade_comprada, "
         "unidade_compra e preco_total; deixe quantidade_usada, unidade_usada, preparo e "
         "rendimento como null, salvo se o usuario trouxer isso explicitamente junto. "
         "Com finalidade 'completo', aceite receita e compras na mesma entrada, mas nunca "
@@ -1601,6 +1790,11 @@ def _aplicar_finalidade_ao_rascunho_extraido(rascunho: dict, *, finalidade: str)
         rascunho["ingredientes"] = [
             _manter_apenas_dados_de_receita(item) for item in rascunho["ingredientes"]
         ]
+        rascunho["perguntas_sugeridas"] = [
+            pergunta
+            for pergunta in rascunho["perguntas_sugeridas"]
+            if not _texto_indica_preco_ou_compra(pergunta)
+        ]
         return rascunho
 
     if finalidade == "compras":
@@ -1680,11 +1874,20 @@ def _resolver_fase(sessao: dict, *, produto_id: UUID | None) -> str:
         return "confirmada"
     if situacao == "descartado":
         return "descartada"
-    if not produto_id:
-        return "vinculando_produto"
 
     rascunho = _normalizar_rascunho(sessao.get("rascunho") or {}, produto_id=produto_id)
-    if not rascunho["ingredientes"] or not _decimal_ou_none(rascunho["receita"].get("rendimento")):
+    return _resolver_fase_do_rascunho(rascunho, produto_id=produto_id)
+
+
+def _resolver_fase_do_rascunho(rascunho: dict, *, produto_id: UUID | str | None) -> str:
+    produto_id_resolvido = _uuid_ou_none(produto_id or rascunho.get("produto_id"))
+    if not produto_id_resolvido:
+        return "vinculando_produto"
+    if (
+        not rascunho["ingredientes"]
+        or not _decimal_ou_none(rascunho["receita"].get("rendimento"))
+        or any(_ingrediente_precisa_de_dados_de_receita(item) for item in rascunho["ingredientes"])
+    ):
         return "coletando_ingredientes"
     if any(_ingrediente_precisa_de_preco_ou_unidade(item) for item in rascunho["ingredientes"]):
         return "coletando_precos"

@@ -145,8 +145,12 @@ Jornada recomendada:
 
 Quando `finalidade=receita`, o backend nao preenche `quantidade_comprada`,
 `unidade_compra` nem `preco_total`, mesmo que a receita diga `250 ml de leite`.
+Nessa fase, `perguntas` tambem nao deve trazer preco: se faltar medida de
+ingrediente, o backend agrupa em uma unica pergunta de receita.
 Quando `finalidade=compras`, o backend nao sobrescreve rendimento nem
 quantidade usada da receita; ele apenas atualiza dados de compra/preco.
+Quando chegar em `coletando_precos`, o backend agrupa os ingredientes sem custo
+em uma pergunta unica, aceitando resposta por texto ou foto/print da notinha.
 
 ## Buscar estado da sessao
 
@@ -237,6 +241,11 @@ A tela deve ser orientada por `proxima_acao`:
 - `revisar_e_confirmar`: mostrar resumo financeiro e liberar confirmacao.
 - `mostrar_custo_confirmado`: mostrar ficha final do custo.
 - `sessao_descartada`: mostrar estado encerrado.
+
+Em `coletando_ingredientes`, o front deve mostrar somente receita: ingredientes,
+quantidades usadas, rendimento e preparo. Perguntas de preco aparecem apenas
+quando a fase evolui para `coletando_precos`; nesse momento, prefira uma caixa
+unica de resposta com opcoes de texto e upload da nota/cupom.
 
 O front deve tratar `rascunho` como documento editavel. Ele pode montar cards de
 ingredientes, rendimento, embalagem, custos indiretos e resumo a partir desse

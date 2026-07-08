@@ -571,7 +571,10 @@ curl -X POST http://localhost:8000/api/v1/custos/assistente/sessoes/SESSAO_ID/en
 
 Use `finalidade=receita` para foto/print de receita e `finalidade=compras`
 para nota/cupom/precos de mercado. Assim o backend nao copia quantidade usada
-na receita para quantidade comprada.
+na receita para quantidade comprada. Na etapa de receita, as perguntas ficam
+limitadas a receita/rendimento/medidas; dados de compra e preco aparecem depois,
+agrupados em uma unica pergunta que pode ser respondida por texto ou foto da
+notinha.
 
 Corrigir rascunho:
 
