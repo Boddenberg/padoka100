@@ -549,6 +549,7 @@ def _aplicar_entrada(
 
 
 def _montar_sessao_saida(sessao: dict, entradas: list[dict] | None = None) -> dict:
+    sessao = _sessao_com_estado_recalculado(sessao)
     produto = None
     produto_id = _uuid_ou_none(sessao.get("produto_id"))
     if produto_id:
@@ -572,6 +573,24 @@ def _montar_sessao_saida(sessao: dict, entradas: list[dict] | None = None) -> di
             "entradas": entradas_resolvidas,
         }
     )
+
+
+def _sessao_com_estado_recalculado(sessao: dict) -> dict:
+    if sessao["situacao"] in SESSOES_IMUTAVEIS:
+        return sessao
+    produto_id = _uuid_ou_none(sessao.get("produto_id"))
+    rascunho = _normalizar_rascunho(sessao.get("rascunho") or {}, produto_id=produto_id)
+    estado = _montar_estado_da_sessao(rascunho, produto_id=produto_id)
+    return {
+        **sessao,
+        "situacao": estado["situacao"],
+        "rascunho": rascunho,
+        "perguntas": estado["perguntas"],
+        "pendencias": estado["pendencias"],
+        "avisos": estado["avisos"],
+        "confianca_geral": estado["confianca_geral"],
+        "custo_simulado": estado["custo_simulado"],
+    }
 
 
 def _montar_estado_da_sessao(rascunho: dict, *, produto_id: UUID | None) -> dict:
@@ -692,16 +711,15 @@ def _normalizar_ingrediente(item: dict) -> dict:
         or item.get("quantidade")
     )
     unidade_usada = item.get("unidade_usada") or item.get("unidadeUsada") or item.get("unidade")
-    return {
+    unidade_compra = _texto_ou_none(item.get("unidade_compra") or item.get("unidadeCompra"))
+    normalizado = {
         "insumo_id": _uuid_str_ou_none(item.get("insumo_id") or item.get("insumoId")),
         "nome": _texto_ou_none(item.get("nome") or item.get("nome_insumo") or item.get("insumo")),
         "categoria": _texto_ou_none(item.get("categoria")),
         "quantidade_comprada": _decimal_str_ou_none(
             item.get("quantidade_comprada") or item.get("quantidadeComprada")
         ),
-        "unidade_compra": _texto_ou_none(
-            item.get("unidade_compra") or item.get("unidadeCompra")
-        ),
+        "unidade_compra": unidade_compra,
         "preco_total": _decimal_str_ou_none(item.get("preco_total") or item.get("precoTotal")),
         "quantidade_usada": _decimal_str_ou_none(quantidade_usada),
         "unidade_usada": _texto_ou_none(unidade_usada),
@@ -710,6 +728,10 @@ def _normalizar_ingrediente(item: dict) -> dict:
         "confianca": _float_ou_none(item.get("confianca")),
         "salvar_como_insumo": item.get("salvar_como_insumo", True),
     }
+    _inferir_unidade_de_compra_pelo_nome(normalizado)
+    _evitar_equivalencia_duplicada(normalizado, "quantidade_usada", "unidade_usada")
+    _evitar_equivalencia_duplicada(normalizado, "quantidade_comprada", "unidade_compra")
+    return normalizado
 
 
 def _normalizar_custo_adicional(item: dict) -> dict:
@@ -726,6 +748,56 @@ def _normalizar_custo_adicional(item: dict) -> dict:
         "observacoes": _texto_ou_none(item.get("observacoes")),
         "confianca": _float_ou_none(item.get("confianca")),
     }
+
+
+def _inferir_unidade_de_compra_pelo_nome(item: dict) -> None:
+    unidade_compra = _normalizar_unidade_texto(item.get("unidade_compra"))
+    if unidade_compra not in {"un", "und", "unidade", "unidades"}:
+        return
+    equivalencia = _equivalencia_explicita_na_unidade(item.get("nome"))
+    if not equivalencia:
+        return
+    item["unidade_compra"] = equivalencia["unidade_canonica"]
+
+
+def _evitar_equivalencia_duplicada(item: dict, quantidade_chave: str, unidade_chave: str) -> None:
+    quantidade = _decimal_ou_none(item.get(quantidade_chave))
+    equivalencia = _equivalencia_explicita_na_unidade(item.get(unidade_chave))
+    if quantidade is None or not equivalencia:
+        return
+    if quantidade == equivalencia["fator_base"]:
+        item[unidade_chave] = equivalencia["unidade_base"]
+
+
+def _equivalencia_explicita_na_unidade(valor: str | None) -> dict | None:
+    if not valor:
+        return None
+    unidade_normalizada = _normalizar_chave(valor)
+    padroes = [
+        (r"(\d+(?:[,.]\d+)?)\s*(kg|quilo|quilos|kilograma|kilogramas)\b", "massa", "g", "1000"),
+        (r"(\d+(?:[,.]\d+)?)\s*(g|grama|gramas)\b", "massa", "g", "1"),
+        (r"(\d+(?:[,.]\d+)?)\s*(ml|mililitro|mililitros)\b", "volume", "ml", "1"),
+        (r"(\d+(?:[,.]\d+)?)\s*(l|lt|litro|litros)\b", "volume", "ml", "1000"),
+        (r"(\d+(?:[,.]\d+)?)\s*(un|und|unidade|unidades|ovo|ovos)\b", "unidade", "unidades", "1"),
+    ]
+    for padrao, tipo, unidade_base, multiplicador in padroes:
+        match = re.search(padrao, unidade_normalizada)
+        if not match:
+            continue
+        quantidade = Decimal(match.group(1).replace(",", "."))
+        fator_base = quantidade * Decimal(multiplicador)
+        return {
+            "tipo": tipo,
+            "fator_base": fator_base,
+            "unidade_base": unidade_base,
+            "unidade_canonica": f"{_decimal_str_limpa(quantidade)}{match.group(2)}",
+        }
+    return None
+
+
+def _decimal_str_limpa(valor: Decimal) -> str:
+    texto = format(valor.normalize(), "f")
+    return texto.rstrip("0").rstrip(".") if "." in texto else texto
 
 
 def _mesclar_rascunhos(atual: dict, novo: dict) -> dict:
@@ -950,10 +1022,14 @@ def _simular_ingrediente(ingrediente: dict) -> tuple[Decimal | None, Decimal | N
         if insumo_id:
             insumo = servico_de_custos.buscar_insumo(insumo_id)
             custo_unitario = Decimal(str(insumo["custo_por_unidade"]))
+            unidade_usada_calculo = _unidade_usada_para_calculo(
+                unidade_usada,
+                insumo["unidade_compra"],
+            )
             custo_total = servico_de_custos._calcular_custo_ingrediente(
                 custo_unitario,
                 quantidade_usada,
-                unidade_usada,
+                unidade_usada_calculo,
                 insumo["unidade_compra"],
             )
             return custo_total, custo_unitario, None
@@ -964,10 +1040,14 @@ def _simular_ingrediente(ingrediente: dict) -> tuple[Decimal | None, Decimal | N
         insumo_existente = _buscar_insumo_existente_para_ingrediente(ingrediente)
         if insumo_existente and not _tem_dados_de_compra_completos(ingrediente):
             custo_unitario = Decimal(str(insumo_existente["custo_por_unidade"]))
+            unidade_usada_calculo = _unidade_usada_para_calculo(
+                unidade_usada,
+                insumo_existente["unidade_compra"],
+            )
             custo_total = servico_de_custos._calcular_custo_ingrediente(
                 custo_unitario,
                 quantidade_usada,
-                unidade_usada,
+                unidade_usada_calculo,
                 insumo_existente["unidade_compra"],
             )
             return custo_total, custo_unitario, None
@@ -980,10 +1060,11 @@ def _simular_ingrediente(ingrediente: dict) -> tuple[Decimal | None, Decimal | N
             quantidade_comprada,
             unidade_compra,
         )
+        unidade_usada_calculo = _unidade_usada_para_calculo(unidade_usada, unidade_compra)
         custo_total = servico_de_custos._calcular_custo_ingrediente(
             custo_unitario,
             quantidade_usada,
-            unidade_usada,
+            unidade_usada_calculo,
             unidade_compra,
         )
         return custo_total, custo_unitario, None
@@ -1102,6 +1183,47 @@ def _ingrediente_precisa_de_dados_de_compra(ingrediente: dict) -> bool:
     if _tem_dados_de_compra_completos(ingrediente):
         return False
     return _buscar_insumo_existente_para_ingrediente(ingrediente) is None
+
+
+def _unidade_usada_para_calculo(unidade_usada: str | None, unidade_referencia: str | None) -> str | None:
+    if not unidade_usada:
+        return unidade_usada
+    if servico_de_custos.unidade_suportada(unidade_usada):
+        return unidade_usada
+    if (
+        _unidade_generica_de_embalagem(unidade_usada)
+        and _unidade_tem_embalagem_com_equivalencia(unidade_referencia)
+    ):
+        return unidade_referencia
+    return unidade_usada
+
+
+def _unidade_generica_de_embalagem(unidade: str | None) -> bool:
+    unidade_normalizada = _normalizar_unidade_texto(unidade)
+    if not unidade_normalizada:
+        return False
+    tokens = set(unidade_normalizada.split())
+    return bool(
+        tokens
+        & {
+            "caixa",
+            "embalagem",
+            "frasco",
+            "garrafa",
+            "lata",
+            "pacote",
+            "pct",
+            "pote",
+            "sache",
+            "saco",
+        }
+    )
+
+
+def _unidade_tem_embalagem_com_equivalencia(unidade: str | None) -> bool:
+    return _unidade_generica_de_embalagem(unidade) and bool(
+        _equivalencia_explicita_na_unidade(unidade)
+    )
 
 
 def _fase_permite_perguntas_de_preco(fase: str) -> bool:
