@@ -5,7 +5,12 @@ from uuid import UUID
 from fastapi import APIRouter, Query
 
 from app.modules.relatorios import servico
-from app.modules.relatorios.esquemas import ResumoDoDiaDeVenda, ResumoDoPeriodo, ResumoProdutoNoDia
+from app.modules.relatorios.esquemas import (
+    ResumoDoDiaDeVenda,
+    ResumoDoPeriodo,
+    ResumoDoPeriodoLeve,
+    ResumoProdutoNoDia,
+)
 
 router = APIRouter(prefix="/relatorios", tags=["relatorios"])
 
@@ -38,3 +43,22 @@ def buscar_resumo_do_periodo(
     produto_id: Annotated[UUID | None, Query()] = None,
 ) -> dict:
     return servico.buscar_resumo_do_periodo(data_inicio, data_fim, produto_id=produto_id)
+
+
+@router.get(
+    "/periodo/resumo",
+    response_model=ResumoDoPeriodoLeve,
+    response_model_exclude_none=True,
+)
+def buscar_resumo_leve_do_periodo(
+    data_inicio: Annotated[date, Query()],
+    data_fim: Annotated[date, Query()],
+    comparar: Annotated[bool, Query()] = False,
+    incluir_dias: Annotated[bool, Query()] = False,
+) -> dict:
+    return servico.buscar_resumo_leve_do_periodo(
+        data_inicio,
+        data_fim,
+        comparar=comparar,
+        incluir_dias=incluir_dias,
+    )

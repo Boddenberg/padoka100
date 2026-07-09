@@ -1,4 +1,4 @@
-from datetime import date
+from datetime import date, timedelta
 from decimal import Decimal
 from uuid import UUID
 
@@ -142,6 +142,30 @@ def buscar_resumo_do_periodo(
     }
 
 
+def buscar_resumo_leve_do_periodo(
+    data_inicio: date,
+    data_fim: date,
+    *,
+    comparar: bool = False,
+    incluir_dias: bool = False,
+) -> dict:
+    validar_periodo(data_inicio, data_fim)
+    resumo = _buscar_resumo_leve_do_periodo(data_inicio, data_fim, incluir_dias=incluir_dias)
+    if comparar:
+        tamanho_periodo = (data_fim - data_inicio).days + 1
+        data_fim_anterior = data_inicio - timedelta(days=1)
+        data_inicio_anterior = data_inicio - timedelta(days=tamanho_periodo)
+        resumo_anterior = _buscar_resumo_leve_do_periodo(
+            data_inicio_anterior,
+            data_fim_anterior,
+            incluir_dias=False,
+        )
+        resumo["periodo_anterior"] = {
+            "faturamento_bruto": resumo_anterior["faturamento_bruto"],
+        }
+    return resumo
+
+
 def _consolidar_resumos_da_mesma_data(resumos: list[dict]) -> dict:
     if len(resumos) == 1:
         return resumos[0]
@@ -230,6 +254,143 @@ def _consolidar_produtos_por_data(resumos: list[dict]) -> list[dict]:
                 and acumulado["quantidade_vendida"] >= acumulado["quantidade_disponivel"]
             )
     return sorted(produtos_por_id.values(), key=lambda produto: produto["nome_produto"])
+
+
+def _buscar_resumo_leve_do_periodo(
+    data_inicio: date,
+    data_fim: date,
+    *,
+    incluir_dias: bool,
+) -> dict:
+    client = get_supabase_client()
+    dias = (
+        client.table("dias_de_venda")
+        .select("id, data_venda, nome_local_no_momento, situacao, aberto_em")
+        .gte("data_venda", data_inicio.isoformat())
+        .lte("data_venda", data_fim.isoformat())
+        .order("data_venda")
+        .order("aberto_em")
+        .execute()
+        .data
+    )
+    resumos_por_abertura = _montar_resumos_leves_das_aberturas(client, dias)
+    resumos_por_data = _consolidar_resumos_leves_por_data(resumos_por_abertura)
+    totais = _somar_dias(resumos_por_data)
+    resumo = {
+        "data_inicio": data_inicio,
+        "data_fim": data_fim,
+        "faturamento_bruto": totais["faturamento_bruto"],
+        "lucro_estimado": totais["lucro_estimado"],
+        "total_vendido": totais["total_vendido"],
+        "total_sobra": totais["total_sobra"],
+    }
+    if incluir_dias:
+        resumo["dias"] = _formatar_dias_leves(resumos_por_data)
+    return resumo
+
+
+def _montar_resumos_leves_das_aberturas(client, dias: list[dict]) -> list[dict]:
+    dia_ids = [dia["id"] for dia in dias]
+    if not dia_ids:
+        return []
+
+    itens_producao = (
+        client.table("itens_producao")
+        .select("*")
+        .in_("dia_de_venda_id", dia_ids)
+        .execute()
+        .data
+    )
+    vendas_ativas = (
+        client.table("vendas")
+        .select("id, dia_de_venda_id")
+        .in_("dia_de_venda_id", dia_ids)
+        .eq("situacao", "ativa")
+        .execute()
+        .data
+    )
+    venda_ids = [venda["id"] for venda in vendas_ativas]
+    itens_venda = []
+    if venda_ids:
+        itens_venda = (
+            client.table("itens_venda")
+            .select("*")
+            .in_("venda_id", venda_ids)
+            .execute()
+            .data
+        )
+    decisoes_sobra = _executar_lista_opcional(
+        client.table("decisoes_sobra").select("*").in_("dia_destino_id", dia_ids)
+    )
+
+    producoes_por_dia = _agrupar_por_chave(itens_producao, "dia_de_venda_id")
+    vendas_por_dia = _agrupar_por_chave(itens_venda, "dia_de_venda_id")
+    decisoes_por_dia = _agrupar_por_chave(decisoes_sobra, "dia_destino_id")
+
+    resumos = []
+    for dia in dias:
+        dia_id = dia["id"]
+        produtos = _montar_resumos_dos_produtos(
+            producoes_por_dia.get(dia_id, []),
+            vendas_por_dia.get(dia_id, []),
+            decisoes_por_dia.get(dia_id, []),
+        )
+        totais = _somar_produtos(produtos)
+        resumos.append(
+            {
+                "dia_de_venda_id": dia_id,
+                "data_venda": dia["data_venda"],
+                "nome_local": dia.get("nome_local_no_momento"),
+                "situacao": dia["situacao"],
+                **totais,
+            }
+        )
+    return resumos
+
+
+def _agrupar_por_chave(linhas: list[dict], chave: str) -> dict[str, list[dict]]:
+    grupos: dict[str, list[dict]] = {}
+    for linha in linhas:
+        grupos.setdefault(str(linha[chave]), []).append(linha)
+    return grupos
+
+
+def _consolidar_resumos_leves_por_data(resumos: list[dict]) -> list[dict]:
+    resumos_por_data = _agrupar_por_chave(resumos, "data_venda")
+    return [
+        _consolidar_resumos_leves_da_mesma_data(resumos_por_data[data_venda])
+        for data_venda in sorted(resumos_por_data)
+    ]
+
+
+def _consolidar_resumos_leves_da_mesma_data(resumos: list[dict]) -> dict:
+    if len(resumos) == 1:
+        return resumos[0]
+
+    totais = _somar_dias(resumos)
+    locais = {resumo.get("nome_local") for resumo in resumos if resumo.get("nome_local")}
+    situacao = "aberto" if any(resumo["situacao"] == "aberto" for resumo in resumos) else "fechado"
+    return {
+        "dia_de_venda_id": resumos[-1]["dia_de_venda_id"],
+        "data_venda": resumos[0]["data_venda"],
+        "nome_local": next(iter(locais)) if len(locais) == 1 else "Multiplas aberturas",
+        "situacao": situacao,
+        **totais,
+    }
+
+
+def _formatar_dias_leves(resumos: list[dict]) -> list[dict]:
+    return [
+        {
+            "dia_de_venda_id": resumo["dia_de_venda_id"],
+            "data_venda": resumo["data_venda"],
+            "nome_local": resumo.get("nome_local"),
+            "situacao": resumo["situacao"],
+            "faturamento_bruto": resumo["faturamento_bruto"],
+            "lucro_estimado": resumo["lucro_estimado"],
+        }
+        for resumo in resumos
+    ]
 
 
 def _montar_resumos_dos_produtos(

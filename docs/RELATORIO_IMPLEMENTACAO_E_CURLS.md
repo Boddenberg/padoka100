@@ -335,6 +335,15 @@ curl http://localhost:8000/api/v1/relatorios/dias/DIA_DE_VENDA_ID/produtos-venda
 curl "http://localhost:8000/api/v1/relatorios/periodo?data_inicio=2026-07-01&data_fim=2026-07-08"
 ```
 
+### Resumo leve de periodo
+
+Use no card inicial da tela Resumo e, com `incluir_dias=true`, no grafico/lista
+do periodo:
+
+```bash
+curl "http://localhost:8000/api/v1/relatorios/periodo/resumo?data_inicio=2026-07-01&data_fim=2026-07-08&comparar=true&incluir_dias=true"
+```
+
 ### Resumo de periodo filtrando produto
 
 ```bash

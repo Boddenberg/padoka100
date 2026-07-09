@@ -67,3 +67,27 @@ class ResumoDoPeriodo(ApiModel):
     custo_estimado: Decimal = Decimal("0")
     lucro_estimado: Decimal = Decimal("0")
     dias: list[ResumoDoDiaDeVenda] = Field(default_factory=list)
+
+
+class ResumoDiaPeriodoLeve(ApiModel):
+    dia_de_venda_id: UUID
+    data_venda: date
+    nome_local: str | None = None
+    situacao: str
+    faturamento_bruto: Decimal = Decimal("0")
+    lucro_estimado: Decimal = Decimal("0")
+
+
+class ResumoPeriodoAnteriorLeve(ApiModel):
+    faturamento_bruto: Decimal = Decimal("0")
+
+
+class ResumoDoPeriodoLeve(ApiModel):
+    data_inicio: date
+    data_fim: date
+    faturamento_bruto: Decimal = Decimal("0")
+    lucro_estimado: Decimal = Decimal("0")
+    total_vendido: int = 0
+    total_sobra: int = 0
+    periodo_anterior: ResumoPeriodoAnteriorLeve | None = None
+    dias: list[ResumoDiaPeriodoLeve] | None = None

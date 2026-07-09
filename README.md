@@ -76,6 +76,7 @@ A documentacao interativa fica em:
 - `GET /api/v1/relatorios/dias/por-data/{data_venda}/resumo`
 - `GET /api/v1/relatorios/dias/{dia_de_venda_id}/produtos-venda`
 - `GET /api/v1/relatorios/periodo`
+- `GET /api/v1/relatorios/periodo/resumo`
 - `GET /api/v1/historico/linha-do-tempo`
 - `POST /api/v1/midia/{tipo_entidade}/{entidade_id}`
 - `POST /api/v1/ia/interpretar-comando`

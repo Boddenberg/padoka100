@@ -380,6 +380,40 @@ O resumo de periodo bloqueia datas futuras e aceita filtro opcional por produto:
 curl "http://localhost:8000/api/v1/relatorios/periodo?data_inicio=2026-07-01&data_fim=2026-07-08&produto_id=PRODUTO_ID"
 ```
 
+Para o primeiro card da tela Resumo, use a rota leve. Ela calcula os mesmos
+totais principais da rota completa, mas nao carrega produtos, historico nem
+correcoes:
+
+```bash
+curl "http://localhost:8000/api/v1/relatorios/periodo/resumo?data_inicio=2026-07-01&data_fim=2026-07-08&comparar=true&incluir_dias=true"
+```
+
+Resposta:
+
+```json
+{
+  "data_inicio": "2026-07-01",
+  "data_fim": "2026-07-08",
+  "faturamento_bruto": "650.00",
+  "lucro_estimado": "410.00",
+  "total_vendido": 25,
+  "total_sobra": 13,
+  "periodo_anterior": {
+    "faturamento_bruto": "520.00"
+  },
+  "dias": [
+    {
+      "dia_de_venda_id": "DIA_DE_VENDA_ID",
+      "data_venda": "2026-07-08",
+      "nome_local": "Condominio Primavera",
+      "situacao": "fechado",
+      "faturamento_bruto": "250.00",
+      "lucro_estimado": "150.00"
+    }
+  ]
+}
+```
+
 ## 11. Corrigir dia fechado
 
 Dia fechado nao e reaberto sem controle. Use correcao retroativa para preservar
