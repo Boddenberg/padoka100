@@ -177,8 +177,9 @@ curl -X POST http://localhost:8000/api/v1/dias-de-venda/iniciar-hoje \
   -d '{}'
 ```
 
-Se existir um dia anterior aberto com sobra, a API nao fecha nem abre tudo sozinha.
-Ela devolve `acao: "decidir_sobras"` para o front pedir a decisao do usuario:
+Se existir um dia anterior aberto ou fechado com sobra ainda nao decidida, a API nao
+fecha nem abre tudo sozinha. Ela devolve `acao: "decidir_sobras"` para o front
+pedir a decisao do usuario:
 
 ```json
 {
@@ -198,6 +199,8 @@ Ela devolve `acao: "decidir_sobras"` para o front pedir a decisao do usuario:
 
 Depois da escolha, chame o mesmo endpoint informando uma decisao para cada sobra.
 Se `quantidade_nao_usada_hoje` for omitida, a API calcula o restante automaticamente.
+A parte usada entra na disponibilidade da nova abertura; a parte nao usada fica
+registrada como descarte do dia anterior.
 
 ```bash
 curl -X POST http://localhost:8000/api/v1/dias-de-venda/iniciar-hoje \

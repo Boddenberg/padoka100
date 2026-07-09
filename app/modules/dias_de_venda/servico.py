@@ -750,8 +750,6 @@ def _buscar_dia_fechado_anterior_com_sobra_pendente(
     )
     if not dia or _dia_parece_seed_analytics(dia):
         return None, []
-    if _dia_tem_decisao_de_sobra_como_origem(client, dia["id"]):
-        return None, []
     sobras_pendentes = _calcular_sobras_pendentes(client, dia["id"])
     if not sobras_pendentes:
         return None, []
@@ -766,18 +764,6 @@ def _dia_parece_seed_analytics(dia: dict) -> bool:
         ]
     ).lower()
     return "seed analytics" in texto or "seed_analytics" in texto
-
-
-def _dia_tem_decisao_de_sobra_como_origem(client: Client, dia_de_venda_id: UUID | str) -> bool:
-    decisao = first_or_none(
-        client.table("decisoes_sobra")
-        .select("id")
-        .eq("dia_origem_id", str(dia_de_venda_id))
-        .limit(1)
-        .execute()
-        .data
-    )
-    return decisao is not None
 
 
 def _requisicao_indica_nova_abertura(
@@ -861,6 +847,10 @@ def _calcular_sobras_pendentes(client: Client, dia_de_venda_id: UUID | str) -> l
         .execute()
         .data
     )
+    sobras_ja_decididas_por_produto = _somar_sobras_ja_decididas_por_produto(
+        client,
+        dia_de_venda_id,
+    )
 
     vendidos_por_produto: dict[str, int] = {}
     for item in itens_venda:
@@ -899,6 +889,7 @@ def _calcular_sobras_pendentes(client: Client, dia_de_venda_id: UUID | str) -> l
             item["produto_id"],
             0,
         )
+        quantidade_sobra -= sobras_ja_decididas_por_produto.get(item["produto_id"], 0)
         if quantidade_sobra <= 0:
             continue
         sobras.append(
@@ -911,6 +902,26 @@ def _calcular_sobras_pendentes(client: Client, dia_de_venda_id: UUID | str) -> l
             }
         )
     return sorted(sobras, key=lambda item: item["nome_produto"])
+
+
+def _somar_sobras_ja_decididas_por_produto(
+    client: Client,
+    dia_de_venda_id: UUID | str,
+) -> dict[str, int]:
+    decisoes_sobra_origem = (
+        client.table("decisoes_sobra")
+        .select("produto_id, quantidade_sobra_origem")
+        .eq("dia_origem_id", str(dia_de_venda_id))
+        .execute()
+        .data
+    )
+    totais_por_produto: dict[str, int] = {}
+    for decisao in decisoes_sobra_origem:
+        produto_id = decisao["produto_id"]
+        totais_por_produto[produto_id] = (
+            totais_por_produto.get(produto_id, 0) + decisao["quantidade_sobra_origem"]
+        )
+    return totais_por_produto
 
 
 def _registrar_decisoes_sobra(
