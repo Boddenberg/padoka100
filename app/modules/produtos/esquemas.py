@@ -6,6 +6,8 @@ from pydantic import Field
 
 from app.shared.esquemas import ApiModel
 
+ORIGEM_PRECO_PRODUTO_PATTERN = "^(manual|ia)$"
+
 
 class ProdutoBase(ApiModel):
     nome: str = Field(min_length=1, max_length=120)
@@ -21,6 +23,8 @@ class RequisicaoCriarProduto(ProdutoBase):
     preco_custo: Decimal = Field(default=0, ge=0)
     vigente_desde: date = Field(default_factory=date.today)
     motivo_preco: str | None = "Preco inicial"
+    origem_preco: str = Field(default="manual", pattern=ORIGEM_PRECO_PRODUTO_PATTERN)
+    gerado_por_ia: bool | None = None
 
 
 class RequisicaoAtualizarProduto(ApiModel):
@@ -38,6 +42,8 @@ class RequisicaoCriarVersaoDePreco(ApiModel):
     preco_custo: Decimal = Field(default=0, ge=0)
     vigente_desde: date = Field(default_factory=date.today)
     motivo: str | None = None
+    origem: str = Field(default="manual", pattern=ORIGEM_PRECO_PRODUTO_PATTERN)
+    gerado_por_ia: bool | None = None
 
 
 class VersaoDePrecoSaida(ApiModel):
@@ -49,6 +55,8 @@ class VersaoDePrecoSaida(ApiModel):
     vigente_desde: date
     vigente_ate: date | None = None
     motivo: str | None = None
+    origem: str = "manual"
+    gerado_por_ia: bool = False
     criado_em: datetime
 
 

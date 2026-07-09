@@ -603,9 +603,13 @@ curl -X POST http://localhost:8000/api/v1/custos/assistente/sessoes/SESSAO_ID/co
     "permitir_pendencias": false,
     "atualizar_preco_custo_produto": true,
     "vigente_desde": "2026-07-08",
-    "motivo_preco": "Custo calculado pelo assistente"
+    "motivo_preco": "Custo calculado pelo assistente",
+    "origem": "ia"
   }'
 ```
+
+O campo `origem` e opcional nessa rota: confirmacoes do assistente sao salvas
+como `origem: "ia"` e `gerado_por_ia: true` na versao de preco/custo do produto.
 
 Contrato detalhado para o front: `docs/CUSTEIO_ASSISTIDO_FRONT.md`.
 

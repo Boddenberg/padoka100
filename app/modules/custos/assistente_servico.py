@@ -371,6 +371,7 @@ def confirmar_sessao(
             custo_por_unidade=Decimal(str(calculo["custo_por_unidade"])),
             vigente_desde=requisicao.vigente_desde,
             motivo=requisicao.motivo_preco,
+            origem=requisicao.origem,
         )
 
     resultado = {
@@ -2129,12 +2130,14 @@ def _atualizar_preco_custo_do_produto(
     custo_por_unidade: Decimal,
     vigente_desde: date,
     motivo: str | None,
+    origem: str,
 ) -> dict | None:
     produto = servico_de_produtos.buscar_produto(produto_id)
     preco_atual = produto.get("preco_atual")
     if not preco_atual:
         return None
 
+    gerado_por_ia = origem == "ia"
     if preco_atual["vigente_desde"] == vigente_desde.isoformat():
         preco = (
             get_supabase_client()
@@ -2144,6 +2147,8 @@ def _atualizar_preco_custo_do_produto(
                     {
                         "preco_custo": _arredondar_moeda(custo_por_unidade),
                         "motivo": motivo or preco_atual.get("motivo"),
+                        "origem": origem,
+                        "gerado_por_ia": gerado_por_ia,
                     }
                 )
             )
@@ -2157,7 +2162,7 @@ def _atualizar_preco_custo_do_produto(
             titulo=f"Custo atualizado: {produto['nome']}",
             tipo_entidade="produto",
             entidade_id=produto_id,
-            detalhes={"preco": preco, "motivo": motivo},
+            detalhes={"preco": preco, "motivo": motivo, "origem": origem},
         )
         return preco
 
@@ -2168,6 +2173,8 @@ def _atualizar_preco_custo_do_produto(
             preco_custo=_arredondar_moeda(custo_por_unidade),
             vigente_desde=vigente_desde,
             motivo=motivo,
+            origem=origem,
+            gerado_por_ia=gerado_por_ia,
         ),
     )
 

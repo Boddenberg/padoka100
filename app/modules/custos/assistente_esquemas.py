@@ -1,4 +1,5 @@
 from datetime import date, datetime
+from typing import Literal
 from uuid import UUID
 
 from pydantic import Field
@@ -44,6 +45,7 @@ class RequisicaoConfirmarSessaoCusteio(ApiModel):
     atualizar_preco_custo_produto: bool = True
     vigente_desde: date = Field(default_factory=date.today)
     motivo_preco: str | None = "Custo calculado pelo assistente"
+    origem: Literal["ia"] = "ia"
 
 
 class EntradaCusteioSaida(ApiModel):

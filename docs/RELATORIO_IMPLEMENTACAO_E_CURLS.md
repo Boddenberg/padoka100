@@ -86,6 +86,9 @@ supabase/migrations/004_auth_perfil.sql
 supabase/migrations/005_custos.sql
 supabase/migrations/006_midias_usuario.sql
 supabase/migrations/007_custeio_assistido.sql
+supabase/migrations/008_notificacoes_rag_seed.sql
+supabase/migrations/009_custos_historico_compras.sql
+supabase/migrations/010_origem_ia_versoes_preco.sql
 ```
 
 ## 3. Autenticacao e perfil

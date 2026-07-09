@@ -1,8 +1,6 @@
 from datetime import date, timedelta
 from uuid import UUID
 
-from supabase import Client
-
 from app.core.errors import ConflictError, NotFoundError
 from app.db.supabase import get_supabase_client
 from app.modules.produtos.esquemas import (
@@ -13,6 +11,7 @@ from app.modules.produtos.esquemas import (
 from app.shared.db import first_or_none, to_db_payload
 from app.shared.linha_do_tempo import registrar_evento_na_linha_do_tempo
 from app.shared.slugs import slugify
+from supabase import Client
 
 
 def listar_produtos(*, somente_ativos: bool = True, data_preco: date | None = None) -> list[dict]:
@@ -33,6 +32,10 @@ def buscar_produto(produto_id: UUID, *, data_preco: date | None = None) -> dict:
 
 def criar_produto(requisicao: RequisicaoCriarProduto) -> dict:
     client = get_supabase_client()
+    origem_preco, gerado_por_ia = _normalizar_origem_preco(
+        requisicao.origem_preco,
+        requisicao.gerado_por_ia,
+    )
     dados_produto = to_db_payload(
         {
             "nome": requisicao.nome,
@@ -54,6 +57,8 @@ def criar_produto(requisicao: RequisicaoCriarProduto) -> dict:
             "preco_custo": requisicao.preco_custo,
             "vigente_desde": requisicao.vigente_desde,
             "motivo": requisicao.motivo_preco,
+            "origem": origem_preco,
+            "gerado_por_ia": gerado_por_ia,
         }
     )
     preco = client.table("versoes_preco_produto").insert(dados_preco).execute().data[0]
@@ -128,12 +133,19 @@ def criar_versao_de_preco(
         .execute()
         .data
     )
-    if any(versao["vigente_desde"] == requisicao.vigente_desde.isoformat() for versao in versoes_existentes):
+    if any(
+        versao["vigente_desde"] == requisicao.vigente_desde.isoformat()
+        for versao in versoes_existentes
+    ):
         raise ConflictError(
             "Ja existe um preco cadastrado para esse produto nessa data.",
             {"produto_id": str(produto_id), "vigente_desde": requisicao.vigente_desde.isoformat()},
         )
 
+    origem_preco, gerado_por_ia = _normalizar_origem_preco(
+        requisicao.origem,
+        requisicao.gerado_por_ia,
+    )
     versao_anterior = _buscar_preco_anterior(versoes_existentes, requisicao.vigente_desde)
     proxima_versao = _buscar_proximo_preco(versoes_existentes, requisicao.vigente_desde)
     nova_vigencia_ate = None
@@ -157,6 +169,8 @@ def criar_versao_de_preco(
             "vigente_desde": requisicao.vigente_desde,
             "vigente_ate": nova_vigencia_ate,
             "motivo": requisicao.motivo,
+            "origem": origem_preco,
+            "gerado_por_ia": gerado_por_ia,
         }
     )
     preco = client.table("versoes_preco_produto").insert(dados_preco).execute().data[0]
@@ -170,6 +184,8 @@ def criar_versao_de_preco(
             "novo_preco": preco,
             "vigente_desde": requisicao.vigente_desde.isoformat(),
             "motivo": requisicao.motivo,
+            "origem": origem_preco,
+            "gerado_por_ia": gerado_por_ia,
         },
     )
     return preco
@@ -195,6 +211,14 @@ def _anexar_preco_atual(client: Client, produto: dict, data_alvo: date) -> dict:
         obrigatorio=False,
     )
     return produto
+
+
+def _normalizar_origem_preco(
+    origem: str | None,
+    gerado_por_ia: bool | None = None,
+) -> tuple[str, bool]:
+    origem_normalizada = "ia" if gerado_por_ia else (origem or "manual")
+    return origem_normalizada, origem_normalizada == "ia"
 
 
 def _buscar_linha_produto(client: Client, produto_id: UUID | str) -> dict:

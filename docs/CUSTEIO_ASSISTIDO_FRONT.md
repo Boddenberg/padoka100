@@ -212,7 +212,8 @@ Content-Type: application/json
   "permitir_pendencias": false,
   "atualizar_preco_custo_produto": true,
   "vigente_desde": "2026-07-08",
-  "motivo_preco": "Custo calculado pelo assistente"
+  "motivo_preco": "Custo calculado pelo assistente",
+  "origem": "ia"
 }
 ```
 
@@ -223,6 +224,7 @@ Ao confirmar, o backend:
 - cria custos adicionais;
 - calcula o custo final;
 - atualiza o `preco_custo` vigente do produto quando habilitado;
+- marca a versao de preco/custo como `origem: "ia"` e `gerado_por_ia: true`;
 - marca a sessao como `confirmado`.
 
 ## Descartar
