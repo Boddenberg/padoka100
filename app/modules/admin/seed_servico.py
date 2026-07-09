@@ -1,21 +1,17 @@
 from datetime import UTC, date, datetime, time, timedelta
 from decimal import Decimal
 from random import Random
+from typing import Any
 from uuid import UUID, uuid4
 
 from app.core.errors import AppError, BadRequestError
 from app.db.supabase import get_supabase_client
 from app.modules.admin.seed_esquemas import RequisicaoGerarVendasFake
-from app.modules.dias_de_venda import servico as servico_de_dias
-from app.modules.dias_de_venda.esquemas import (
-    RequisicaoCriarDiaDeVenda,
-    RequisicaoCriarItemProducao,
-    RequisicaoFecharDiaDeVenda,
-)
 from app.modules.produtos import servico as servico_de_produtos
 from app.modules.produtos.esquemas import RequisicaoCriarProduto, RequisicaoCriarVersaoDePreco
-from app.modules.vendas import servico as servico_de_vendas
-from app.modules.vendas.esquemas import RequisicaoItemVendido, RequisicaoRegistrarVenda
+from app.modules.vendas.esquemas import RequisicaoItemVendido
+from app.shared.db import to_db_payload
+from app.shared.linha_do_tempo import normalizar_tipo_evento_publico
 
 PRODUTOS_FAKE = [
     ("[Seed] Pao Frances", Decimal("1.20"), Decimal("0.45")),
@@ -61,14 +57,61 @@ def gerar_vendas_fake(requisicao: RequisicaoGerarVendasFake) -> dict:
     if not produtos:
         raise BadRequestError("Nao ha produtos com preco vigente para gerar o historico fake.")
 
-    dias_saida: list[dict] = []
+    lote = _montar_lote_seed(
+        requisicao=requisicao,
+        datas=datas,
+        produtos=produtos,
+        rng=rng,
+        lote_id=lote_id,
+        seed=seed,
+    )
+    client = get_supabase_client()
+    _inserir_em_lotes(client, "dias_de_venda", lote["dias_de_venda"])
+    _inserir_em_lotes(client, "itens_producao", lote["itens_producao"])
+    _inserir_em_lotes(client, "vendas", lote["vendas"])
+    _inserir_em_lotes(client, "itens_venda", lote["itens_venda"])
+    _inserir_em_lotes(client, "eventos_linha_do_tempo", lote["eventos"])
+
+    return {
+        "lote_id": lote_id,
+        "seed": seed,
+        "periodo_inicio": min(datas),
+        "periodo_fim": max(datas),
+        "total_dias": len(lote["dias_saida"]),
+        "total_vendas": lote["total_vendas"],
+        "total_itens_venda": lote["total_itens_venda"],
+        "total_unidades_produzidas": lote["total_unidades_produzidas"],
+        "total_unidades_vendidas": lote["total_unidades_vendidas"],
+        "produtos_usados": list(lote["produtos_usados"].values()),
+        "dias": lote["dias_saida"],
+        "avisos": avisos,
+    }
+
+
+def _montar_lote_seed(
+    *,
+    requisicao: RequisicaoGerarVendasFake,
+    datas: list[date],
+    produtos: list[dict],
+    rng: Random,
+    lote_id: UUID,
+    seed: int,
+) -> dict:
+    dias_de_venda = []
+    itens_producao = []
+    vendas = []
+    itens_venda = []
+    eventos = []
+    dias_saida = []
     produtos_usados: dict[str, dict] = {}
+    snapshots = _montar_snapshots_de_precos(produtos, datas)
     total_vendas = 0
     total_itens_venda = 0
     total_unidades_produzidas = 0
     total_unidades_vendidas = 0
 
     for data_venda in datas:
+        dia_id = uuid4()
         selecionados = _selecionar_produtos_do_dia(requisicao, produtos, rng)
         observacao_abertura = _montar_observacao_abertura(
             marcador=requisicao.marcador,
@@ -76,36 +119,70 @@ def gerar_vendas_fake(requisicao: RequisicaoGerarVendasFake) -> dict:
             observacao_base=requisicao.observacao_base,
             rng=rng,
         )
-        dia = servico_de_dias.criar_dia_de_venda(
-            RequisicaoCriarDiaDeVenda(
-                data_venda=data_venda,
-                nome_local=requisicao.nome_local,
-                observacoes=observacao_abertura,
+        dias_de_venda.append(
+            {
+                "id": dia_id,
+                "data_venda": data_venda,
+                "nome_local_no_momento": requisicao.nome_local,
+                "observacoes": observacao_abertura,
+                "situacao": "fechado" if requisicao.fechar_dias else "aberto",
+                "fechado_em": datetime.now(UTC) if requisicao.fechar_dias else None,
+            }
+        )
+        eventos.append(
+            _montar_evento_seed(
+                tipo_evento="dia_de_venda_aberto",
+                titulo=f"Dia aberto: {data_venda.isoformat()}",
+                tipo_entidade="dia_de_venda",
+                entidade_id=dia_id,
+                dia_de_venda_id=dia_id,
+                detalhes={"nome_local": requisicao.nome_local, "lote_id": str(lote_id)},
             )
         )
 
         estoque: dict[str, int] = {}
         unidades_produzidas_dia = 0
         for produto in selecionados:
+            snapshot = _buscar_snapshot(snapshots, produto["id"], data_venda)
+            produto_linha = snapshot["produto"]
+            preco = snapshot["preco"]
             quantidade = _quantidade_produzida(requisicao, data_venda, rng)
-            item = servico_de_dias.salvar_item_producao(
-                UUID(dia["id"]),
-                RequisicaoCriarItemProducao(
-                    produto_id=UUID(produto["id"]),
-                    quantidade_produzida=quantidade,
-                    observacoes=rng.choice(OBSERVACOES_ITEM),
-                ),
+            item_id = uuid4()
+            itens_producao.append(
+                {
+                    "id": item_id,
+                    "dia_de_venda_id": dia_id,
+                    "produto_id": produto_linha["id"],
+                    "nome_produto_no_momento": produto_linha["nome"],
+                    "url_imagem_produto_no_momento": produto_linha.get("url_imagem_principal"),
+                    "versao_preco_id": preco["id"],
+                    "preco_venda_unitario_no_momento": preco["preco_venda"],
+                    "preco_custo_unitario_no_momento": preco["preco_custo"],
+                    "quantidade_produzida": quantidade,
+                    "observacoes": rng.choice(OBSERVACOES_ITEM),
+                }
             )
-            estoque[str(produto["id"])] = quantidade
+            estoque[str(produto_linha["id"])] = quantidade
             unidades_produzidas_dia += quantidade
-            produtos_usados[str(produto["id"])] = {
-                "id": produto["id"],
-                "nome": produto["nome"],
+            produtos_usados[str(produto_linha["id"])] = {
+                "id": produto_linha["id"],
+                "nome": produto_linha["nome"],
             }
-            produtos_usados[str(item["produto_id"])] = {
-                "id": item["produto_id"],
-                "nome": item["nome_produto_no_momento"],
-            }
+            eventos.append(
+                _montar_evento_seed(
+                    tipo_evento="item_producao_adicionado",
+                    titulo=f"Producao adicionada: {produto_linha['nome']}",
+                    tipo_entidade="item_producao",
+                    entidade_id=item_id,
+                    dia_de_venda_id=dia_id,
+                    detalhes={
+                        "produto_id": produto_linha["id"],
+                        "quantidade_produzida": quantidade,
+                        "preco_venda_unitario_no_momento": preco["preco_venda"],
+                        "origem": "seed_analytics",
+                    },
+                )
+            )
 
         vendas_dia = 0
         itens_venda_dia = 0
@@ -118,25 +195,56 @@ def gerar_vendas_fake(requisicao: RequisicaoGerarVendasFake) -> dict:
             itens = _montar_itens_de_venda(requisicao, selecionados, estoque, rng)
             if not itens:
                 break
+            venda_id = uuid4()
             ocorrido_em = _horario_aleatorio(data_venda, rng)
-            venda = servico_de_vendas.registrar_venda(
-                RequisicaoRegistrarVenda(
-                    dia_de_venda_id=UUID(dia["id"]),
-                    itens=itens,
-                    tipo_entrada="manual",
-                    texto_original=_descrever_venda_seed(itens, produtos_usados),
-                    observacoes=f"{requisicao.marcador} venda simulada do lote {lote_id}",
-                    ocorrido_em=ocorrido_em,
-                ),
-                detalhes_evento={
-                    "origem": "seed_analytics",
-                    "lote_id": str(lote_id),
-                    "seed": seed,
-                },
+            venda_itens = [
+                _montar_item_venda_seed(
+                    venda_id=venda_id,
+                    dia_de_venda_id=dia_id,
+                    item=item,
+                    snapshot=_buscar_snapshot(snapshots, str(item.produto_id), data_venda),
+                )
+                for item in itens
+            ]
+            vendas.append(
+                {
+                    "id": venda_id,
+                    "dia_de_venda_id": dia_id,
+                    "tipo_entrada": "manual",
+                    "texto_original": _descrever_venda_seed(itens, produtos_usados),
+                    "observacoes": f"{requisicao.marcador} venda simulada do lote {lote_id}",
+                    "ocorrido_em": ocorrido_em,
+                    "situacao": "ativa",
+                }
             )
+            itens_venda.extend(venda_itens)
             vendas_dia += 1
-            itens_venda_dia += len(venda["itens"])
-            unidades_vendidas_dia += sum(item["quantidade"] for item in venda["itens"])
+            itens_venda_dia += len(venda_itens)
+            unidades_vendidas_dia += sum(item["quantidade"] for item in venda_itens)
+            eventos.append(
+                _montar_evento_seed(
+                    tipo_evento="VENDA_REALIZADA",
+                    titulo="Venda registrada",
+                    tipo_entidade="venda",
+                    entidade_id=venda_id,
+                    dia_de_venda_id=dia_id,
+                    detalhes={
+                        "tipo_entrada": "manual",
+                        "origem": "seed_analytics",
+                        "lote_id": str(lote_id),
+                        "seed": seed,
+                        "itens": [
+                            {
+                                "produto_id": item["produto_id"],
+                                "produto": item["nome_produto_no_momento"],
+                                "quantidade": item["quantidade"],
+                                "valor_total": item["valor_total_venda"],
+                            }
+                            for item in venda_itens
+                        ],
+                    },
+                )
+            )
 
         observacao_fechamento = None
         if requisicao.fechar_dias:
@@ -147,14 +255,21 @@ def gerar_vendas_fake(requisicao: RequisicaoGerarVendasFake) -> dict:
                 unidades_produzidas=unidades_produzidas_dia,
                 unidades_vendidas=unidades_vendidas_dia,
             )
-            servico_de_dias.fechar_dia_de_venda(
-                UUID(dia["id"]),
-                RequisicaoFecharDiaDeVenda(observacoes=observacao_fechamento),
+            dias_de_venda[-1]["observacoes"] = observacao_fechamento
+            eventos.append(
+                _montar_evento_seed(
+                    tipo_evento="dia_de_venda_fechado",
+                    titulo=f"Dia fechado: {data_venda.isoformat()}",
+                    tipo_entidade="dia_de_venda",
+                    entidade_id=dia_id,
+                    dia_de_venda_id=dia_id,
+                    detalhes={"lote_id": str(lote_id), "origem": "seed_analytics"},
+                )
             )
 
         dias_saida.append(
             {
-                "id": dia["id"],
+                "id": dia_id,
                 "data_venda": data_venda,
                 "produtos_produzidos": len(selecionados),
                 "vendas_criadas": vendas_dia,
@@ -170,19 +285,105 @@ def gerar_vendas_fake(requisicao: RequisicaoGerarVendasFake) -> dict:
         total_unidades_vendidas += unidades_vendidas_dia
 
     return {
-        "lote_id": lote_id,
-        "seed": seed,
-        "periodo_inicio": min(datas),
-        "periodo_fim": max(datas),
-        "total_dias": len(dias_saida),
+        "dias_de_venda": dias_de_venda,
+        "itens_producao": itens_producao,
+        "vendas": vendas,
+        "itens_venda": itens_venda,
+        "eventos": eventos,
+        "dias_saida": dias_saida,
+        "produtos_usados": produtos_usados,
         "total_vendas": total_vendas,
         "total_itens_venda": total_itens_venda,
         "total_unidades_produzidas": total_unidades_produzidas,
         "total_unidades_vendidas": total_unidades_vendidas,
-        "produtos_usados": list(produtos_usados.values()),
-        "dias": dias_saida,
-        "avisos": avisos,
     }
+
+
+def _montar_snapshots_de_precos(
+    produtos: list[dict],
+    datas: list[date],
+) -> dict[tuple[str, date], dict]:
+    produto_por_id = {str(produto["id"]): produto for produto in produtos}
+    versoes_por_produto = _listar_versoes_de_preco_para_periodo(
+        list(produto_por_id),
+        min(datas),
+        max(datas),
+    )
+    snapshots: dict[tuple[str, date], dict] = {}
+    for produto_id, produto in produto_por_id.items():
+        versoes = versoes_por_produto.get(produto_id, [])
+        for data_venda in datas:
+            preco = _selecionar_preco_vigente(versoes, data_venda)
+            if not preco:
+                raise BadRequestError(
+                    "Produto sem preco vigente para gerar historico fake.",
+                    {"produto_id": produto_id, "data_venda": data_venda.isoformat()},
+                )
+            snapshots[(produto_id, data_venda)] = {"produto": produto, "preco": preco}
+    return snapshots
+
+
+def _buscar_snapshot(
+    snapshots: dict[tuple[str, date], dict],
+    produto_id: UUID | str,
+    data_venda: date,
+) -> dict:
+    chave = (str(produto_id), data_venda)
+    return snapshots[chave]
+
+
+def _montar_item_venda_seed(
+    *,
+    venda_id: UUID,
+    dia_de_venda_id: UUID,
+    item: RequisicaoItemVendido,
+    snapshot: dict,
+) -> dict:
+    produto = snapshot["produto"]
+    preco = snapshot["preco"]
+    preco_venda = Decimal(str(preco["preco_venda"]))
+    preco_custo = Decimal(str(preco["preco_custo"]))
+    return {
+        "id": uuid4(),
+        "venda_id": venda_id,
+        "dia_de_venda_id": dia_de_venda_id,
+        "produto_id": item.produto_id,
+        "nome_produto_no_momento": produto["nome"],
+        "url_imagem_produto_no_momento": produto.get("url_imagem_principal"),
+        "versao_preco_id": preco["id"],
+        "preco_venda_unitario_no_momento": preco_venda,
+        "preco_custo_unitario_no_momento": preco_custo,
+        "quantidade": item.quantidade,
+        "valor_total_venda": preco_venda * item.quantidade,
+        "valor_total_custo": preco_custo * item.quantidade,
+    }
+
+
+def _montar_evento_seed(
+    *,
+    tipo_evento: str,
+    titulo: str,
+    tipo_entidade: str,
+    entidade_id: UUID,
+    dia_de_venda_id: UUID,
+    detalhes: dict | None = None,
+) -> dict:
+    return {
+        "dia_de_venda_id": dia_de_venda_id,
+        "tipo_entidade": tipo_entidade,
+        "entidade_id": entidade_id,
+        "tipo_evento": normalizar_tipo_evento_publico(tipo_evento),
+        "titulo": titulo,
+        "detalhes": detalhes or {},
+    }
+
+
+def _inserir_em_lotes(client, tabela: str, linhas: list[dict], *, tamanho_lote: int = 500) -> None:
+    if not linhas:
+        return
+    for inicio in range(0, len(linhas), tamanho_lote):
+        lote = linhas[inicio : inicio + tamanho_lote]
+        client.table(tabela).insert([to_db_payload(linha) for linha in lote]).execute()
 
 
 def _resolver_datas(requisicao: RequisicaoGerarVendasFake) -> list[date]:
@@ -246,15 +447,11 @@ def _resolver_produtos_para_seed(
     if requisicao.produto_ids:
         for produto_id in requisicao.produto_ids:
             produto = servico_de_produtos.buscar_produto(produto_id, data_preco=min(datas))
-            if _produto_tem_preco_para_datas(produto["id"], datas):
-                produtos.append(produto)
-            else:
-                avisos.append(f"Produto {produto['nome']} ignorado por falta de preco no periodo.")
+            produtos.append(produto)
     else:
-        candidatos = servico_de_produtos.listar_produtos(somente_ativos=True, data_preco=min(datas))
-        produtos = [
-            produto for produto in candidatos if _produto_tem_preco_para_datas(produto["id"], datas)
-        ]
+        produtos = servico_de_produtos.listar_produtos(somente_ativos=True, data_preco=min(datas))
+
+    produtos = _filtrar_produtos_com_preco_para_datas(produtos, datas, avisos)
 
     minimo_desejado = min(
         max(requisicao.produtos_por_dia_min, min(requisicao.produtos_por_dia_max, 4)),
@@ -269,13 +466,74 @@ def _resolver_produtos_para_seed(
     return _deduplicar_produtos(produtos)
 
 
-def _produto_tem_preco_para_datas(produto_id: UUID | str, datas: list[date]) -> bool:
-    for data_alvo in datas:
-        try:
-            servico_de_produtos.buscar_snapshot_do_produto(produto_id, data_alvo)
-        except AppError:
-            return False
-    return True
+def _filtrar_produtos_com_preco_para_datas(
+    produtos: list[dict],
+    datas: list[date],
+    avisos: list[str],
+) -> list[dict]:
+    if not produtos:
+        return []
+    versoes_por_produto = _listar_versoes_de_preco_para_periodo(
+        [str(produto["id"]) for produto in produtos],
+        min(datas),
+        max(datas),
+    )
+    produtos_validos = []
+    for produto in produtos:
+        versoes = versoes_por_produto.get(str(produto["id"]), [])
+        if all(_selecionar_preco_vigente(versoes, data_alvo) for data_alvo in datas):
+            produtos_validos.append(produto)
+            continue
+        avisos.append(f"Produto {produto['nome']} ignorado por falta de preco no periodo.")
+    return produtos_validos
+
+
+def _listar_versoes_de_preco_para_periodo(
+    produto_ids: list[str],
+    inicio: date,
+    fim: date,
+) -> dict[str, list[dict[str, Any]]]:
+    if not produto_ids:
+        return {}
+    client = get_supabase_client()
+    linhas = (
+        client.table("versoes_preco_produto")
+        .select("*")
+        .in_("produto_id", produto_ids)
+        .lte("vigente_desde", fim.isoformat())
+        .or_(f"vigente_ate.is.null,vigente_ate.gte.{inicio.isoformat()}")
+        .order("produto_id")
+        .order("vigente_desde")
+        .execute()
+        .data
+    )
+    por_produto: dict[str, list[dict[str, Any]]] = {produto_id: [] for produto_id in produto_ids}
+    for linha in linhas:
+        por_produto.setdefault(str(linha["produto_id"]), []).append(linha)
+    return por_produto
+
+
+def _selecionar_preco_vigente(
+    versoes: list[dict[str, Any]],
+    data_alvo: date,
+) -> dict[str, Any] | None:
+    preco_vigente = None
+    for versao in versoes:
+        vigente_desde = _parse_data_db(versao["vigente_desde"])
+        vigente_ate = versao.get("vigente_ate")
+        if vigente_desde > data_alvo:
+            continue
+        if vigente_ate and _parse_data_db(vigente_ate) < data_alvo:
+            continue
+        if not preco_vigente or vigente_desde >= _parse_data_db(preco_vigente["vigente_desde"]):
+            preco_vigente = versao
+    return preco_vigente
+
+
+def _parse_data_db(valor: date | str) -> date:
+    if isinstance(valor, date):
+        return valor
+    return date.fromisoformat(valor)
 
 
 def _garantir_produtos_fake(datas: list[date], quantidade: int, rng: Random) -> list[dict]:
