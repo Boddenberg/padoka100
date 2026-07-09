@@ -916,7 +916,9 @@ def _simular_custo(rascunho: dict, *, produto_id: UUID | str | None) -> dict:
         simulado = dict(ingrediente)
         status = _status_de_custo(ingrediente.get("status"), padrao="PENDENTE")
         statuses.append(status)
-        custo_total, custo_unitario, pendencia = _simular_ingrediente(ingrediente)
+        custo_total, custo_unitario, pendencia, metadados_calculo = _simular_ingrediente(
+            ingrediente,
+        )
         for campo_unidade in ("unidade_usada", "unidade_compra"):
             descricao = _descrever_conversao_aproximada(ingrediente.get(campo_unidade))
             if descricao:
@@ -924,12 +926,14 @@ def _simular_custo(rascunho: dict, *, produto_id: UUID | str | None) -> dict:
                     f"Ingrediente {ingrediente.get('nome') or indice}: medida caseira "
                     f"convertida como {descricao}. Confirme se esse e o tamanho usado."
                 )
+        avisos.extend(metadados_calculo.get("avisos", []))
         if pendencia:
             pendencias.append(f"Ingrediente {indice}: {pendencia}")
         if custo_total is not None:
             custo_ingredientes += custo_total
         simulado["custo_unitario_base"] = _decimal_str_ou_none(custo_unitario)
         simulado["custo_total_estimado"] = _decimal_str_ou_none(custo_total)
+        simulado.update(metadados_calculo.get("campos_simulados", {}))
         ingredientes_simulados.append(simulado)
 
     for custo in rascunho["custos_adicionais"]:
@@ -1008,39 +1012,47 @@ def _simular_custo(rascunho: dict, *, produto_id: UUID | str | None) -> dict:
     )
 
 
-def _simular_ingrediente(ingrediente: dict) -> tuple[Decimal | None, Decimal | None, str | None]:
+def _simular_ingrediente(
+    ingrediente: dict,
+) -> tuple[Decimal | None, Decimal | None, str | None, dict]:
     nome = ingrediente.get("nome") or "sem nome"
     quantidade_usada = _decimal_ou_none(ingrediente.get("quantidade_usada"))
     unidade_usada = ingrediente.get("unidade_usada")
     if not nome:
-        return None, None, "nome nao informado."
+        return None, None, "nome nao informado.", {}
     if not quantidade_usada or quantidade_usada <= 0:
-        return None, None, f"{nome} sem quantidade usada."
+        return None, None, f"{nome} sem quantidade usada.", {}
     if not unidade_usada:
-        return None, None, f"{nome} sem unidade usada."
-    if _ingrediente_tem_quantidade_ambigua(ingrediente):
-        return (
-            None,
-            None,
-            f"{nome} com quantidade ambigua na receita. Escolha uma quantidade antes do calculo.",
-        )
+        return None, None, f"{nome} sem unidade usada.", {}
 
     insumo_id = _uuid_ou_none(ingrediente.get("insumo_id"))
     try:
         if insumo_id:
             insumo = servico_de_custos.buscar_insumo(insumo_id)
             custo_unitario = Decimal(str(insumo["custo_por_unidade"]))
-            unidade_usada_calculo = _unidade_usada_para_calculo(
-                unidade_usada,
-                insumo["unidade_compra"],
+            quantidade_calculo, unidade_usada_calculo, metadados_calculo = (
+                _resolver_uso_do_ingrediente_para_calculo(
+                    ingrediente,
+                    unidade_referencia=insumo["unidade_compra"],
+                )
             )
+            campos = metadados_calculo["campos_simulados"]
+            campos["quantidade_comprada_calculo"] = None
+            campos["unidade_compra_calculo"] = insumo["unidade_compra"]
+            campos["preco_total_calculo"] = None
             custo_total = servico_de_custos._calcular_custo_ingrediente(
                 custo_unitario,
-                quantidade_usada,
+                quantidade_calculo,
                 unidade_usada_calculo,
                 insumo["unidade_compra"],
             )
-            return custo_total, custo_unitario, None
+            campos["formula_calculo"] = _formula_calculo_ingrediente(
+                quantidade=quantidade_calculo,
+                unidade=unidade_usada_calculo,
+                custo_unitario=custo_unitario,
+                custo_total=custo_total,
+            )
+            return custo_total, custo_unitario, None, metadados_calculo
 
         quantidade_comprada = _decimal_ou_none(ingrediente.get("quantidade_comprada"))
         unidade_compra = ingrediente.get("unidade_compra")
@@ -1048,36 +1060,63 @@ def _simular_ingrediente(ingrediente: dict) -> tuple[Decimal | None, Decimal | N
         insumo_existente = _buscar_insumo_existente_para_ingrediente(ingrediente)
         if insumo_existente and not _tem_dados_de_compra_completos(ingrediente):
             custo_unitario = Decimal(str(insumo_existente["custo_por_unidade"]))
-            unidade_usada_calculo = _unidade_usada_para_calculo(
-                unidade_usada,
-                insumo_existente["unidade_compra"],
+            quantidade_calculo, unidade_usada_calculo, metadados_calculo = (
+                _resolver_uso_do_ingrediente_para_calculo(
+                    ingrediente,
+                    unidade_referencia=insumo_existente["unidade_compra"],
+                )
             )
+            campos = metadados_calculo["campos_simulados"]
+            campos["quantidade_comprada_calculo"] = None
+            campos["unidade_compra_calculo"] = insumo_existente["unidade_compra"]
+            campos["preco_total_calculo"] = None
             custo_total = servico_de_custos._calcular_custo_ingrediente(
                 custo_unitario,
-                quantidade_usada,
+                quantidade_calculo,
                 unidade_usada_calculo,
                 insumo_existente["unidade_compra"],
             )
-            return custo_total, custo_unitario, None
+            campos["formula_calculo"] = _formula_calculo_ingrediente(
+                quantidade=quantidade_calculo,
+                unidade=unidade_usada_calculo,
+                custo_unitario=custo_unitario,
+                custo_total=custo_total,
+            )
+            return custo_total, custo_unitario, None, metadados_calculo
 
         if not quantidade_comprada or not unidade_compra or preco_total is None:
-            return None, None, f"{nome} sem preco/quantidade de compra para calcular custo."
+            return None, None, f"{nome} sem preco/quantidade de compra para calcular custo.", {}
 
         custo_unitario = servico_de_custos._calcular_custo_por_unidade(
             preco_total,
             quantidade_comprada,
             unidade_compra,
         )
-        unidade_usada_calculo = _unidade_usada_para_calculo(unidade_usada, unidade_compra)
+        quantidade_calculo, unidade_usada_calculo, metadados_calculo = (
+            _resolver_uso_do_ingrediente_para_calculo(
+                ingrediente,
+                unidade_referencia=unidade_compra,
+            )
+        )
+        campos = metadados_calculo["campos_simulados"]
+        campos["quantidade_comprada_calculo"] = str(quantidade_comprada)
+        campos["unidade_compra_calculo"] = unidade_compra
+        campos["preco_total_calculo"] = str(preco_total)
         custo_total = servico_de_custos._calcular_custo_ingrediente(
             custo_unitario,
-            quantidade_usada,
+            quantidade_calculo,
             unidade_usada_calculo,
             unidade_compra,
         )
-        return custo_total, custo_unitario, None
+        campos["formula_calculo"] = _formula_calculo_ingrediente(
+            quantidade=quantidade_calculo,
+            unidade=unidade_usada_calculo,
+            custo_unitario=custo_unitario,
+            custo_total=custo_total,
+        )
+        return custo_total, custo_unitario, None, metadados_calculo
     except BadRequestError as exc:
-        return None, None, f"{nome}: {exc.message}"
+        return None, None, f"{nome}: {exc.message}", {}
 
 
 def _montar_perguntas(rascunho: dict, pendencias: list[str], *, fase: str) -> list[dict]:
@@ -1099,22 +1138,6 @@ def _montar_perguntas(rascunho: dict, pendencias: list[str], *, fase: str) -> li
                 "campo": "receita.rendimento",
                 "pergunta": "Quantas unidades essa receita rende?",
                 "tipo_resposta": "numero",
-                "prioridade": 1,
-            }
-        )
-
-    ingredientes_ambiguos = _ingredientes_com_quantidade_ambigua(rascunho["ingredientes"])
-    if ingredientes_ambiguos:
-        perguntas.append(
-            {
-                "id": "ingredientes.quantidade_ambigua",
-                "campo": None,
-                "pergunta": (
-                    "Escolha a quantidade correta na receita para: "
-                    f"{_formatar_lista_nomes(ingredientes_ambiguos)}. "
-                    "Pode responder tudo junto, por exemplo: 'ovos 2 unidades'."
-                ),
-                "tipo_resposta": "texto",
                 "prioridade": 1,
             }
         )
@@ -1233,9 +1256,134 @@ def _ingrediente_precisa_de_dados_de_compra(ingrediente: dict) -> bool:
     return _buscar_insumo_existente_para_ingrediente(ingrediente) is None
 
 
-def _unidade_usada_para_calculo(unidade_usada: str | None, unidade_referencia: str | None) -> str | None:
+def _resolver_uso_do_ingrediente_para_calculo(
+    ingrediente: dict,
+    *,
+    unidade_referencia: str | None,
+) -> tuple[Decimal, str, dict]:
+    quantidade_original = _decimal_obrigatorio(
+        ingrediente.get("quantidade_usada"),
+        "quantidade_usada",
+    )
+    unidade_original = ingrediente.get("unidade_usada")
+    quantidade_calculo = quantidade_original
+    unidade_calculo = unidade_original
+    avisos = []
+    calculo_estimado = False
+    nome = ingrediente.get("nome") or "ingrediente"
+
+    estimativa_ambigua = _resolver_quantidade_ambigua_para_estimativa(ingrediente)
+    if estimativa_ambigua:
+        quantidade_calculo = estimativa_ambigua["quantidade"]
+        unidade_calculo = estimativa_ambigua["unidade"] or unidade_calculo
+        calculo_estimado = True
+        avisos.append(
+            f"Ingrediente {nome}: a receita indicava '{estimativa_ambigua['texto_original']}'. "
+            f"Para estimar o custo, considerei {quantidade_calculo} {unidade_calculo}. "
+            "Confirme se esta e a quantidade correta."
+        )
+
+    unidade_ajustada = _unidade_usada_para_calculo(ingrediente, unidade_calculo, unidade_referencia)
+    if unidade_ajustada != unidade_calculo:
+        calculo_estimado = True
+        quantidade_ajustada = quantidade_calculo
+        unidade_ajustada_final = unidade_ajustada
+        equivalencia = _equivalencia_explicita_na_unidade(unidade_ajustada)
+        if equivalencia:
+            quantidade_ajustada = quantidade_calculo * equivalencia["fator_base"]
+            unidade_ajustada_final = equivalencia["unidade_base"]
+        avisos.append(
+            f"Ingrediente {nome}: para calcular contra a compra em {unidade_referencia}, "
+            f"considerei {quantidade_calculo} {unidade_calculo} como "
+            f"{quantidade_ajustada} {unidade_ajustada_final}."
+        )
+        quantidade_calculo = quantidade_ajustada
+        unidade_calculo = unidade_ajustada_final
+
+    return (
+        quantidade_calculo,
+        unidade_calculo,
+        {
+            "avisos": avisos,
+            "campos_simulados": {
+                "quantidade_usada_calculo": str(quantidade_calculo),
+                "unidade_usada_calculo": unidade_calculo,
+                "calculo_estimado": calculo_estimado,
+                "avisos_calculo": avisos,
+            },
+        },
+    )
+
+
+def _resolver_quantidade_ambigua_para_estimativa(ingrediente: dict) -> dict | None:
+    if not _ingrediente_tem_quantidade_ambigua(ingrediente):
+        return None
+    texto_original = " ".join(
+        str(valor).strip()
+        for valor in (ingrediente.get("quantidade_usada"), ingrediente.get("unidade_usada"))
+        if valor is not None and str(valor).strip()
+    )
+    numeros = _extrair_numeros_de_texto(texto_original)
+    if len(numeros) < 2:
+        return None
+    return {
+        "quantidade": max(numeros),
+        "unidade": _inferir_unidade_da_quantidade_ambigua(texto_original, ingrediente),
+        "texto_original": texto_original,
+    }
+
+
+def _extrair_numeros_de_texto(texto: str) -> list[Decimal]:
+    numeros = []
+    for match in re.finditer(r"(\d+)\s*/\s*(\d+)", texto):
+        denominador = Decimal(match.group(2))
+        if denominador:
+            numeros.append(Decimal(match.group(1)) / denominador)
+    numeros.extend(
+        Decimal(match.group(1).replace(",", "."))
+        for match in re.finditer(r"(\d+(?:[,.]\d+)?)", texto)
+    )
+    return numeros
+
+
+def _inferir_unidade_da_quantidade_ambigua(texto: str, ingrediente: dict) -> str | None:
+    texto_normalizado = _normalizar_chave(texto)
+    for unidade in (
+        "ovos",
+        "ovo",
+        "unidades",
+        "unidade",
+        "gramas",
+        "g",
+        "kg",
+        "ml",
+        "l",
+        "copos",
+        "copo",
+        "xicaras",
+        "xicara",
+        "colheres de sopa",
+        "colher de sopa",
+        "colheres de cha",
+        "colher de cha",
+    ):
+        if unidade in texto_normalizado:
+            return unidade
+    if "ovo" in _normalizar_nome_ingrediente(ingrediente.get("nome") or ""):
+        return "ovos"
+    return ingrediente.get("unidade_usada")
+
+
+def _unidade_usada_para_calculo(
+    ingrediente: dict,
+    unidade_usada: str | None,
+    unidade_referencia: str | None,
+) -> str | None:
     if not unidade_usada:
         return unidade_usada
+    unidade_sal = _unidade_sal_para_calculo_em_massa(ingrediente, unidade_usada, unidade_referencia)
+    if unidade_sal:
+        return unidade_sal
     if servico_de_custos.unidade_suportada(unidade_usada):
         return unidade_usada
     if (
@@ -1244,6 +1392,62 @@ def _unidade_usada_para_calculo(unidade_usada: str | None, unidade_referencia: s
     ):
         return unidade_referencia
     return unidade_usada
+
+
+def _unidade_sal_para_calculo_em_massa(
+    ingrediente: dict,
+    unidade_usada: str | None,
+    unidade_referencia: str | None,
+) -> str | None:
+    if not _ingrediente_e_sal(ingrediente) or not _unidade_representa_massa(unidade_referencia):
+        return None
+    unidade_normalizada = _normalizar_unidade_texto(unidade_usada)
+    if not unidade_normalizada or "colher" not in unidade_normalizada:
+        return None
+    if "cha" in unidade_normalizada:
+        return "5g"
+    return "15g"
+
+
+def _ingrediente_e_sal(ingrediente: dict) -> bool:
+    return "sal" in set(_normalizar_nome_ingrediente(ingrediente.get("nome") or "").split())
+
+
+def _unidade_representa_massa(unidade: str | None) -> bool:
+    if not unidade:
+        return False
+    equivalencia = _equivalencia_explicita_na_unidade(unidade)
+    if equivalencia:
+        return equivalencia["tipo"] == "massa"
+    return _normalizar_unidade_texto(unidade) in {
+        "g",
+        "grama",
+        "gramas",
+        "kg",
+        "quilo",
+        "quilos",
+    }
+
+
+def _formula_calculo_ingrediente(
+    *,
+    quantidade: Decimal,
+    unidade: str,
+    custo_unitario: Decimal,
+    custo_total: Decimal,
+) -> str:
+    return (
+        f"{quantidade} {unidade} x R$ {_decimal_preciso_str(custo_unitario)} "
+        f"= R$ {_decimal_moeda_str(custo_total)}"
+    )
+
+
+def _decimal_moeda_str(valor: Decimal) -> str:
+    return str(_arredondar_moeda(valor)).replace(".", ",")
+
+
+def _decimal_preciso_str(valor: Decimal) -> str:
+    return format(valor.normalize(), "f").replace(".", ",")
 
 
 def _unidade_generica_de_embalagem(unidade: str | None) -> bool:
@@ -2105,7 +2309,6 @@ def _resolver_fase_do_rascunho(rascunho: dict, *, produto_id: UUID | str | None)
         not rascunho["ingredientes"]
         or not _decimal_ou_none(rascunho["receita"].get("rendimento"))
         or any(_ingrediente_precisa_de_dados_de_receita(item) for item in rascunho["ingredientes"])
-        or any(_ingrediente_tem_quantidade_ambigua(item) for item in rascunho["ingredientes"])
     ):
         return "coletando_ingredientes"
     if any(_ingrediente_precisa_de_preco_ou_unidade(item) for item in rascunho["ingredientes"]):

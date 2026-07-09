@@ -251,6 +251,21 @@ O front deve tratar `rascunho` como documento editavel. Ele pode montar cards de
 ingredientes, rendimento, embalagem, custos indiretos e resumo a partir desse
 campo, mas deve sempre considerar `custo_simulado` como a fonte do calculo.
 
+Para mostrar o custo destrinchado por ingrediente, leia
+`custo_simulado.ingredientes[]`. Campos importantes:
+
+- `nome`: nome do ingrediente da receita.
+- `quantidade_usada` e `unidade_usada`: valor original lido/informado.
+- `quantidade_usada_calculo` e `unidade_usada_calculo`: valor efetivamente usado
+  no calculo depois de conversoes/estimativas.
+- `quantidade_comprada`, `unidade_compra` e `preco_total`: dados da nota/compra.
+- `custo_unitario_base`: custo por unidade base calculada pelo backend.
+- `custo_total_estimado`: custo daquele ingrediente na receita.
+- `formula_calculo`: texto pronto com o resumo do calculo.
+- `calculo_estimado`: `true` quando o backend assumiu alguma equivalencia, por
+  exemplo `1 ou 2 ovos -> 2 ovos` ou `1 colher de sal -> 15 g`.
+- `avisos_calculo`: avisos especificos do ingrediente para exibir junto ao item.
+
 ## Unidades e conversao
 
 O backend converte unidades compativeis automaticamente. Exemplos:
