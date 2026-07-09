@@ -87,7 +87,8 @@ def iniciar_dia_de_venda(requisicao: RequisicaoIniciarDiaDeVenda) -> dict:
     client = get_supabase_client()
     data_venda = requisicao.data_venda or data_operacional_hoje()
     validar_data_nao_futura(data_venda, campo="data_venda")
-    dia_atual = _buscar_dia_aberto_por_data(client, data_venda)
+    dia_atual_existente = _buscar_dia_aberto_por_data(client, data_venda)
+    dia_atual = None if requisicao.criar_nova_abertura else dia_atual_existente
     dia_anterior = _buscar_dia_aberto_anterior(client, data_venda)
 
     if not dia_anterior:
@@ -106,9 +107,14 @@ def iniciar_dia_de_venda(requisicao: RequisicaoIniciarDiaDeVenda) -> dict:
             raise BadRequestError("Nao ha dia anterior aberto com sobra pendente.")
 
         dia_atual = _criar_dia_de_venda_para_inicio(requisicao, data_venda, None)
+        mensagem = (
+            "Nova abertura criada para este dia."
+            if dia_atual_existente and requisicao.criar_nova_abertura
+            else "Dia de venda iniciado."
+        )
         return {
             "acao": "dia_iniciado",
-            "mensagem": "Dia de venda iniciado.",
+            "mensagem": mensagem,
             "data_venda": data_venda,
             "dia_de_venda": dia_atual,
             "dia_anterior": None,

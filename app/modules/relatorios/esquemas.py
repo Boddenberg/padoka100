@@ -25,6 +25,8 @@ class ResumoProdutoNoDia(ApiModel):
 
 class ResumoDoDiaDeVenda(ApiModel):
     dia_de_venda_id: UUID
+    dia_de_venda_ids: list[UUID] = Field(default_factory=list)
+    quantidade_aberturas: int = 1
     data_venda: date
     data: date
     nome_local: str | None = None

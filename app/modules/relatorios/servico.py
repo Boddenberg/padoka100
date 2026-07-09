@@ -63,6 +63,8 @@ def buscar_resumo_do_dia_de_venda(
     produtos_esgotados = [produto for produto in produtos if produto["esgotado"]]
     return {
         "dia_de_venda_id": dia_de_venda["id"],
+        "dia_de_venda_ids": [dia_de_venda["id"]],
+        "quantidade_aberturas": 1,
         "data_venda": dia_de_venda["data_venda"],
         "data": dia_de_venda["data_venda"],
         "nome_local": dia_de_venda.get("nome_local_no_momento"),
@@ -88,18 +90,20 @@ def buscar_resumo_do_dia_por_data(
 ) -> dict:
     validar_data_nao_futura(data_venda, campo="data_venda")
     client = get_supabase_client()
-    dia = (
+    dias = (
         client.table("dias_de_venda")
         .select("id")
         .eq("data_venda", data_venda.isoformat())
-        .order("aberto_em", desc=True)
-        .limit(1)
+        .order("aberto_em")
         .execute()
         .data
     )
-    if not dia:
+    if not dias:
         raise NotFoundError("Dia de venda", data_venda.isoformat())
-    return buscar_resumo_do_dia_de_venda(UUID(dia[0]["id"]), produto_id=produto_id)
+    resumos = [
+        buscar_resumo_do_dia_de_venda(UUID(dia["id"]), produto_id=produto_id) for dia in dias
+    ]
+    return _consolidar_resumos_da_mesma_data(resumos)
 
 
 def buscar_produtos_da_venda_do_dia(dia_de_venda_id: UUID) -> list[dict]:
@@ -116,15 +120,17 @@ def buscar_resumo_do_periodo(
     client = get_supabase_client()
     dias = (
         client.table("dias_de_venda")
-        .select("id")
+        .select("data_venda")
         .gte("data_venda", data_inicio.isoformat())
         .lte("data_venda", data_fim.isoformat())
         .order("data_venda")
         .execute()
         .data
     )
+    datas = sorted({dia["data_venda"] for dia in dias})
     resumos_dias = [
-        buscar_resumo_do_dia_de_venda(UUID(dia["id"]), produto_id=produto_id) for dia in dias
+        buscar_resumo_do_dia_por_data(date.fromisoformat(data_venda), produto_id=produto_id)
+        for data_venda in datas
     ]
     totais = _somar_dias(resumos_dias)
     return {
@@ -134,6 +140,92 @@ def buscar_resumo_do_periodo(
         **totais,
         "dias": resumos_dias,
     }
+
+
+def _consolidar_resumos_da_mesma_data(resumos: list[dict]) -> dict:
+    if len(resumos) == 1:
+        return resumos[0]
+
+    data_venda = resumos[0]["data_venda"]
+    produtos = _consolidar_produtos_por_data(resumos)
+    totais = _somar_produtos(produtos)
+    historico = []
+    correcoes = []
+    locais = {
+        resumo.get("nome_local")
+        for resumo in resumos
+        if resumo.get("nome_local")
+    }
+    for resumo in resumos:
+        historico.extend(resumo.get("historico") or [])
+        correcoes.extend(resumo.get("correcoes") or [])
+
+    produtos_produzidos = [produto for produto in produtos if produto["quantidade_produzida"] > 0]
+    produtos_vendidos = [produto for produto in produtos if produto["quantidade_vendida"] > 0]
+    produtos_sobrando = [produto for produto in produtos if produto["quantidade_sobra"] > 0]
+    produtos_esgotados = [produto for produto in produtos if produto["esgotado"]]
+    dia_ids = [
+        dia_id
+        for resumo in resumos
+        for dia_id in (resumo.get("dia_de_venda_ids") or [resumo["dia_de_venda_id"]])
+    ]
+    situacao = "aberto" if any(resumo["situacao"] == "aberto" for resumo in resumos) else "fechado"
+    return {
+        "dia_de_venda_id": resumos[-1]["dia_de_venda_id"],
+        "dia_de_venda_ids": dia_ids,
+        "quantidade_aberturas": len(dia_ids),
+        "data_venda": data_venda,
+        "data": data_venda,
+        "nome_local": next(iter(locais)) if len(locais) == 1 else "Multiplas aberturas",
+        "situacao": situacao,
+        "status": situacao.upper(),
+        **totais,
+        "itens_vendidos": totais["total_vendido"],
+        "faturamento_total": totais["faturamento_bruto"],
+        "produtos": produtos,
+        "produtos_produzidos": produtos_produzidos,
+        "produtos_vendidos": produtos_vendidos,
+        "produtos_sobrando": produtos_sobrando,
+        "produtos_esgotados": produtos_esgotados,
+        "historico": historico,
+        "correcoes": correcoes,
+    }
+
+
+def _consolidar_produtos_por_data(resumos: list[dict]) -> list[dict]:
+    produtos_por_id: dict[str, dict] = {}
+    for resumo in resumos:
+        for produto in resumo["produtos"]:
+            produto_id = produto["produto_id"]
+            if produto_id not in produtos_por_id:
+                produtos_por_id[produto_id] = {
+                    **produto,
+                    "faturamento_bruto": Decimal("0"),
+                    "custo_estimado": Decimal("0"),
+                    "lucro_estimado": Decimal("0"),
+                    "quantidade_produzida": 0,
+                    "quantidade_sobra_aproveitada": 0,
+                    "quantidade_disponivel": 0,
+                    "quantidade_vendida": 0,
+                    "quantidade_sobra": 0,
+                }
+            acumulado = produtos_por_id[produto_id]
+            acumulado["quantidade_produzida"] += produto["quantidade_produzida"]
+            acumulado["quantidade_sobra_aproveitada"] += produto["quantidade_sobra_aproveitada"]
+            acumulado["quantidade_disponivel"] += produto["quantidade_disponivel"]
+            acumulado["quantidade_vendida"] += produto["quantidade_vendida"]
+            acumulado["faturamento_bruto"] += Decimal(str(produto["faturamento_bruto"]))
+            acumulado["custo_estimado"] += Decimal(str(produto["custo_estimado"]))
+            acumulado["lucro_estimado"] += Decimal(str(produto["lucro_estimado"]))
+            acumulado["quantidade_sobra"] = (
+                acumulado["quantidade_disponivel"] - acumulado["quantidade_vendida"]
+            )
+            acumulado["participou_da_venda"] = True
+            acumulado["esgotado"] = (
+                acumulado["quantidade_disponivel"] > 0
+                and acumulado["quantidade_vendida"] >= acumulado["quantidade_disponivel"]
+            )
+    return sorted(produtos_por_id.values(), key=lambda produto: produto["nome_produto"])
 
 
 def _montar_resumos_dos_produtos(

@@ -96,6 +96,7 @@ class RequisicaoIniciarDiaDeVenda(ApiModel):
     nome_local: str | None = None
     observacoes: str | None = None
     observacoes_fechamento_dia_anterior: str | None = None
+    criar_nova_abertura: bool = False
     itens_producao: list[RequisicaoCriarItemProducao] = Field(default_factory=list)
     decisoes_sobra: list[RequisicaoDecisaoSobra] = Field(default_factory=list)
 

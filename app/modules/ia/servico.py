@@ -1271,18 +1271,18 @@ def _montar_confirmacao_de_producao(
 def _montar_confirmacao_de_abertura_de_dia(interpretacao: dict) -> dict:
     data_venda = _data_ou_hoje(interpretacao["data_venda"])
     dia_existente = _buscar_dia_aberto(data_venda)
-    if dia_existente:
-        return _dados_sem_confirmacao(
-            ACAO_ABRIR_DIA_DE_VENDA,
-            f"Ja existe um dia de venda aberto em {_formatar_data(data_venda.isoformat())}.",
-        )
-
     itens = interpretacao["itens"]
     trecho_producao = f" com producao de {_formatar_itens(itens)}" if itens else ""
-    mensagem = (
-        f"Entendi que devo abrir o dia de venda em {_formatar_data(data_venda.isoformat())}"
-        f"{trecho_producao}. Confirma?"
-    )
+    if dia_existente:
+        mensagem = (
+            f"Ja existe uma abertura aberta em {_formatar_data(data_venda.isoformat())}. "
+            f"Vou criar uma nova abertura para o mesmo dia{trecho_producao}. Confirma?"
+        )
+    else:
+        mensagem = (
+            f"Entendi que devo abrir o dia de venda em {_formatar_data(data_venda.isoformat())}"
+            f"{trecho_producao}. Confirma?"
+        )
     return {
         "acao": ACAO_ABRIR_DIA_DE_VENDA,
         "precisa_confirmacao": True,
