@@ -717,7 +717,7 @@ def _buscar_dia_aberto_por_data(client: Client, data_venda: date) -> dict | None
 
 
 def _buscar_dia_aberto_anterior(client: Client, data_venda: date) -> dict | None:
-    return first_or_none(
+    dia = first_or_none(
         client.table("dias_de_venda")
         .select("*")
         .eq("situacao", "aberto")
@@ -728,30 +728,44 @@ def _buscar_dia_aberto_anterior(client: Client, data_venda: date) -> dict | None
         .execute()
         .data
     )
+    if dia and _dia_parece_seed_analytics(dia):
+        return None
+    return dia
 
 
 def _buscar_dia_fechado_anterior_com_sobra_pendente(
     client: Client,
     data_venda: date,
 ) -> tuple[dict | None, list[dict]]:
-    candidatos = (
+    dia = first_or_none(
         client.table("dias_de_venda")
         .select("*")
         .eq("situacao", "fechado")
         .lt("data_venda", data_venda.isoformat())
         .order("data_venda", desc=True)
         .order("fechado_em", desc=True)
-        .limit(60)
+        .limit(1)
         .execute()
         .data
     )
-    for dia in candidatos:
-        if _dia_tem_decisao_de_sobra_como_origem(client, dia["id"]):
-            continue
-        sobras_pendentes = _calcular_sobras_pendentes(client, dia["id"])
-        if sobras_pendentes:
-            return dia, sobras_pendentes
-    return None, []
+    if not dia or _dia_parece_seed_analytics(dia):
+        return None, []
+    if _dia_tem_decisao_de_sobra_como_origem(client, dia["id"]):
+        return None, []
+    sobras_pendentes = _calcular_sobras_pendentes(client, dia["id"])
+    if not sobras_pendentes:
+        return None, []
+    return dia, sobras_pendentes
+
+
+def _dia_parece_seed_analytics(dia: dict) -> bool:
+    texto = " ".join(
+        [
+            str(dia.get("nome_local_no_momento") or ""),
+            str(dia.get("observacoes") or ""),
+        ]
+    ).lower()
+    return "seed analytics" in texto or "seed_analytics" in texto
 
 
 def _dia_tem_decisao_de_sobra_como_origem(client: Client, dia_de_venda_id: UUID | str) -> bool:
