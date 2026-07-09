@@ -731,7 +731,39 @@ def _normalizar_ingrediente(item: dict) -> dict:
     _inferir_unidade_de_compra_pelo_nome(normalizado)
     _evitar_equivalencia_duplicada(normalizado, "quantidade_usada", "unidade_usada")
     _evitar_equivalencia_duplicada(normalizado, "quantidade_comprada", "unidade_compra")
+    _resolver_quantidade_ambigua_no_rascunho(
+        normalizado,
+        quantidade_original=quantidade_usada,
+        unidade_original=unidade_usada,
+    )
     return normalizado
+
+
+def _resolver_quantidade_ambigua_no_rascunho(
+    item: dict,
+    *,
+    quantidade_original,
+    unidade_original,
+) -> None:
+    texto_original = " ".join(
+        str(valor).strip()
+        for valor in (quantidade_original, unidade_original)
+        if valor is not None and str(valor).strip()
+    )
+    if not _texto_indica_quantidade_alternativa(texto_original):
+        return
+    numeros = _extrair_numeros_de_texto(texto_original)
+    if len(numeros) < 2:
+        return
+    quantidade_escolhida = max(numeros)
+    item["quantidade_usada"] = _decimal_str_limpa(quantidade_escolhida)
+    item["unidade_usada"] = (
+        _inferir_unidade_da_quantidade_ambigua(texto_original, item)
+        or item.get("unidade_usada")
+    )
+    item["quantidade_usada_original"] = texto_original
+    item["quantidade_usada_ambigua"] = True
+    item["quantidade_usada_estimativa"] = _decimal_str_limpa(quantidade_escolhida)
 
 
 def _normalizar_custo_adicional(item: dict) -> dict:
@@ -1225,7 +1257,10 @@ def _ingredientes_com_quantidade_ambigua(ingredientes: list[dict]) -> list[str]:
 
 
 def _ingrediente_tem_quantidade_ambigua(ingrediente: dict) -> bool:
-    return _texto_indica_quantidade_alternativa(
+    return bool(
+        ingrediente.get("quantidade_usada_ambigua")
+        or ingrediente.get("quantidade_usada_original")
+    ) or _texto_indica_quantidade_alternativa(
         ingrediente.get("quantidade_usada"),
     ) or _texto_indica_quantidade_alternativa(ingrediente.get("unidade_usada"))
 
@@ -1318,16 +1353,21 @@ def _resolver_uso_do_ingrediente_para_calculo(
 def _resolver_quantidade_ambigua_para_estimativa(ingrediente: dict) -> dict | None:
     if not _ingrediente_tem_quantidade_ambigua(ingrediente):
         return None
-    texto_original = " ".join(
+    texto_original = ingrediente.get("quantidade_usada_original") or " ".join(
         str(valor).strip()
         for valor in (ingrediente.get("quantidade_usada"), ingrediente.get("unidade_usada"))
         if valor is not None and str(valor).strip()
     )
     numeros = _extrair_numeros_de_texto(texto_original)
-    if len(numeros) < 2:
+    quantidade = _decimal_ou_none(
+        ingrediente.get("quantidade_usada_estimativa") or ingrediente.get("quantidade_usada")
+    )
+    if quantidade is None and len(numeros) >= 2:
+        quantidade = max(numeros)
+    if quantidade is None:
         return None
     return {
-        "quantidade": max(numeros),
+        "quantidade": quantidade,
         "unidade": _inferir_unidade_da_quantidade_ambigua(texto_original, ingrediente),
         "texto_original": texto_original,
     }
