@@ -1,9 +1,8 @@
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, File, Form, Query, UploadFile
+from fastapi import APIRouter, File, Form, Query, UploadFile
 
-from app.modules.admin.dependencias import exigir_admin_real
 from app.modules.notificacoes import servico
 from app.modules.notificacoes.esquemas import (
     NotificacaoSaida,
@@ -12,6 +11,14 @@ from app.modules.notificacoes.esquemas import (
 )
 
 router = APIRouter(tags=["notificacoes"])
+
+USUARIO_SISTEMA_SEM_AUTH = {
+    "id": None,
+    "email": "sem-auth@padoka.local",
+    "nome": "Sem autenticacao",
+    "papel": "dono",
+    "situacao": "ativo",
+}
 
 
 @router.get("/notificacoes", response_model=list[NotificacaoSaida])
@@ -28,7 +35,6 @@ def buscar_notificacao_publica(notificacao_id: UUID) -> dict:
 
 @router.get("/admin/notificacoes", response_model=list[NotificacaoSaida])
 def listar_notificacoes_admin(
-    _: Annotated[dict, Depends(exigir_admin_real)],
     status: Annotated[
         str | None,
         Query(pattern="^(rascunho|publicada|arquivada)$"),
@@ -41,40 +47,31 @@ def listar_notificacoes_admin(
 @router.post("/admin/notificacoes", response_model=NotificacaoSaida, status_code=201)
 def criar_notificacao(
     requisicao: RequisicaoCriarNotificacao,
-    usuario: Annotated[dict, Depends(exigir_admin_real)],
 ) -> dict:
-    return servico.criar_notificacao(requisicao, usuario)
+    return servico.criar_notificacao(requisicao, USUARIO_SISTEMA_SEM_AUTH)
 
 
 @router.patch("/admin/notificacoes/{notificacao_id}", response_model=NotificacaoSaida)
 def atualizar_notificacao(
     notificacao_id: UUID,
     requisicao: RequisicaoAtualizarNotificacao,
-    _: Annotated[dict, Depends(exigir_admin_real)],
 ) -> dict:
     return servico.atualizar_notificacao(notificacao_id, requisicao)
 
 
 @router.post("/admin/notificacoes/{notificacao_id}/publicar", response_model=NotificacaoSaida)
-def publicar_notificacao(
-    notificacao_id: UUID,
-    _: Annotated[dict, Depends(exigir_admin_real)],
-) -> dict:
+def publicar_notificacao(notificacao_id: UUID) -> dict:
     return servico.publicar_notificacao(notificacao_id)
 
 
 @router.post("/admin/notificacoes/{notificacao_id}/arquivar", response_model=NotificacaoSaida)
-def arquivar_notificacao(
-    notificacao_id: UUID,
-    _: Annotated[dict, Depends(exigir_admin_real)],
-) -> dict:
+def arquivar_notificacao(notificacao_id: UUID) -> dict:
     return servico.arquivar_notificacao(notificacao_id)
 
 
 @router.post("/admin/notificacoes/{notificacao_id}/midias", response_model=NotificacaoSaida)
 async def anexar_upload(
     notificacao_id: UUID,
-    _: Annotated[dict, Depends(exigir_admin_real)],
     file: Annotated[UploadFile, File()],
     descricao: Annotated[str | None, Form()] = None,
     texto_alternativo: Annotated[str | None, Form()] = None,
