@@ -15,6 +15,7 @@ class ResumoProdutoNoDia(ApiModel):
     esgotado: bool = False
     quantidade_produzida: int = 0
     quantidade_sobra_aproveitada: int = 0
+    quantidade_sobra_descartada: int = 0
     quantidade_disponivel: int = 0
     quantidade_vendida: int = 0
     quantidade_sobra: int = 0
@@ -34,6 +35,7 @@ class ResumoDoDiaDeVenda(ApiModel):
     status: str
     total_produzido: int = 0
     total_sobra_aproveitada: int = 0
+    total_sobra_descartada: int = 0
     total_disponivel: int = 0
     total_vendido: int = 0
     itens_vendidos: int = 0
@@ -57,6 +59,7 @@ class ResumoDoPeriodo(ApiModel):
     produto_id: UUID | None = None
     total_produzido: int = 0
     total_sobra_aproveitada: int = 0
+    total_sobra_descartada: int = 0
     total_disponivel: int = 0
     total_vendido: int = 0
     total_sobra: int = 0

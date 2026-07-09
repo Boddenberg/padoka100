@@ -840,6 +840,14 @@ def _calcular_sobras_pendentes(client: Client, dia_de_venda_id: UUID | str) -> l
             .data
         )
 
+    decisoes_sobra_usadas = (
+        client.table("decisoes_sobra")
+        .select("*")
+        .eq("dia_destino_id", str(dia_de_venda_id))
+        .execute()
+        .data
+    )
+
     vendidos_por_produto: dict[str, int] = {}
     for item in itens_venda:
         produto_id = item["produto_id"]
@@ -847,9 +855,33 @@ def _calcular_sobras_pendentes(client: Client, dia_de_venda_id: UUID | str) -> l
             vendidos_por_produto.get(produto_id, 0) + item["quantidade"]
         )
 
-    sobras = []
+    disponiveis_por_produto: dict[str, dict] = {}
     for item in itens_producao:
-        quantidade_sobra = item["quantidade_produzida"] - vendidos_por_produto.get(
+        produto_id = item["produto_id"]
+        disponiveis_por_produto[produto_id] = {
+            "produto_id": produto_id,
+            "nome_produto": item["nome_produto_no_momento"],
+            "url_imagem_produto": item.get("url_imagem_produto_no_momento"),
+            "quantidade_disponivel": item["quantidade_produzida"],
+        }
+
+    for decisao in decisoes_sobra_usadas:
+        quantidade_usada = decisao["quantidade_usada_hoje"]
+        if quantidade_usada <= 0:
+            continue
+        produto_id = decisao["produto_id"]
+        if produto_id not in disponiveis_por_produto:
+            disponiveis_por_produto[produto_id] = {
+                "produto_id": produto_id,
+                "nome_produto": decisao["nome_produto_no_momento"],
+                "url_imagem_produto": decisao.get("url_imagem_produto_no_momento"),
+                "quantidade_disponivel": 0,
+            }
+        disponiveis_por_produto[produto_id]["quantidade_disponivel"] += quantidade_usada
+
+    sobras = []
+    for item in disponiveis_por_produto.values():
+        quantidade_sobra = item["quantidade_disponivel"] - vendidos_por_produto.get(
             item["produto_id"],
             0,
         )
@@ -858,8 +890,8 @@ def _calcular_sobras_pendentes(client: Client, dia_de_venda_id: UUID | str) -> l
         sobras.append(
             {
                 "produto_id": item["produto_id"],
-                "nome_produto": item["nome_produto_no_momento"],
-                "url_imagem_produto": item.get("url_imagem_produto_no_momento"),
+                "nome_produto": item["nome_produto"],
+                "url_imagem_produto": item.get("url_imagem_produto"),
                 "quantidade_sobra": quantidade_sobra,
                 "quantidade_sugerida_para_usar": quantidade_sobra,
             }

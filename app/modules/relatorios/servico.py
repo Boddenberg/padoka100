@@ -205,6 +205,7 @@ def _consolidar_produtos_por_data(resumos: list[dict]) -> list[dict]:
                     "lucro_estimado": Decimal("0"),
                     "quantidade_produzida": 0,
                     "quantidade_sobra_aproveitada": 0,
+                    "quantidade_sobra_descartada": 0,
                     "quantidade_disponivel": 0,
                     "quantidade_vendida": 0,
                     "quantidade_sobra": 0,
@@ -212,6 +213,9 @@ def _consolidar_produtos_por_data(resumos: list[dict]) -> list[dict]:
             acumulado = produtos_por_id[produto_id]
             acumulado["quantidade_produzida"] += produto["quantidade_produzida"]
             acumulado["quantidade_sobra_aproveitada"] += produto["quantidade_sobra_aproveitada"]
+            acumulado["quantidade_sobra_descartada"] += produto[
+                "quantidade_sobra_descartada"
+            ]
             acumulado["quantidade_disponivel"] += produto["quantidade_disponivel"]
             acumulado["quantidade_vendida"] += produto["quantidade_vendida"]
             acumulado["faturamento_bruto"] += Decimal(str(produto["faturamento_bruto"]))
@@ -245,6 +249,7 @@ def _montar_resumos_dos_produtos(
             "esgotado": False,
             "quantidade_produzida": item["quantidade_produzida"],
             "quantidade_sobra_aproveitada": 0,
+            "quantidade_sobra_descartada": 0,
             "quantidade_disponivel": item["quantidade_produzida"],
             "quantidade_vendida": 0,
             "quantidade_sobra": item["quantidade_produzida"],
@@ -255,7 +260,8 @@ def _montar_resumos_dos_produtos(
 
     for item in decisoes_sobra:
         quantidade_usada = item["quantidade_usada_hoje"]
-        if quantidade_usada <= 0:
+        quantidade_descartada = item["quantidade_nao_usada_hoje"]
+        if quantidade_usada <= 0 and quantidade_descartada <= 0:
             continue
         produto_id = item["produto_id"]
         if produto_id not in resumos:
@@ -267,6 +273,7 @@ def _montar_resumos_dos_produtos(
                 "esgotado": False,
                 "quantidade_produzida": 0,
                 "quantidade_sobra_aproveitada": 0,
+                "quantidade_sobra_descartada": 0,
                 "quantidade_disponivel": 0,
                 "quantidade_vendida": 0,
                 "quantidade_sobra": 0,
@@ -276,6 +283,7 @@ def _montar_resumos_dos_produtos(
             }
         resumo = resumos[produto_id]
         resumo["quantidade_sobra_aproveitada"] += quantidade_usada
+        resumo["quantidade_sobra_descartada"] += quantidade_descartada
         resumo["quantidade_disponivel"] = (
             resumo["quantidade_produzida"] + resumo["quantidade_sobra_aproveitada"]
         )
@@ -292,6 +300,7 @@ def _montar_resumos_dos_produtos(
                 "esgotado": False,
                 "quantidade_produzida": 0,
                 "quantidade_sobra_aproveitada": 0,
+                "quantidade_sobra_descartada": 0,
                 "quantidade_disponivel": 0,
                 "quantidade_vendida": 0,
                 "quantidade_sobra": 0,
@@ -316,6 +325,7 @@ def _finalizar_resumo_produto(produto: dict) -> dict:
         [
             produto["quantidade_produzida"] > 0,
             produto["quantidade_sobra_aproveitada"] > 0,
+            produto["quantidade_sobra_descartada"] > 0,
             produto["quantidade_vendida"] > 0,
         ]
     )
@@ -333,6 +343,9 @@ def _somar_produtos(produtos: list[dict]) -> dict:
         "total_sobra_aproveitada": sum(
             produto["quantidade_sobra_aproveitada"] for produto in produtos
         ),
+        "total_sobra_descartada": sum(
+            produto["quantidade_sobra_descartada"] for produto in produtos
+        ),
         "total_disponivel": sum(produto["quantidade_disponivel"] for produto in produtos),
         "total_vendido": sum(produto["quantidade_vendida"] for produto in produtos),
         "total_sobra": sum(produto["quantidade_sobra"] for produto in produtos),
@@ -349,6 +362,7 @@ def _somar_dias(dias: list[dict]) -> dict:
     return {
         "total_produzido": sum(dia["total_produzido"] for dia in dias),
         "total_sobra_aproveitada": sum(dia["total_sobra_aproveitada"] for dia in dias),
+        "total_sobra_descartada": sum(dia["total_sobra_descartada"] for dia in dias),
         "total_disponivel": sum(dia["total_disponivel"] for dia in dias),
         "total_vendido": sum(dia["total_vendido"] for dia in dias),
         "total_sobra": sum(dia["total_sobra"] for dia in dias),
