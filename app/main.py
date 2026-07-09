@@ -9,6 +9,21 @@ from app.core.config import get_settings
 from app.core.errors import register_exception_handlers
 
 
+def _rota_isenta_de_api_key(path: str, api_prefix: str) -> bool:
+    rotas_exatas = {
+        f"{api_prefix}/auth/login",
+        f"{api_prefix}/auth/registrar",
+        f"{api_prefix}/admin/seed/vendas-fake",
+        f"{api_prefix}/notificacoes",
+        f"{api_prefix}/admin/notificacoes",
+    }
+    prefixos = (
+        f"{api_prefix}/notificacoes/",
+        f"{api_prefix}/admin/notificacoes/",
+    )
+    return path in rotas_exatas or any(path.startswith(prefixo) for prefixo in prefixos)
+
+
 def create_app() -> FastAPI:
     settings = get_settings()
     app = FastAPI(
@@ -37,12 +52,9 @@ def create_app() -> FastAPI:
             header_api_key = request.headers.get("x-api-key", "")
             authorization = request.headers.get("authorization", "")
             tem_bearer = authorization.lower().startswith("bearer ")
-            rota_publica_auth = request.url.path in {
-                f"{settings.api_prefix}/auth/login",
-                f"{settings.api_prefix}/auth/registrar",
-            }
+            rota_isenta = _rota_isenta_de_api_key(request.url.path, settings.api_prefix)
             if (
-                not rota_publica_auth
+                not rota_isenta
                 and not tem_bearer
                 and not compare_digest(header_api_key, settings.api_key)
             ):
