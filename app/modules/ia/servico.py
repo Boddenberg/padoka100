@@ -27,6 +27,7 @@ from app.modules.produtos import servico as servico_de_produtos
 from app.modules.relatorios import servico as servico_de_relatorios
 from app.modules.vendas import servico as servico_de_vendas
 from app.modules.vendas.esquemas import RequisicaoCancelarVenda, RequisicaoRegistrarVenda
+from app.shared.datas import validar_periodo
 from app.shared.db import encode_value, first_or_none, to_db_payload
 
 ACAO_REGISTRAR_VENDA = "registrar_venda"
@@ -223,7 +224,8 @@ def montar_dados_estruturados_periodo(
 ) -> dict:
     data_inicio_valor = date.fromisoformat(data_inicio)
     data_fim_valor = date.fromisoformat(data_fim)
-    resumo = servico_de_relatorios.buscar_resumo_do_periodo(
+    validar_periodo(data_inicio_valor, data_fim_valor)
+    resumo = _montar_resumo_do_periodo_para_ia(
         data_inicio_valor,
         data_fim_valor,
         produto_id=produto_id,
@@ -268,7 +270,7 @@ def montar_dados_estruturados_periodo(
                 acumulado["diasEsgotado"] += 1
 
     dados = {
-        "periodo": {"inicio": data_inicio, "fim": data_fim},
+        "periodo": _montar_periodo_estruturado(data_inicio_valor, data_fim_valor),
         "faturamentoTotal": resumo["faturamento_bruto"],
         "quantidadeTotalProduzida": resumo["total_produzido"],
         "quantidadeTotalVendida": resumo["total_vendido"],
@@ -282,6 +284,182 @@ def montar_dados_estruturados_periodo(
         "correcoesRetroativas": correcoes,
     }
     return encode_value(dados)
+
+
+def _montar_resumo_do_periodo_para_ia(
+    data_inicio: date,
+    data_fim: date,
+    *,
+    produto_id: UUID | None,
+) -> dict:
+    client = get_supabase_client()
+    dias = (
+        client.table("dias_de_venda")
+        .select("id, data_venda, situacao, aberto_em")
+        .gte("data_venda", data_inicio.isoformat())
+        .lte("data_venda", data_fim.isoformat())
+        .order("data_venda")
+        .order("aberto_em")
+        .execute()
+        .data
+    )
+    resumos_por_abertura = _montar_resumos_de_aberturas_para_ia(
+        client,
+        dias,
+        produto_id=produto_id,
+    )
+    resumos_dias = _consolidar_resumos_por_data_para_ia(resumos_por_abertura)
+    totais = servico_de_relatorios._somar_dias(resumos_dias)
+    return {
+        "data_inicio": data_inicio,
+        "data_fim": data_fim,
+        **totais,
+        "dias": resumos_dias,
+    }
+
+
+def _montar_resumos_de_aberturas_para_ia(
+    client,
+    dias: list[dict],
+    *,
+    produto_id: UUID | None,
+) -> list[dict]:
+    dia_ids = [dia["id"] for dia in dias]
+    if not dia_ids:
+        return []
+
+    itens_producao = client.table("itens_producao").select("*").in_("dia_de_venda_id", dia_ids)
+    decisoes_sobra = (
+        client.table("decisoes_sobra").select("*").in_("dia_destino_id", dia_ids)
+    )
+    if produto_id:
+        itens_producao = itens_producao.eq("produto_id", str(produto_id))
+        decisoes_sobra = decisoes_sobra.eq("produto_id", str(produto_id))
+    itens_producao = itens_producao.execute().data
+    decisoes_sobra = _executar_lista_opcional_ia(decisoes_sobra)
+
+    vendas_ativas = (
+        client.table("vendas")
+        .select("id, dia_de_venda_id")
+        .in_("dia_de_venda_id", dia_ids)
+        .eq("situacao", "ativa")
+        .execute()
+        .data
+    )
+    venda_ids = [venda["id"] for venda in vendas_ativas]
+    itens_venda = []
+    if venda_ids:
+        consulta_itens_venda = client.table("itens_venda").select("*").in_("venda_id", venda_ids)
+        if produto_id:
+            consulta_itens_venda = consulta_itens_venda.eq("produto_id", str(produto_id))
+        itens_venda = consulta_itens_venda.execute().data
+
+    correcoes = _executar_lista_opcional_ia(
+        client.table("correcoes_dia_fechado")
+        .select("*")
+        .in_("dia_de_venda_id", dia_ids)
+        .order("criado_em", desc=True)
+    )
+
+    producoes_por_dia = _agrupar_linhas_por_chave(itens_producao, "dia_de_venda_id")
+    vendas_por_dia = _agrupar_linhas_por_chave(itens_venda, "dia_de_venda_id")
+    decisoes_por_dia = _agrupar_linhas_por_chave(decisoes_sobra, "dia_destino_id")
+    correcoes_por_dia = _agrupar_linhas_por_chave(correcoes, "dia_de_venda_id")
+
+    resumos = []
+    for dia in dias:
+        dia_id = dia["id"]
+        produtos = servico_de_relatorios._montar_resumos_dos_produtos(
+            producoes_por_dia.get(dia_id, []),
+            vendas_por_dia.get(dia_id, []),
+            decisoes_por_dia.get(dia_id, []),
+        )
+        totais = servico_de_relatorios._somar_produtos(produtos)
+        produtos_esgotados = [produto for produto in produtos if produto["esgotado"]]
+        resumos.append(
+            {
+                "dia_de_venda_id": dia_id,
+                "data_venda": dia["data_venda"],
+                "data": dia["data_venda"],
+                "situacao": dia["situacao"],
+                "status": dia["situacao"].upper(),
+                **totais,
+                "itens_vendidos": totais["total_vendido"],
+                "faturamento_total": totais["faturamento_bruto"],
+                "produtos": produtos,
+                "produtos_esgotados": produtos_esgotados,
+                "correcoes": correcoes_por_dia.get(dia_id, []),
+            }
+        )
+    return resumos
+
+
+def _consolidar_resumos_por_data_para_ia(resumos: list[dict]) -> list[dict]:
+    resumos_por_data = _agrupar_linhas_por_chave(resumos, "data_venda")
+    return [
+        _consolidar_resumos_da_mesma_data_para_ia(resumos_por_data[data_venda])
+        for data_venda in sorted(resumos_por_data)
+    ]
+
+
+def _consolidar_resumos_da_mesma_data_para_ia(resumos: list[dict]) -> dict:
+    if len(resumos) == 1:
+        return resumos[0]
+
+    produtos = servico_de_relatorios._consolidar_produtos_por_data(resumos)
+    totais = servico_de_relatorios._somar_produtos(produtos)
+    correcoes = [
+        correcao
+        for resumo in resumos
+        for correcao in (resumo.get("correcoes") or [])
+    ]
+    situacao = "aberto" if any(resumo["situacao"] == "aberto" for resumo in resumos) else "fechado"
+    return {
+        "dia_de_venda_id": resumos[-1]["dia_de_venda_id"],
+        "data_venda": resumos[0]["data_venda"],
+        "data": resumos[0]["data_venda"],
+        "situacao": situacao,
+        "status": situacao.upper(),
+        **totais,
+        "itens_vendidos": totais["total_vendido"],
+        "faturamento_total": totais["faturamento_bruto"],
+        "produtos": produtos,
+        "produtos_esgotados": [produto for produto in produtos if produto["esgotado"]],
+        "correcoes": correcoes,
+    }
+
+
+def _agrupar_linhas_por_chave(linhas: list[dict], chave: str) -> dict[str, list[dict]]:
+    grupos: dict[str, list[dict]] = {}
+    for linha in linhas:
+        grupos.setdefault(str(linha[chave]), []).append(linha)
+    return grupos
+
+
+def _executar_lista_opcional_ia(consulta) -> list[dict]:
+    try:
+        return consulta.execute().data
+    except Exception as exc:
+        if _erro_tabela_ausente_ia(exc):
+            return []
+        raise
+
+
+def _erro_tabela_ausente_ia(exc: Exception) -> bool:
+    mensagem = str(exc)
+    return "PGRST205" in mensagem and "Could not find the table" in mensagem
+
+
+def _montar_periodo_estruturado(data_inicio: date, data_fim: date) -> dict:
+    inicio_formatado = data_inicio.strftime("%d/%m/%Y")
+    fim_formatado = data_fim.strftime("%d/%m/%Y")
+    return {
+        "inicio": data_inicio.isoformat(),
+        "fim": data_fim.isoformat(),
+        "inicioFormatado": inicio_formatado,
+        "fimFormatado": fim_formatado,
+        "rotulo": f"{inicio_formatado} a {fim_formatado}",
+    }
 
 
 def analisar_periodo_padrao(requisicao) -> dict:
@@ -665,6 +843,8 @@ def _gerar_analise_com_ia(
             "Considere faturamento, producao, vendas, sobras, produtos esgotados, "
             "comparacao entre dias e correcoes retroativas. "
             "Quando houver dados estimados ou incompletos, sinalize a limitacao. "
+            "Ao mencionar datas para o usuario, use formato brasileiro dd/mm/aaaa; "
+            "para o periodo analisado, prefira dados.periodo.rotulo. "
             "Responda em portugues brasileiro, de forma direta e acionavel. "
             "Retorne somente JSON valido, sem markdown, com estes campos: "
             "resumo (string), principais_achados (lista de strings), "
@@ -773,6 +953,19 @@ def _normalizar_lista_de_objetos(valor) -> list[dict]:
     return itens
 
 
+def _rotulo_periodo_da_analise(dados: dict) -> str:
+    periodo = dados.get("periodo") or {}
+    rotulo = _normalizar_texto(periodo.get("rotulo"))
+    if rotulo:
+        return rotulo
+
+    inicio = periodo.get("inicio")
+    fim = periodo.get("fim")
+    if inicio and fim:
+        return f"{_formatar_data(str(inicio))} a {_formatar_data(str(fim))}"
+    return "periodo informado"
+
+
 def _gerar_analise_estruturada_local(dados: dict, pergunta: str | None) -> dict:
     produtos = dados["produtos"]
     produtos_mais_vendidos = [
@@ -800,8 +993,9 @@ def _gerar_analise_estruturada_local(dados: dict, pergunta: str | None) -> dict:
         for dia in dias
         for nome in dia.get("produtosEsgotados", [])
     ]
+    periodo = _rotulo_periodo_da_analise(dados)
     resumo = (
-        f"Periodo de {dados['periodo']['inicio']} a {dados['periodo']['fim']}: "
+        f"Periodo de {periodo}: "
         f"faturamento total de R$ {Decimal(str(dados['faturamentoTotal'])):.2f}, "
         f"{dados['quantidadeTotalVendida']} unidades vendidas e "
         f"{dados['quantidadeTotalSobrando']} unidades sobrando."
@@ -881,8 +1075,9 @@ def _gerar_analise_local(dados: dict, pergunta: str | None) -> str:
     produtos = dados["produtos"]
     produto_mais_vendido = produtos[0] if produtos else None
     produto_mais_sobra = max(produtos, key=lambda produto: produto["totalSobrando"], default=None)
+    periodo = _rotulo_periodo_da_analise(dados)
     partes = [
-        f"Periodo analisado: {dados['periodo']['inicio']} a {dados['periodo']['fim']}.",
+        f"Periodo analisado: {periodo}.",
         f"Faturamento total: R$ {Decimal(str(dados['faturamentoTotal'])):.2f}.",
         f"Total produzido: {dados['quantidadeTotalProduzida']}.",
         f"Total vendido: {dados['quantidadeTotalVendida']}.",
