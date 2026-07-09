@@ -94,6 +94,14 @@ def iniciar_dia_de_venda(requisicao: RequisicaoIniciarDiaDeVenda) -> dict:
     )
     dia_atual = None if criar_nova_abertura else dia_atual_existente
     dia_anterior = _buscar_dia_aberto_anterior(client, data_venda)
+    sobras_pendentes = []
+    if dia_anterior:
+        sobras_pendentes = _calcular_sobras_pendentes(client, dia_anterior["id"])
+    else:
+        dia_anterior, sobras_pendentes = _buscar_dia_fechado_anterior_com_sobra_pendente(
+            client,
+            data_venda,
+        )
 
     if not dia_anterior:
         if dia_atual:
@@ -108,7 +116,7 @@ def iniciar_dia_de_venda(requisicao: RequisicaoIniciarDiaDeVenda) -> dict:
                 "decisoes_sobra": _listar_decisoes_sobra_do_destino(client, dia_atual["id"]),
             }
         if requisicao.decisoes_sobra:
-            raise BadRequestError("Nao ha dia anterior aberto com sobra pendente.")
+            raise BadRequestError("Nao ha dia anterior com sobra pendente.")
 
         dia_atual = _criar_dia_de_venda_para_inicio(requisicao, data_venda, None)
         mensagem = (
@@ -126,7 +134,6 @@ def iniciar_dia_de_venda(requisicao: RequisicaoIniciarDiaDeVenda) -> dict:
             "decisoes_sobra": [],
         }
 
-    sobras_pendentes = _calcular_sobras_pendentes(client, dia_anterior["id"])
     if sobras_pendentes:
         decisoes_existentes = []
         if dia_atual:
@@ -164,23 +171,29 @@ def iniciar_dia_de_venda(requisicao: RequisicaoIniciarDiaDeVenda) -> dict:
             )
     else:
         if requisicao.decisoes_sobra:
-            raise BadRequestError("O dia anterior aberto nao tem sobra pendente.")
+            raise BadRequestError("O dia anterior nao tem sobra pendente.")
         decisoes_sobra = []
         if not dia_atual:
             dia_atual = _criar_dia_de_venda_para_inicio(requisicao, data_venda, dia_anterior)
         else:
             _salvar_itens_producao_informados(UUID(dia_atual["id"]), requisicao.itens_producao)
 
-    dia_anterior_fechado = fechar_dia_de_venda(
-        UUID(dia_anterior["id"]),
-        RequisicaoFecharDiaDeVenda(observacoes=requisicao.observacoes_fechamento_dia_anterior),
-    )
+    if dia_anterior["situacao"] == "fechado":
+        dia_anterior_saida = buscar_dia_de_venda(UUID(dia_anterior["id"]))
+        mensagem = "Novo dia iniciado com sobras do dia anterior."
+    else:
+        dia_anterior_saida = fechar_dia_de_venda(
+            UUID(dia_anterior["id"]),
+            RequisicaoFecharDiaDeVenda(observacoes=requisicao.observacoes_fechamento_dia_anterior),
+        )
+        mensagem = "Dia anterior fechado e novo dia iniciado."
+
     return {
         "acao": "dia_iniciado",
-        "mensagem": "Dia anterior fechado e novo dia iniciado.",
+        "mensagem": mensagem,
         "data_venda": data_venda,
         "dia_de_venda": buscar_dia_de_venda(UUID(dia_atual["id"])),
-        "dia_anterior": dia_anterior_fechado,
+        "dia_anterior": dia_anterior_saida,
         "sobras_pendentes": [],
         "decisoes_sobra": decisoes_sobra,
     }
@@ -715,6 +728,42 @@ def _buscar_dia_aberto_anterior(client: Client, data_venda: date) -> dict | None
         .execute()
         .data
     )
+
+
+def _buscar_dia_fechado_anterior_com_sobra_pendente(
+    client: Client,
+    data_venda: date,
+) -> tuple[dict | None, list[dict]]:
+    candidatos = (
+        client.table("dias_de_venda")
+        .select("*")
+        .eq("situacao", "fechado")
+        .lt("data_venda", data_venda.isoformat())
+        .order("data_venda", desc=True)
+        .order("fechado_em", desc=True)
+        .limit(60)
+        .execute()
+        .data
+    )
+    for dia in candidatos:
+        if _dia_tem_decisao_de_sobra_como_origem(client, dia["id"]):
+            continue
+        sobras_pendentes = _calcular_sobras_pendentes(client, dia["id"])
+        if sobras_pendentes:
+            return dia, sobras_pendentes
+    return None, []
+
+
+def _dia_tem_decisao_de_sobra_como_origem(client: Client, dia_de_venda_id: UUID | str) -> bool:
+    decisao = first_or_none(
+        client.table("decisoes_sobra")
+        .select("id")
+        .eq("dia_origem_id", str(dia_de_venda_id))
+        .limit(1)
+        .execute()
+        .data
+    )
+    return decisao is not None
 
 
 def _requisicao_indica_nova_abertura(
