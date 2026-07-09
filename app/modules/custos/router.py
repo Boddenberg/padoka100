@@ -1,3 +1,4 @@
+from datetime import date
 from typing import Annotated
 from uuid import UUID
 
@@ -15,12 +16,18 @@ from app.modules.custos.assistente_esquemas import (
 from app.modules.custos.esquemas import (
     CalculoCustoProdutoSaida,
     CustoAdicionalSaida,
+    InsumoPrecoSaida,
     InsumoSaida,
+    ListaComprasSaida,
     ReceitaSaida,
     RequisicaoAtualizarInsumo,
+    RequisicaoAtualizarPrecosPorCompra,
     RequisicaoCriarCustoAdicional,
     RequisicaoCriarInsumo,
     RequisicaoCriarReceita,
+    RequisicaoGerarListaCompras,
+    RequisicaoRegistrarPrecoInsumo,
+    RespostaAtualizarPrecosPorCompra,
 )
 
 router = APIRouter(prefix="/custos", tags=["custos"])
@@ -39,6 +46,49 @@ def criar_insumo(requisicao: RequisicaoCriarInsumo) -> dict:
 @router.patch("/insumos/{insumo_id}", response_model=InsumoSaida)
 def atualizar_insumo(insumo_id: UUID, requisicao: RequisicaoAtualizarInsumo) -> dict:
     return servico.atualizar_insumo(insumo_id, requisicao)
+
+
+@router.get("/insumos/{insumo_id}/precos", response_model=list[InsumoPrecoSaida])
+def listar_precos_insumo(insumo_id: UUID) -> list[dict]:
+    return servico.listar_precos_insumo(insumo_id)
+
+
+@router.post("/insumos/{insumo_id}/precos", response_model=InsumoSaida, status_code=201)
+def registrar_preco_insumo(
+    insumo_id: UUID,
+    requisicao: RequisicaoRegistrarPrecoInsumo,
+) -> dict:
+    return servico.registrar_preco_insumo(insumo_id, requisicao)["insumo"]
+
+
+@router.post(
+    "/compras/atualizar-precos",
+    response_model=RespostaAtualizarPrecosPorCompra,
+)
+def atualizar_precos_por_compra(requisicao: RequisicaoAtualizarPrecosPorCompra) -> dict:
+    return servico.atualizar_precos_por_compra(requisicao)
+
+
+@router.post(
+    "/compras/nota/atualizar-precos",
+    response_model=RespostaAtualizarPrecosPorCompra,
+)
+async def atualizar_precos_por_nota_arquivo(
+    file: Annotated[UploadFile, File()],
+    vigente_desde: Annotated[date | None, Form()] = None,
+    fornecedor: Annotated[str | None, Form()] = None,
+    fonte: Annotated[str | None, Form()] = None,
+    aplicar: Annotated[bool, Form()] = True,
+    contexto: Annotated[str | None, Form()] = None,
+) -> dict:
+    return await servico.atualizar_precos_por_nota_arquivo(
+        file=file,
+        vigente_desde=vigente_desde or date.today(),
+        fornecedor=fornecedor,
+        fonte=fonte,
+        aplicar=aplicar,
+        contexto=contexto,
+    )
 
 
 @router.get("/produtos/{produto_id}/receitas", response_model=list[ReceitaSaida])
@@ -67,8 +117,30 @@ def criar_custo_adicional(
 def calcular_custo_do_produto(
     produto_id: UUID,
     receita_id: Annotated[UUID | None, Query()] = None,
+    data_referencia: Annotated[date | None, Query()] = None,
 ) -> dict:
-    return servico.calcular_custo_do_produto(produto_id, receita_id=receita_id)
+    return servico.calcular_custo_do_produto(
+        produto_id,
+        receita_id=receita_id,
+        data_referencia=data_referencia,
+    )
+
+
+@router.post("/lista-compras", response_model=ListaComprasSaida)
+def gerar_lista_compras(requisicao: RequisicaoGerarListaCompras) -> dict:
+    return servico.gerar_lista_compras(requisicao)
+
+
+@router.get("/listas-compras", response_model=list[ListaComprasSaida])
+def listar_listas_compras(
+    limite: Annotated[int, Query(ge=1, le=100)] = 50,
+) -> list[dict]:
+    return servico.listar_listas_compras(limite=limite)
+
+
+@router.get("/listas-compras/{lista_id}", response_model=ListaComprasSaida)
+def buscar_lista_compras(lista_id: UUID) -> dict:
+    return servico.buscar_lista_compras(lista_id)
 
 
 @router.post("/assistente/sessoes", response_model=SessaoCusteioSaida, status_code=201)

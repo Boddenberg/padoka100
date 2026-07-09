@@ -2427,18 +2427,7 @@ def _buscar_insumo_existente_para_ingrediente(item: dict) -> dict | None:
     nome = item.get("nome")
     if not nome:
         return None
-    insumos = servico_de_custos.listar_insumos()
-    nome_normalizado = _normalizar_nome_ingrediente(nome)
-    for insumo in insumos:
-        if _normalizar_nome_ingrediente(insumo["nome"]) == nome_normalizado:
-            return insumo
-
-    candidatos = [
-        insumo
-        for insumo in insumos
-        if _nomes_ingredientes_compativeis(nome, insumo["nome"])
-    ]
-    return candidatos[0] if len(candidatos) == 1 else None
+    return servico_de_custos.buscar_insumo_compativel_por_nome(nome)
 
 
 def _tem_dados_de_compra_completos(item: dict) -> bool:
