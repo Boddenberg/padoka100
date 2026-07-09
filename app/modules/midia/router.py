@@ -13,7 +13,12 @@ router = APIRouter(prefix="/midia", tags=["midia"])
 async def enviar_midia(
     tipo_entidade: Annotated[
         str,
-        Path(pattern="^(produto|local|dia_de_venda|venda|interacao_ia|sessao_custeio)$"),
+        Path(
+            pattern=(
+                "^(produto|local|dia_de_venda|venda|interacao_ia|usuario|"
+                "sessao_custeio|notificacao)$"
+            )
+        ),
     ],
     entidade_id: Annotated[UUID, Path()],
     file: Annotated[UploadFile, File()],

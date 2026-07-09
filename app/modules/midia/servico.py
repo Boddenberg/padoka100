@@ -18,6 +18,7 @@ TIPOS_DE_ENTIDADE_COM_MIDIA = {
     "interacao_ia",
     "usuario",
     "sessao_custeio",
+    "notificacao",
 }
 
 
