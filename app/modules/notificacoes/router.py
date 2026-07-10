@@ -3,7 +3,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, File, Form, Query, UploadFile
 
-from app.modules.auth.dependencias import obter_sessao_opcional
+from app.modules.auth.dependencias import exigir_capacidade, obter_sessao_opcional
 from app.modules.notificacoes import servico
 from app.modules.notificacoes.esquemas import (
     ContagemNotificacoesNaoLidasSaida,
@@ -26,6 +26,8 @@ USUARIO_SISTEMA_SEM_AUTH = {
 
 
 SessaoOpcional = Annotated[dict | None, Depends(obter_sessao_opcional)]
+NotificacoesLer = Annotated[dict, Depends(exigir_capacidade("notificacoes.ler"))]
+NotificacoesAdmin = Annotated[dict, Depends(exigir_capacidade("notificacoes.admin"))]
 
 
 @router.get("/notificacoes", response_model=list[NotificacaoPublicaSaida])
@@ -34,6 +36,7 @@ def listar_notificacoes_publicas(
     incluir_lidas: bool = True,
     incluir_ocultas: bool = False,
     sessao: SessaoOpcional = None,
+    _: NotificacoesLer = None,
 ) -> list[dict]:
     return servico.listar_notificacoes_publicas(
         limite=limite,
@@ -47,7 +50,10 @@ def listar_notificacoes_publicas(
     "/notificacoes/nao-lidas/contagem",
     response_model=ContagemNotificacoesNaoLidasSaida,
 )
-def contar_notificacoes_nao_lidas(sessao: SessaoOpcional = None) -> dict:
+def contar_notificacoes_nao_lidas(
+    sessao: SessaoOpcional = None,
+    _: NotificacoesLer = None,
+) -> dict:
     return servico.contar_notificacoes_nao_lidas(usuario_id=_usuario_id_da_sessao(sessao))
 
 
@@ -55,6 +61,7 @@ def contar_notificacoes_nao_lidas(sessao: SessaoOpcional = None) -> dict:
 def buscar_notificacao_publica(
     notificacao_id: UUID,
     sessao: SessaoOpcional = None,
+    _: NotificacoesLer = None,
 ) -> dict:
     return servico.buscar_notificacao_publica(
         notificacao_id,
@@ -66,6 +73,7 @@ def buscar_notificacao_publica(
 def marcar_notificacao_lida(
     notificacao_id: UUID,
     sessao: SessaoOpcional = None,
+    _: NotificacoesLer = None,
 ) -> dict:
     return servico.marcar_notificacao_lida(
         notificacao_id,
@@ -77,6 +85,7 @@ def marcar_notificacao_lida(
 def marcar_notificacao_lida_alias(
     notificacao_id: UUID,
     sessao: SessaoOpcional = None,
+    _: NotificacoesLer = None,
 ) -> dict:
     return servico.marcar_notificacao_lida(
         notificacao_id,
@@ -88,6 +97,7 @@ def marcar_notificacao_lida_alias(
 def desmarcar_notificacao_lida(
     notificacao_id: UUID,
     sessao: SessaoOpcional = None,
+    _: NotificacoesLer = None,
 ) -> dict:
     return servico.desmarcar_notificacao_lida(
         notificacao_id,
@@ -99,6 +109,7 @@ def desmarcar_notificacao_lida(
 def ocultar_notificacao(
     notificacao_id: UUID,
     sessao: SessaoOpcional = None,
+    _: NotificacoesLer = None,
 ) -> dict:
     return servico.ocultar_notificacao(
         notificacao_id,
@@ -113,6 +124,7 @@ def listar_notificacoes_admin(
         Query(pattern="^(rascunho|publicada|arquivada)$"),
     ] = None,
     limite: Annotated[int, Query(ge=1, le=200)] = 100,
+    _: NotificacoesAdmin = None,
 ) -> list[dict]:
     return servico.listar_notificacoes_admin(status=status, limite=limite)
 
@@ -120,25 +132,27 @@ def listar_notificacoes_admin(
 @router.post("/admin/notificacoes", response_model=NotificacaoSaida, status_code=201)
 def criar_notificacao(
     requisicao: RequisicaoCriarNotificacao,
+    usuario: NotificacoesAdmin = None,
 ) -> dict:
-    return servico.criar_notificacao(requisicao, USUARIO_SISTEMA_SEM_AUTH)
+    return servico.criar_notificacao(requisicao, usuario or USUARIO_SISTEMA_SEM_AUTH)
 
 
 @router.patch("/admin/notificacoes/{notificacao_id}", response_model=NotificacaoSaida)
 def atualizar_notificacao(
     notificacao_id: UUID,
     requisicao: RequisicaoAtualizarNotificacao,
+    _: NotificacoesAdmin = None,
 ) -> dict:
     return servico.atualizar_notificacao(notificacao_id, requisicao)
 
 
 @router.post("/admin/notificacoes/{notificacao_id}/publicar", response_model=NotificacaoSaida)
-def publicar_notificacao(notificacao_id: UUID) -> dict:
+def publicar_notificacao(notificacao_id: UUID, _: NotificacoesAdmin = None) -> dict:
     return servico.publicar_notificacao(notificacao_id)
 
 
 @router.post("/admin/notificacoes/{notificacao_id}/arquivar", response_model=NotificacaoSaida)
-def arquivar_notificacao(notificacao_id: UUID) -> dict:
+def arquivar_notificacao(notificacao_id: UUID, _: NotificacoesAdmin = None) -> dict:
     return servico.arquivar_notificacao(notificacao_id)
 
 
@@ -148,6 +162,7 @@ async def anexar_upload(
     file: Annotated[UploadFile, File()],
     descricao: Annotated[str | None, Form()] = None,
     texto_alternativo: Annotated[str | None, Form()] = None,
+    _: NotificacoesAdmin = None,
 ) -> dict:
     return await servico.anexar_upload(
         notificacao_id,

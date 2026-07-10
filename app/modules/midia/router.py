@@ -1,12 +1,14 @@
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, File, Form, Path, UploadFile
+from fastapi import APIRouter, Depends, File, Form, Path, UploadFile
 
+from app.modules.auth.dependencias import exigir_capacidade
 from app.modules.midia import servico
 from app.modules.midia.esquemas import MidiaSaida
 
 router = APIRouter(prefix="/midia", tags=["midia"])
+MidiaEnviar = Annotated[dict, Depends(exigir_capacidade("midia.enviar"))]
 
 
 @router.post("/{tipo_entidade}/{entidade_id}", response_model=MidiaSaida, status_code=201)
@@ -25,6 +27,7 @@ async def enviar_midia(
     descricao: Annotated[str | None, Form()] = None,
     texto_alternativo: Annotated[str | None, Form()] = None,
     definir_como_principal: Annotated[bool, Form()] = False,
+    _: MidiaEnviar = None,
 ) -> dict:
     return await servico.enviar_midia(
         tipo_entidade=tipo_entidade,

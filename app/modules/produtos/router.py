@@ -2,8 +2,9 @@ from datetime import date
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, File, Form, Query, UploadFile
+from fastapi import APIRouter, Depends, File, Form, Query, UploadFile
 
+from app.modules.auth.dependencias import exigir_capacidade
 from app.modules.midia import servico as servico_de_midia
 from app.modules.midia.esquemas import MidiaSaida
 from app.modules.produtos import servico
@@ -17,6 +18,8 @@ from app.modules.produtos.esquemas import (
 )
 
 router = APIRouter(prefix="/produtos", tags=["produtos"])
+CatalogoLer = Annotated[dict, Depends(exigir_capacidade("catalogo.ler"))]
+CatalogoEditar = Annotated[dict, Depends(exigir_capacidade("catalogo.editar"))]
 
 
 @router.get(
@@ -28,6 +31,7 @@ router = APIRouter(prefix="/produtos", tags=["produtos"])
 def listar_produtos(
     somente_ativos: bool = True,
     data_preco: Annotated[date | None, Query()] = None,
+    _: CatalogoLer = None,
 ) -> list[dict]:
     produtos = servico.listar_produtos(somente_ativos=somente_ativos, data_preco=data_preco)
     return servico.formatar_produtos_para_lista_http(produtos, somente_ativos=somente_ativos)
@@ -38,7 +42,7 @@ def listar_produtos(
     response_model=ProdutoSaida,
     status_code=201,
 )
-def criar_produto(requisicao: RequisicaoCriarProduto) -> dict:
+def criar_produto(requisicao: RequisicaoCriarProduto, _: CatalogoEditar = None) -> dict:
     return servico.criar_produto(requisicao)
 
 
@@ -46,6 +50,7 @@ def criar_produto(requisicao: RequisicaoCriarProduto) -> dict:
 def buscar_produto(
     produto_id: UUID,
     data_preco: Annotated[date | None, Query()] = None,
+    _: CatalogoLer = None,
 ) -> dict:
     return servico.buscar_produto(produto_id, data_preco=data_preco)
 
@@ -54,12 +59,16 @@ def buscar_produto(
     "/{produto_id}",
     response_model=ProdutoSaida,
 )
-def atualizar_produto(produto_id: UUID, requisicao: RequisicaoAtualizarProduto) -> dict:
+def atualizar_produto(
+    produto_id: UUID,
+    requisicao: RequisicaoAtualizarProduto,
+    _: CatalogoEditar = None,
+) -> dict:
     return servico.atualizar_produto(produto_id, requisicao)
 
 
 @router.get("/{produto_id}/precos", response_model=list[VersaoDePrecoSaida])
-def listar_versoes_de_preco(produto_id: UUID) -> list[dict]:
+def listar_versoes_de_preco(produto_id: UUID, _: CatalogoLer = None) -> list[dict]:
     return servico.listar_versoes_de_preco(produto_id)
 
 
@@ -71,6 +80,7 @@ def listar_versoes_de_preco(produto_id: UUID) -> list[dict]:
 def criar_versao_de_preco(
     produto_id: UUID,
     requisicao: RequisicaoCriarVersaoDePreco,
+    _: CatalogoEditar = None,
 ) -> dict:
     return servico.criar_versao_de_preco(produto_id, requisicao)
 
@@ -86,6 +96,7 @@ async def enviar_midia_do_produto(
     descricao: Annotated[str | None, Form()] = None,
     texto_alternativo: Annotated[str | None, Form()] = None,
     definir_como_principal: Annotated[bool, Form()] = True,
+    _: CatalogoEditar = None,
 ) -> dict:
     return await servico_de_midia.enviar_midia(
         tipo_entidade="produto",
