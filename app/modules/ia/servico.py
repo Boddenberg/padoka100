@@ -1,8 +1,7 @@
 import io
 import json
 import re
-import unicodedata
-from datetime import date, timedelta
+from datetime import date
 from decimal import Decimal
 from uuid import UUID
 
@@ -18,6 +17,9 @@ from app.modules.dias_de_venda.esquemas import (
     RequisicaoCriarItemProducao,
     RequisicaoFecharDiaDeVenda,
 )
+from app.modules.ia.domain import acoes as _acoes
+from app.modules.ia.domain import fallback as _fallback
+from app.modules.ia.domain import texto as _texto
 from app.modules.ia.esquemas import (
     RequisicaoInterpretarComandoDeIA,
     RequisicaoInterpretarComandoDeVenda,
@@ -31,124 +33,40 @@ from app.modules.vendas.esquemas import RequisicaoCancelarVenda, RequisicaoRegis
 from app.shared.datas import data_operacional_hoje, validar_periodo
 from app.shared.db import encode_value, first_or_none, to_db_payload
 
-ACAO_REGISTRAR_VENDA = "registrar_venda"
-ACAO_REGISTRAR_PRODUCAO = "registrar_producao"
-ACAO_ABRIR_DIA_DE_VENDA = "abrir_dia_de_venda"
-ACAO_FECHAR_DIA_DE_VENDA = "fechar_dia_de_venda"
-ACAO_CANCELAR_VENDA = "cancelar_venda"
-ACAO_CANCELAR_ITEM_VENDA = "cancelar_item_venda"
-ACAO_DESCONHECIDO = "desconhecido"
-
-ACOES_SUPORTADAS = {
-    ACAO_REGISTRAR_VENDA,
-    ACAO_REGISTRAR_PRODUCAO,
-    ACAO_ABRIR_DIA_DE_VENDA,
-    ACAO_FECHAR_DIA_DE_VENDA,
-    ACAO_CANCELAR_VENDA,
-    ACAO_CANCELAR_ITEM_VENDA,
-    ACAO_DESCONHECIDO,
-}
-
-NUMEROS_POR_EXTENSO = {
-    "um": 1,
-    "uma": 1,
-    "dois": 2,
-    "duas": 2,
-    "tres": 3,
-    "quatro": 4,
-    "cinco": 5,
-    "seis": 6,
-    "sete": 7,
-    "oito": 8,
-    "nove": 9,
-    "dez": 10,
-    "onze": 11,
-    "doze": 12,
-    "treze": 13,
-    "quatorze": 14,
-    "catorze": 14,
-    "quinze": 15,
-    "dezesseis": 16,
-    "dezessete": 17,
-    "dezoito": 18,
-    "dezenove": 19,
-    "vinte": 20,
-    "trinta": 30,
-    "quarenta": 40,
-    "cinquenta": 50,
-    "sessenta": 60,
-    "setenta": 70,
-    "oitenta": 80,
-    "noventa": 90,
-    "cem": 100,
-}
-
-PALAVRAS_IGNORADAS_DE_PRODUTO = {
-    "pao",
-    "paes",
-    "de",
-    "do",
-    "da",
-    "recheado",
-    "recheada",
-}
-
-PALAVRAS_FORTES_DE_PRODUCAO = {
-    "producao",
-    "producoes",
-    "produzi",
-    "produzimos",
-    "produzido",
-    "produzida",
-    "produzidos",
-    "produzidas",
-    "fornada",
-    "fornadas",
-    "assei",
-    "assamos",
-    "assou",
-    "assado",
-    "assada",
-}
-
-PALAVRAS_FRACAS_DE_PRODUCAO = {
-    "fiz",
-    "fizemos",
-    "feito",
-    "feita",
-    "feitos",
-    "feitas",
-}
-
-PALAVRAS_DE_VENDA = {
-    "vendi",
-    "vendemos",
-    "vendeu",
-    "vender",
-    "vendido",
-    "vendida",
-    "vendidos",
-    "vendidas",
-    "saiu",
-    "sairam",
-    "levou",
-    "levaram",
-    "comprou",
-    "compraram",
-    "entreguei",
-    "entregamos",
-    "entregou",
-    "cliente",
-    "clientes",
-}
-
-PALAVRAS_DE_CANCELAMENTO = {
-    "cancelar",
-    "cancela",
-    "cancele",
-    "cancelou",
-    "desfazer",
-}
+# Compatibilidade: a logica pura de interpretacao vive em app.modules.ia.domain.
+# Mantemos aliases sob os nomes internos ja usados no restante deste servico.
+ACAO_REGISTRAR_VENDA = _acoes.ACAO_REGISTRAR_VENDA
+ACAO_REGISTRAR_PRODUCAO = _acoes.ACAO_REGISTRAR_PRODUCAO
+ACAO_ABRIR_DIA_DE_VENDA = _acoes.ACAO_ABRIR_DIA_DE_VENDA
+ACAO_FECHAR_DIA_DE_VENDA = _acoes.ACAO_FECHAR_DIA_DE_VENDA
+ACAO_CANCELAR_VENDA = _acoes.ACAO_CANCELAR_VENDA
+ACAO_CANCELAR_ITEM_VENDA = _acoes.ACAO_CANCELAR_ITEM_VENDA
+ACAO_DESCONHECIDO = _acoes.ACAO_DESCONHECIDO
+ACOES_SUPORTADAS = _acoes.ACOES_SUPORTADAS
+_normalizar = _texto.normalizar
+_normalizar_quantidade = _texto.normalizar_quantidade
+_normalizar_confianca = _texto.normalizar_confianca
+_normalizar_texto_opcional = _texto.normalizar_texto_opcional
+_normalizar_data = _texto.normalizar_data
+_normalizar_uuid_str = _texto.normalizar_uuid_str
+_data_ou_none = _texto.data_ou_none
+_data_ou_hoje = _texto.data_ou_hoje
+_extrair_data_do_texto = _texto.extrair_data_do_texto
+_extrair_uuid_do_texto = _texto.extrair_uuid_do_texto
+_buscar_quantidade_antes = _texto.buscar_quantidade_antes
+_formatar_data = _texto.formatar_data
+_formatar_moeda = _texto.formatar_moeda
+_formatar_itens = _texto.formatar_itens
+_formatar_itens_da_venda = _texto.formatar_itens_da_venda
+_formatar_resumo_da_venda = _texto.formatar_resumo_da_venda
+_total_da_venda = _texto.total_da_venda
+_interpretar_com_fallback = _fallback.interpretar_com_fallback
+_normalizar_interpretacao = _fallback.normalizar_interpretacao
+_mensagem_inicial_da_acao = _fallback.mensagem_inicial_da_acao
+_comando_pede_ultima_venda = _fallback.comando_pede_ultima_venda
+_mensagem_cancelamento_sem_alvo_claro = _fallback.mensagem_cancelamento_sem_alvo_claro
+_comando_menciona_cancelamento_por_valor = _fallback.comando_menciona_cancelamento_por_valor
+_comando_parece_em_lote = _fallback.comando_parece_em_lote
 
 
 def interpretar_comando(
@@ -1076,200 +994,6 @@ def _gerar_analise_local(dados: dict, pergunta: str | None) -> str:
     return " ".join(partes)
 
 
-def _interpretar_com_fallback(texto: str, produtos: list[dict]) -> dict:
-    texto_normalizado = _normalizar(texto)
-    itens = _interpretar_itens_com_fallback(texto_normalizado, produtos)
-    acao = _detectar_acao_com_fallback(texto_normalizado, bool(itens))
-    itens_nao_identificados = []
-    acoes_com_produtos = {
-        ACAO_REGISTRAR_VENDA,
-        ACAO_REGISTRAR_PRODUCAO,
-        ACAO_CANCELAR_ITEM_VENDA,
-    }
-    if acao in acoes_com_produtos and not itens:
-        itens_nao_identificados.append(texto)
-    if acao == ACAO_DESCONHECIDO and not itens:
-        itens_nao_identificados.append(texto)
-
-    return {
-        "acao": acao,
-        "data_venda": _extrair_data_do_texto(texto),
-        "nome_local": None,
-        "venda_id": _extrair_uuid_do_texto(texto),
-        "usar_ultima_venda": "ultima" in texto_normalizado or "desfazer" in texto_normalizado,
-        "motivo_cancelamento": "Cancelado via IA" if acao == ACAO_CANCELAR_VENDA else None,
-        "observacoes": None,
-        "itens": itens,
-        "itens_nao_identificados": itens_nao_identificados,
-        "mensagem_assistente": _mensagem_inicial_da_acao(acao, itens),
-    }
-
-
-def _detectar_acao_com_fallback(texto_normalizado: str, tem_itens: bool) -> str:
-    if "fechar" in texto_normalizado and "dia" in texto_normalizado:
-        return ACAO_FECHAR_DIA_DE_VENDA
-    if "abrir" in texto_normalizado and "dia" in texto_normalizado:
-        return ACAO_ABRIR_DIA_DE_VENDA
-    if _texto_indica_cancelamento(texto_normalizado):
-        if tem_itens:
-            return ACAO_CANCELAR_ITEM_VENDA
-        return ACAO_CANCELAR_VENDA
-    if _texto_indica_producao(texto_normalizado):
-        return ACAO_REGISTRAR_PRODUCAO
-    if _texto_indica_venda(texto_normalizado):
-        return ACAO_REGISTRAR_VENDA
-    return ACAO_REGISTRAR_VENDA if tem_itens else ACAO_DESCONHECIDO
-
-
-def _interpretar_itens_com_fallback(texto_normalizado: str, produtos: list[dict]) -> list[dict]:
-    tokens = texto_normalizado.split()
-    itens = []
-
-    for produto in produtos:
-        tokens_produto = [
-            token
-            for token in _normalizar(produto["nome"]).split()
-            if token not in PALAVRAS_IGNORADAS_DE_PRODUTO
-        ]
-        if not tokens_produto or not all(token in tokens for token in tokens_produto):
-            continue
-        primeira_posicao = min(tokens.index(token) for token in tokens_produto)
-        quantidade = _buscar_quantidade_antes(tokens, primeira_posicao)
-        itens.append(
-            {
-                "produto_id": produto["id"],
-                "nome_produto": produto["nome"],
-                "quantidade": quantidade,
-                "confianca": 0.65,
-            }
-        )
-
-    return itens
-
-
-def _agrupar_itens_por_produto(itens: list[dict]) -> list[dict]:
-    itens_por_produto = {}
-    for item in itens:
-        produto_id = str(item["produto_id"])
-        existente = itens_por_produto.get(produto_id)
-        if existente:
-            existente["quantidade"] += item["quantidade"]
-            existente["confianca"] = max(existente["confianca"], item["confianca"])
-            continue
-        itens_por_produto[produto_id] = dict(item)
-    return list(itens_por_produto.values())
-
-
-def _corrigir_acao_pelo_texto(
-    acao: str,
-    texto_original: str | None,
-    *,
-    tem_itens: bool,
-) -> str:
-    if not texto_original:
-        return acao
-
-    texto_normalizado = _normalizar(texto_original)
-    if not texto_normalizado:
-        return acao
-
-    if "fechar" in texto_normalizado and "dia" in texto_normalizado:
-        return ACAO_FECHAR_DIA_DE_VENDA
-    if "abrir" in texto_normalizado and "dia" in texto_normalizado:
-        return ACAO_ABRIR_DIA_DE_VENDA
-    if _texto_indica_cancelamento(texto_normalizado):
-        return ACAO_CANCELAR_ITEM_VENDA if tem_itens else ACAO_CANCELAR_VENDA
-
-    indica_producao = _texto_indica_producao(texto_normalizado)
-    indica_venda = _texto_indica_venda(texto_normalizado)
-    if indica_producao and indica_venda:
-        return ACAO_DESCONHECIDO
-    if indica_producao:
-        return ACAO_REGISTRAR_PRODUCAO
-    if indica_venda:
-        return ACAO_REGISTRAR_VENDA
-    return acao
-
-
-def _texto_indica_cancelamento(texto_normalizado: str) -> bool:
-    tokens = set(texto_normalizado.split())
-    return bool(tokens & PALAVRAS_DE_CANCELAMENTO)
-
-
-def _texto_indica_producao(texto_normalizado: str) -> bool:
-    tokens = set(texto_normalizado.split())
-    if tokens & PALAVRAS_FORTES_DE_PRODUCAO:
-        return True
-    return bool(tokens & PALAVRAS_FRACAS_DE_PRODUCAO) and not _texto_indica_venda(
-        texto_normalizado
-    )
-
-
-def _texto_indica_venda(texto_normalizado: str) -> bool:
-    tokens = set(texto_normalizado.split())
-    if tokens & PALAVRAS_DE_VENDA:
-        return True
-    if {"venda", "vendas"} & tokens:
-        return not bool(tokens & PALAVRAS_FORTES_DE_PRODUCAO)
-    return False
-
-
-def _normalizar_interpretacao(
-    interpretacao: dict,
-    produtos: list[dict],
-    *,
-    texto_original: str | None = None,
-) -> dict:
-    produtos_por_id = {str(produto["id"]): produto for produto in produtos}
-    itens = []
-    itens_nao_identificados = list(interpretacao.get("itens_nao_identificados") or [])
-    for item in interpretacao.get("itens") or []:
-        produto_id = str(item.get("produto_id") or "")
-        produto = produtos_por_id.get(produto_id)
-        if not produto:
-            nome_nao_identificado = item.get("nome_produto") or produto_id
-            if nome_nao_identificado:
-                itens_nao_identificados.append(str(nome_nao_identificado))
-            continue
-        quantidade = _normalizar_quantidade(item.get("quantidade"))
-        if quantidade <= 0:
-            itens_nao_identificados.append(produto["nome"])
-            continue
-        itens.append(
-            {
-                "produto_id": produto["id"],
-                "nome_produto": produto["nome"],
-                "quantidade": quantidade,
-                "confianca": _normalizar_confianca(item.get("confianca")),
-            }
-        )
-
-    itens = _agrupar_itens_por_produto(itens)
-
-    acao = interpretacao.get("acao")
-    if acao not in ACOES_SUPORTADAS:
-        acao = ACAO_DESCONHECIDO
-    acao = _corrigir_acao_pelo_texto(acao, texto_original, tem_itens=bool(itens))
-
-    return {
-        "acao": acao,
-        "data_venda": _normalizar_data(interpretacao.get("data_venda")),
-        "nome_local": _normalizar_texto_opcional(interpretacao.get("nome_local")),
-        "venda_id": _normalizar_uuid_str(interpretacao.get("venda_id")),
-        "usar_ultima_venda": bool(interpretacao.get("usar_ultima_venda")),
-        "motivo_cancelamento": _normalizar_texto_opcional(
-            interpretacao.get("motivo_cancelamento")
-        ),
-        "observacoes": _normalizar_texto_opcional(interpretacao.get("observacoes")),
-        "itens": itens,
-        "itens_nao_identificados": itens_nao_identificados,
-        "mensagem_assistente": _normalizar_texto_opcional(
-            interpretacao.get("mensagem_assistente")
-        )
-        or _mensagem_inicial_da_acao(acao, itens),
-    }
-
-
 def _montar_dados_confirmacao(
     *,
     interpretacao: dict,
@@ -2035,228 +1759,3 @@ def _mensagem_sucesso_confirmacao(acao: str | None) -> str:
     if acao == ACAO_CANCELAR_ITEM_VENDA:
         return "Pronto, ajustei a venda."
     return "Pronto, apliquei a confirmacao."
-
-
-def _mensagem_inicial_da_acao(acao: str, itens: list[dict]) -> str:
-    if acao == ACAO_REGISTRAR_VENDA and itens:
-        return f"Confira a venda: {_formatar_itens(itens)}."
-    if acao == ACAO_REGISTRAR_PRODUCAO and itens:
-        return f"Confira a producao: {_formatar_itens(itens)}."
-    if acao == ACAO_CANCELAR_ITEM_VENDA and itens:
-        return f"Confira os itens a cancelar: {_formatar_itens(itens)}."
-    if acao == ACAO_CANCELAR_VENDA:
-        return "Confira antes de cancelar a venda."
-    if acao == ACAO_ABRIR_DIA_DE_VENDA:
-        return "Confira antes de abrir o dia de venda."
-    if acao == ACAO_FECHAR_DIA_DE_VENDA:
-        return "Confira antes de fechar o dia de venda."
-    return "Nao consegui identificar uma acao segura nesse comando."
-
-
-def _formatar_itens(itens: list[dict]) -> str:
-    if not itens:
-        return "nenhum item"
-    return ", ".join(f"{item['quantidade']}x {item['nome_produto']}" for item in itens)
-
-
-def _formatar_itens_da_venda(venda: dict) -> str:
-    itens = [
-        {
-            "quantidade": item["quantidade"],
-            "nome_produto": item["nome_produto_no_momento"],
-        }
-        for item in venda.get("itens", [])
-    ]
-    return _formatar_itens(itens)
-
-
-def _formatar_resumo_da_venda(venda: dict) -> str:
-    itens = venda.get("itens") or []
-    if not itens:
-        return "sem itens registrados, total R$ 0,00"
-    return f"{_formatar_itens_da_venda(venda)}, total {_formatar_moeda(_total_da_venda(venda))}"
-
-
-def _total_da_venda(venda: dict) -> Decimal:
-    total = Decimal("0")
-    for item in venda.get("itens") or []:
-        total += Decimal(str(item.get("valor_total_venda") or 0))
-    return total
-
-
-def _formatar_moeda(valor: Decimal) -> str:
-    texto = f"{valor:.2f}".replace(".", ",")
-    return f"R$ {texto}"
-
-
-def _comando_pede_ultima_venda(texto_original: str, interpretacao: dict) -> bool:
-    if _comando_menciona_cancelamento_por_valor(texto_original) or _comando_parece_em_lote(
-        texto_original
-    ):
-        return False
-
-    texto = _normalizar(texto_original)
-    tokens = set(texto.split())
-    pediu_ultima = bool({"ultima", "ultimo"} & tokens) and bool({"venda", "vendas"} & tokens)
-    pediu_desfazer = bool({"desfazer", "desfaz", "desfaca"} & tokens)
-    return pediu_ultima or pediu_desfazer
-
-
-def _mensagem_cancelamento_sem_alvo_claro(texto_original: str) -> str:
-    if _comando_menciona_cancelamento_por_valor(texto_original):
-        return (
-            "Entendi que voce quer cancelar vendas de R$ 0,00, mas nao vou escolher "
-            "vendas por valor sozinho. Toque na venda certa ou diga: cancele a ultima venda."
-        )
-    if _comando_parece_em_lote(texto_original):
-        return (
-            "Entendi que voce quer cancelar mais de uma venda, mas preciso fazer uma por vez. "
-            "Toque na venda certa ou diga: cancele a ultima venda."
-        )
-    return (
-        "Entendi que voce quer cancelar uma venda, mas preciso saber qual. "
-        "Toque na venda certa ou diga: cancele a ultima venda."
-    )
-
-
-def _comando_menciona_cancelamento_por_valor(texto_original: str) -> bool:
-    texto = _normalizar(texto_original)
-    tokens = set(texto.split())
-    menciona_zero = "zero" in tokens or "0" in tokens
-    menciona_dinheiro = bool({"real", "reais", "r", "rs"} & tokens)
-    if menciona_zero and menciona_dinheiro:
-        return True
-    return bool(
-        re.search(
-            r"\br\$\s*0(?:[,.]00)?\b|\b0(?:[,.]00)?\s*reais?\b|\bzero\s+reais?\b",
-            texto_original,
-            flags=re.IGNORECASE,
-        )
-    )
-
-
-def _comando_parece_em_lote(texto_original: str) -> bool:
-    tokens = set(_normalizar(texto_original).split())
-    return bool({"vendas", "todas", "todos", "varias", "varios"} & tokens)
-
-
-def _formatar_data(data_valor: str) -> str:
-    data = date.fromisoformat(data_valor)
-    return data.strftime("%d/%m/%Y")
-
-
-def _normalizar_quantidade(valor) -> int:
-    try:
-        return max(int(valor), 0)
-    except (TypeError, ValueError):
-        return 0
-
-
-def _normalizar_confianca(valor) -> float:
-    try:
-        return min(max(float(valor), 0), 1)
-    except (TypeError, ValueError):
-        return 0
-
-
-def _normalizar_texto_opcional(valor) -> str | None:
-    if valor is None:
-        return None
-    texto = str(valor).strip()
-    return texto or None
-
-
-def _normalizar_data(valor) -> str | None:
-    if not valor:
-        return None
-    if isinstance(valor, date):
-        return valor.isoformat()
-    texto = str(valor).strip()
-    try:
-        return date.fromisoformat(texto[:10]).isoformat()
-    except ValueError:
-        return None
-
-
-def _normalizar_uuid_str(valor) -> str | None:
-    if not valor:
-        return None
-    try:
-        return str(UUID(str(valor)))
-    except ValueError:
-        return None
-
-
-def _data_ou_none(valor: str | None) -> date | None:
-    if not valor:
-        return None
-    try:
-        return date.fromisoformat(valor)
-    except ValueError:
-        return None
-
-
-def _data_ou_hoje(valor: str | None) -> date:
-    return _data_ou_none(valor) or data_operacional_hoje()
-
-
-def _extrair_data_do_texto(texto: str) -> str | None:
-    texto_normalizado = _normalizar(texto)
-    tokens = set(texto_normalizado.split())
-    hoje = data_operacional_hoje()
-    if "hoje" in tokens:
-        return hoje.isoformat()
-    if "ontem" in tokens:
-        return (hoje - timedelta(days=1)).isoformat()
-    if "amanha" in tokens:
-        return (hoje + timedelta(days=1)).isoformat()
-
-    resultado_iso = re.search(r"\b(\d{4})-(\d{2})-(\d{2})\b", texto)
-    if resultado_iso:
-        try:
-            return date.fromisoformat(resultado_iso.group(0)).isoformat()
-        except ValueError:
-            return None
-
-    resultado_br = re.search(r"\b(\d{1,2})/(\d{1,2})(?:/(\d{2,4}))?\b", texto)
-    if resultado_br:
-        dia = int(resultado_br.group(1))
-        mes = int(resultado_br.group(2))
-        ano_texto = resultado_br.group(3)
-        ano = hoje.year if not ano_texto else int(ano_texto)
-        if ano < 100:
-            ano += 2000
-        try:
-            return date(ano, mes, dia).isoformat()
-        except ValueError:
-            return None
-
-    return None
-
-
-def _extrair_uuid_do_texto(texto: str) -> str | None:
-    resultado = re.search(
-        r"\b[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-"
-        r"[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\b",
-        texto,
-    )
-    return resultado.group(0) if resultado else None
-
-
-def _buscar_quantidade_antes(tokens: list[str], posicao: int) -> int:
-    janela = tokens[max(0, posicao - 6) : posicao]
-    for token in reversed(janela):
-        if token.isdigit():
-            return max(int(token), 1)
-        if token in NUMEROS_POR_EXTENSO:
-            return NUMEROS_POR_EXTENSO[token]
-        resultado = re.match(r"(\d+)x?", token)
-        if resultado:
-            return max(int(resultado.group(1)), 1)
-    return 1
-
-
-def _normalizar(valor: str) -> str:
-    normalizado = unicodedata.normalize("NFKD", valor.lower())
-    valor_ascii = normalizado.encode("ascii", "ignore").decode("ascii")
-    return re.sub(r"[^a-z0-9]+", " ", valor_ascii).strip()

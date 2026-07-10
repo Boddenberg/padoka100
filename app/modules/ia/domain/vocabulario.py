@@ -1,0 +1,102 @@
+"""Vocabulario usado pelo interpretador de fallback (sem OpenAI)."""
+
+NUMEROS_POR_EXTENSO = {
+    "um": 1,
+    "uma": 1,
+    "dois": 2,
+    "duas": 2,
+    "tres": 3,
+    "quatro": 4,
+    "cinco": 5,
+    "seis": 6,
+    "sete": 7,
+    "oito": 8,
+    "nove": 9,
+    "dez": 10,
+    "onze": 11,
+    "doze": 12,
+    "treze": 13,
+    "quatorze": 14,
+    "catorze": 14,
+    "quinze": 15,
+    "dezesseis": 16,
+    "dezessete": 17,
+    "dezoito": 18,
+    "dezenove": 19,
+    "vinte": 20,
+    "trinta": 30,
+    "quarenta": 40,
+    "cinquenta": 50,
+    "sessenta": 60,
+    "setenta": 70,
+    "oitenta": 80,
+    "noventa": 90,
+    "cem": 100,
+}
+
+PALAVRAS_IGNORADAS_DE_PRODUTO = {
+    "pao",
+    "paes",
+    "de",
+    "do",
+    "da",
+    "recheado",
+    "recheada",
+}
+
+PALAVRAS_FORTES_DE_PRODUCAO = {
+    "producao",
+    "producoes",
+    "produzi",
+    "produzimos",
+    "produzido",
+    "produzida",
+    "produzidos",
+    "produzidas",
+    "fornada",
+    "fornadas",
+    "assei",
+    "assamos",
+    "assou",
+    "assado",
+    "assada",
+}
+
+PALAVRAS_FRACAS_DE_PRODUCAO = {
+    "fiz",
+    "fizemos",
+    "feito",
+    "feita",
+    "feitos",
+    "feitas",
+}
+
+PALAVRAS_DE_VENDA = {
+    "vendi",
+    "vendemos",
+    "vendeu",
+    "vender",
+    "vendido",
+    "vendida",
+    "vendidos",
+    "vendidas",
+    "saiu",
+    "sairam",
+    "levou",
+    "levaram",
+    "comprou",
+    "compraram",
+    "entreguei",
+    "entregamos",
+    "entregou",
+    "cliente",
+    "clientes",
+}
+
+PALAVRAS_DE_CANCELAMENTO = {
+    "cancelar",
+    "cancela",
+    "cancele",
+    "cancelou",
+    "desfazer",
+}
