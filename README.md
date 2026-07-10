@@ -19,8 +19,10 @@ os contratos esperados.
 - Storage: Supabase Storage, bucket `padoka-midia`
 - ORM/ODM: nenhum no momento; acesso via cliente oficial `supabase-py`
 - Validacao/DTOs: Pydantic
-- Autenticacao atual: API key opcional via header `X-API-Key`
-- Autenticacao planejada: usuario/e-mail e senha, sessao ou token, troca de senha e permissoes
+- Autenticacao: sessao local com senha PBKDF2 + Bearer token, tokens do Supabase Auth
+  (ver [docs/SUPABASE_AUTH.md](docs/SUPABASE_AUTH.md)) e API key opcional via `X-API-Key`
+- Autorizacao: papeis (`usuario`/`administrador`/`dono`) + planos de acesso por
+  capacidade (ver [docs/ACCESS_PLANS.md](docs/ACCESS_PLANS.md))
 - IA: OpenAI API para interpretar comandos de texto/audio e, futuramente, analises
 - Testes: `pytest` cobrindo o dominio puro (`python -m pytest`); `ruff` para lint
   (ver [docs/ARQUITETURA_ATUAL.md](docs/ARQUITETURA_ATUAL.md))
@@ -197,52 +199,41 @@ Ja existe:
 - modulo inicial de custos com insumos, receitas, custos adicionais e calculo por produto;
 - assistente de custeio com sessoes, rascunho revisavel, entrada por texto,
   formulario, audio e imagem/print, simulacao de custo, perguntas pendentes,
-  confirmacao final e atualizacao do custo vigente do produto.
+  confirmacao final e atualizacao do custo vigente do produto;
+- login com token do Supabase Auth e sincronizacao do perfil local;
+- planos de acesso (`basico`, `analitico`, `ia`, `admin`) com capacidades por rota;
+- suite de testes de dominio puro com pytest (144 casos) e lint com ruff.
 
 Ainda nao existe como funcionalidade completa:
 
 - integracao fiscal oficial por XML/chave de acesso de nota;
 - testes automatizados de integracao.
 
-## Autenticacao e perfil planejados
+## Autenticacao e perfil
 
-A autenticacao precisa entrar como funcionalidade real antes de expor o sistema a
-usuarios finais. O backend deve suportar:
+Implementado. O backend aceita tres formas de credencial durante a transicao:
 
-- criacao de usuario;
-- login com usuario/e-mail e senha;
-- armazenamento seguro de senha;
-- autenticacao por token ou sessao;
-- protecao de rotas;
-- identificacao do usuario autenticado;
-- logout, se aplicavel;
-- troca de senha;
-- alteracao de e-mail ou usuario;
-- sessao expirada;
-- validacao de permissoes.
+- **Sessao local**: cadastro/login com e-mail e senha (hash PBKDF2), Bearer token
+  proprio, logout, troca de senha e expiracao de sessao.
+- **Supabase Auth**: Bearer token emitido pelo Supabase e validado em
+  `/auth/v1/user`; o perfil local em `public.usuarios` e criado/sincronizado
+  automaticamente (ver [docs/SUPABASE_AUTH.md](docs/SUPABASE_AUTH.md)).
+- **API key** (`X-API-Key`): compatibilidade operacional para scripts.
 
-O perfil do usuario deve armazenar:
+O perfil guarda foto, nome, data de nascimento, telefone e e-mail, com upload de
+foto via Supabase Storage.
 
-- foto;
-- nome;
-- data de nascimento;
-- telefone;
-- e-mail.
+## Permissoes e planos de acesso
 
-Esses dados podem ajudar a IA futuramente a personalizar respostas e entender o
-contexto da conta, mas a IA nao deve depender deles para inventar informacoes.
+Implementado em duas camadas (ver [docs/ACCESS_PLANS.md](docs/ACCESS_PLANS.md)):
 
-## Permissoes futuras
-
-A arquitetura deve permitir papeis diferentes no futuro:
-
-- Usuario comum: pode vender e consultar dados basicos.
-- Administrador: pode corrigir dias fechados e alterar cadastro de produtos.
-- Dono: pode consultar relatorios, IA e dados financeiros.
-
-Nao e necessario implementar todos os papeis imediatamente, mas os proximos
-modulos devem ser desenhados para receber verificacao de permissao sem reescrita
-grande.
+- **Papeis**: `usuario`, `administrador`, `dono` — rotas administrativas exigem
+  admin real (`exigir_admin_real`).
+- **Planos por capacidade**: `basico`, `analitico`, `ia` e `admin` liberam
+  conjuntos crescentes de capacidades (ex.: `vendas.operar`,
+  `relatorios.avancados`, `ia.analitica`, `custos.assistente`). Cada rota declara
+  a capacidade de que precisa via `exigir_capacidade("...")`; o mapa puro vive em
+  `app/modules/auth/domain/capacidades.py`.
 
 ## Dados estruturados para IA
 
@@ -437,95 +428,117 @@ Entradas podem vir por texto, audio, imagem/print, formulario ou correcao
 posterior via assistente de custeio. Foto ruim ou leitura insegura deve gerar
 pedido de confirmacao manual antes de salvar.
 
-## Arquitetura atual
+## Arquitetura — como era e como ficou
 
-Estrutura real do projeto hoje:
+O projeto passou por uma reestruturacao profunda em julho/2026, guiada pelo
+[PLANO_REARQUITETURA_MODERNA.md](docs/PLANO_REARQUITETURA_MODERNA.md) e
+registrada em [ARQUITETURA_ATUAL.md](docs/ARQUITETURA_ATUAL.md). O objetivo foi
+manter o comportamento externo intacto (endpoints, contratos, schemas, env vars)
+e reorganizar o interior para leitura, teste e manutencao.
 
-```txt
-app/
-  api/
-    router.py
-  core/
-    config.py
-    errors.py
-  db/
-    openai.py
-    supabase.py
-  modules/
-    dias_de_venda/
-    historico/
-    ia/
-    locais/
-    midia/
-    produtos/
-    relatorios/
-    vendas/
-  shared/
-    datas.py
-    db.py
-    esquemas.py
-    linha_do_tempo.py
-    slugs.py
-supabase/
-  migrations/
-docs/
-```
-
-Padrao atual:
-
-- rotas FastAPI em `router.py`;
-- regras de negocio em `servico.py`;
-- DTOs/response models em `esquemas.py`;
-- acesso ao Supabase dentro dos servicos;
-- helpers compartilhados em `app/shared`;
-- tratamento de erro padronizado em `app/core/errors.py`.
-
-## Arquitetura desejada
-
-Nao e necessario mudar tudo de uma vez. A direcao desejada e separar melhor:
-
-- entrada HTTP;
-- regra de negocio;
-- acesso a dados;
-- validacao;
-- autenticacao;
-- autorizacao;
-- resposta para o front-end.
-
-Adaptacao sugerida para o projeto atual:
+### Como era
 
 ```txt
 app/
-  api/
-  auth/
-  core/
-  db/
+  api/router.py
+  core/            # config, errors
+  db/              # clients Supabase/OpenAI
   modules/
-    produtos/
-      router.py
-      servico.py
-      repositorio.py
+    <modulo>/
+      router.py    # rotas finas (ok)
+      servico.py   # TUDO: regra de negocio + queries Supabase +
+                   # chamadas OpenAI + prompts + formatacao de resposta
       esquemas.py
-    vendas/
-    catalogo/
-    resumo/
-    historico/
-    perfil/
-    ia/
-    custos/
-  shared/
-  tests/
+  shared/          # helpers soltos (datas, db, slugs...)
 ```
 
-Ao criar novos modulos, preferir:
+Sintomas medidos antes da reestruturacao:
 
-- manter rotas finas;
-- deixar regra de negocio nos servicos;
-- criar repositorios quando o acesso ao banco ficar repetido ou complexo;
-- manter schemas de entrada e saida explicitos;
-- validar regra sensivel no backend, nao so no front;
-- registrar historico de alteracoes relevantes;
-- documentar endpoints novos em `docs/API_USAGE.md`.
+| Problema | Medida |
+| --- | --- |
+| 4 arquivos concentravam 54% do codigo | `assistente_servico.py` 2.686 linhas, `ia/servico.py` 2.262, `custos/servico.py` 1.632, `dias_de_venda/servico.py` 1.052 |
+| Funcoes gigantes | 22 funcoes acima de 70 linhas (maior: 209) |
+| Testes automatizados | **zero** |
+| Acoplamento entre modulos | 18 imports diretos de `servico` de outros modulos |
+| Infra duplicada | `app/db/*`, `app/shared/db.py` e helpers copiados 4x (`_erro_tabela_ausente`) |
+| Prompts de IA | strings e JSON schemas embutidos no meio dos servicos |
+| Seguranca de borda | lista de rotas isentas hardcoded no `main.py` |
+
+### Como ficou
+
+```txt
+app/
+  main.py               # so monta o app; regra de API key em core/security.py
+  api/router.py
+  core/                 # config, errors, clock (fonte unica de tempo), security
+  infra/                # DETALHE TECNICO isolado
+    supabase/           #   client, payload (serializacao), result (one_or_none,
+    openai/             #   executar_lista_opcional, tabela/coluna ausente...)
+  db/, shared/db.py     # reexports de compatibilidade para infra (nao crescem)
+  modules/
+    <modulo>/
+      router.py         # HTTP + dependencias de auth/capacidade
+      esquemas.py       # DTOs Pydantic
+      servico.py        # FACHADA fina: delega para use_cases/domain
+      use_cases/        # 1 acao de negocio por arquivo (criar_produto, ...)
+      domain/           # regra PURA: roda sem rede, sem mocks
+      adapters/         # unico lugar que fala com Supabase/OpenAI/HTTP
+      prompts/          # prompts e JSON schemas de IA em arquivos proprios
+      public.py         # contrato para outros modulos (sem tocar internals)
+tests/
+  unit/<modulo>/        # pytest cobrindo o dominio puro (144 casos)
+scripts/
+  architecture_report.py  # guarda-corpo: arquivo <=500 linhas, funcao <=70,
+                          # sem import cruzado de servico entre modulos
+```
+
+Fluxo de dependencia (imposto por convencao + relatorio):
+
+```txt
+router -> servico (fachada) -> use_cases -> domain (puro)
+                    |               |
+                    +---------> adapters/infra (Supabase, OpenAI, storage)
+```
+
+- `domain/` nunca importa FastAPI, Supabase ou OpenAI.
+- IA interpreta e monta intencao; a execucao real passa por caso de uso de negocio.
+- Modulos conversam via `public.py`, nao via helpers privados.
+
+### Antes e depois em numeros
+
+| Indicador | Antes | Depois |
+| --- | --- | --- |
+| Maior arquivo | 2.686 linhas | 1.970 (fatiamento em andamento) |
+| `ia/servico.py` | 2.262 | 1.529 |
+| `dias_de_venda/servico.py` | 1.052 | fachada + `domain/` + `use_cases/` |
+| Funcao mais longa | 209 linhas | < 70 nos modulos tocados (exceto schema JSON de prompt) |
+| Testes | 0 | 144 (dominio puro, sem mocks de rede) |
+| Copias de helpers Supabase | 4 | 1 (em `infra/supabase/result.py`) |
+| Prompts embutidos em servico | sim | arquivos proprios em `prompts/` |
+
+### O que NAO mudou (de proposito)
+
+- Endpoints, verbos, paths e response models — contrato HTTP identico.
+- Migrations SQL e schema do banco (novas migrations so por feature).
+- Variaveis de ambiente e deploy (Render/Railway).
+- Textos de prompts de IA (apenas mudaram de arquivo).
+- Comportamento de negocio: as fachadas `servico.py` mantem as mesmas
+  assinaturas; a mudanca foi de organizacao, nao de regra.
+
+### Validando localmente
+
+```bash
+pip install -e ".[dev]"
+python -m pytest                        # 144 testes de dominio
+python -m ruff check .                  # lint
+python -m compileall -q app             # smoke de compilacao
+python scripts/architecture_report.py   # limites de tamanho/acoplamento
+```
+
+Ao criar modulos novos, siga o padrao acima: rota fina, caso de uso nomeado por
+acao de negocio, regra pura em `domain/`, Supabase/OpenAI atras de adapter e
+contrato externo em `public.py`. Endpoints novos continuam documentados em
+`docs/API_USAGE.md`.
 
 ## Panorama futuro
 
@@ -545,10 +558,15 @@ sistema deve ajudar a responder:
 
 ## Proximos passos recomendados
 
-1. Revisar e confirmar este README como referencia de produto.
-2. Definir o modelo de autenticacao e perfil antes de implementar rotas novas.
-3. Definir papeis e permissoes minimos para a primeira versao.
-4. Especificar contratos de dados estruturados para IA.
-5. Especificar o modelo de custos, insumos e receitas antes da migration.
-6. Criar testes para fluxos centrais antes de ampliar o modulo financeiro.
+1. Terminar o fatiamento do assistente de custeio (perguntas, simulacao e
+   confirmacao ainda vivem em `assistente_servico.py`).
+2. Extrair a execucao de comandos confirmados da IA para casos de uso reais
+   de venda/dia (`_executar_operacao_confirmada`).
+3. Mover CRUD/compras/lista de `custos/servico.py` para use_cases + repositorio.
+4. Separar persistencia da geracao no seed e restringir a ambiente nao-producao.
+5. Testes de integracao com Supabase/OpenAI (hoje a suite cobre so dominio puro).
+6. Integracao fiscal oficial por XML/chave de acesso de nota.
+
+O detalhe do que falta por modulo fica em
+[docs/ARQUITETURA_ATUAL.md](docs/ARQUITETURA_ATUAL.md).
 7. Aplicar as migrations no Supabase real e testar ponta a ponta.
