@@ -17,7 +17,7 @@ from app.modules.dias_de_venda.esquemas import (
     RequisicaoVendaRetroativaDiaFechado,
 )
 from app.modules.locais import servico as servico_de_locais
-from app.modules.produtos import servico as servico_de_produtos
+from app.modules.produtos import public as produtos_public
 from app.shared.datas import data_operacional_hoje, validar_data_nao_futura, validar_periodo
 from app.shared.db import first_or_none, to_db_payload
 from app.shared.linha_do_tempo import registrar_evento_na_linha_do_tempo
@@ -284,7 +284,7 @@ def salvar_item_producao(dia_de_venda_id: UUID, requisicao: RequisicaoCriarItemP
     if dia_de_venda["situacao"] == "fechado":
         raise BadRequestError("Nao e possivel alterar a producao de um dia fechado.")
 
-    snapshot = servico_de_produtos.buscar_snapshot_do_produto(
+    snapshot = produtos_public.buscar_snapshot_do_produto(
         requisicao.produto_id,
         date.fromisoformat(dia_de_venda["data_venda"]),
     )
@@ -507,7 +507,7 @@ def _corrigir_producao_em_dia_fechado(
             "alteracoes": alteracoes,
         }
 
-    snapshot = servico_de_produtos.buscar_snapshot_do_produto(
+    snapshot = produtos_public.buscar_snapshot_do_produto(
         requisicao.produto_id,
         date.fromisoformat(dia_de_venda["data_venda"]),
     )

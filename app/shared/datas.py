@@ -1,21 +1,11 @@
-from datetime import date, datetime, timedelta, timezone
-from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+from datetime import date
 
+from app.core.clock import hoje_operacional
 from app.core.errors import BadRequestError
-
-FUSO_HORARIO_NEGOCIO = "America/Sao_Paulo"
-FUSO_HORARIO_NEGOCIO_FALLBACK = timezone(timedelta(hours=-3))
 
 
 def data_operacional_hoje() -> date:
-    return datetime.now(fuso_horario_negocio()).date()
-
-
-def fuso_horario_negocio():
-    try:
-        return ZoneInfo(FUSO_HORARIO_NEGOCIO)
-    except ZoneInfoNotFoundError:
-        return FUSO_HORARIO_NEGOCIO_FALLBACK
+    return hoje_operacional()
 
 
 def validar_data_nao_futura(data_alvo: date, *, campo: str = "data") -> None:

@@ -22,12 +22,13 @@ from app.modules.ia.esquemas import (
     RequisicaoInterpretarComandoDeIA,
     RequisicaoInterpretarComandoDeVenda,
 )
+from app.modules.ia.prompts.command_interpreter import COMMAND_INTERPRETER_INSTRUCTIONS
 from app.modules.midia.servico import enviar_midia_em_bytes
-from app.modules.produtos import servico as servico_de_produtos
+from app.modules.produtos import public as produtos_public
 from app.modules.relatorios import servico as servico_de_relatorios
 from app.modules.vendas import servico as servico_de_vendas
 from app.modules.vendas.esquemas import RequisicaoCancelarVenda, RequisicaoRegistrarVenda
-from app.shared.datas import validar_periodo
+from app.shared.datas import data_operacional_hoje, validar_periodo
 from app.shared.db import encode_value, first_or_none, to_db_payload
 
 ACAO_REGISTRAR_VENDA = "registrar_venda"
@@ -157,7 +158,7 @@ def interpretar_comando(
     url_audio: str | None = None,
 ) -> dict:
     settings = get_settings()
-    produtos = servico_de_produtos.listar_produtos(somente_ativos=True)
+    produtos = produtos_public.listar_produtos_ativos()
 
     modelo_usado = "fallback-parser"
     if settings.openai_text_configured:
@@ -776,37 +777,9 @@ def _interpretar_com_openai(texto: str, produtos: list[dict]) -> dict:
     }
     resposta = get_openai_client().responses.create(
         model=settings.openai_text_model_resolved,
-        instructions=(
-            "Voce interpreta comandos curtos de texto ou audio para uma padaria. "
-            "Nunca execute nada: apenas traduza o pedido para uma intencao estruturada. "
-            "A API sempre pedira confirmacao antes de gravar qualquer mudanca. "
-            "Use apenas produtos do catalogo; nao invente produto. "
-            "Se faltar certeza sobre produto, coloque em itens_nao_identificados. "
-            "Nao classifique como venda apenas porque ha quantidade e produto. "
-            "Uma fala pode trazer uma lista de varios produtos; nesses casos retorne "
-            "todos os itens na mesma acao, cada um com sua quantidade. "
-            "Exemplo: 'fiz 15 paes de soja e 15 paes de queijo' significa "
-            "registrar_producao com dois itens. "
-            "Classifique venda quando o usuario disser que vendeu, saiu, entregou "
-            "ou o cliente levou. "
-            "Classifique producao quando o usuario disser producao, produzi, fiz, "
-            "minha producao aumentou, assou, fornada ou quantidade feita. "
-            "Se uma mesma fala misturar producao e venda sem separar claramente, "
-            "use desconhecido e peca para enviar uma acao por vez. "
-            "Classifique cancelar_venda para desfazer/cancelar uma venda inteira. "
-            "Classifique cancelar_item_venda quando o usuario pedir para tirar/cancelar "
-            "item parcial de uma venda. "
-            "So use usar_ultima_venda=true quando o comando disser ultima/ultimo venda "
-            "ou pedir para desfazer a ultima acao. "
-            "Comandos amplos como cancelar vendas por valor ou todas as vendas nao devem "
-            "escolher uma venda sozinhos. "
-            "Se o usuario disser hoje, ontem ou amanha, converta usando a data de hoje "
-            "informada no input. "
-            "A mensagem_assistente deve resumir em uma frase o que foi entendido "
-            "e pedir confirmacao."
-        ),
+        instructions=COMMAND_INTERPRETER_INSTRUCTIONS,
         input=(
-            f"Data de hoje: {date.today().isoformat()}\n\n"
+            f"Data de hoje: {data_operacional_hoje().isoformat()}\n\n"
             "Catalogo de produtos:\n"
             f"{json.dumps(catalogo, ensure_ascii=False)}\n\n"
             f"Comando falado ou digitado: {texto}"
@@ -1876,7 +1849,7 @@ def _validar_itens_com_preco_na_data(data_venda: date, itens: list[dict]) -> Non
                 "Produto invalido na confirmacao.",
                 {"produto_id": item.get("produto_id")},
             ) from exc
-        servico_de_produtos.buscar_snapshot_do_produto(produto_id, data_venda)
+        produtos_public.buscar_snapshot_do_produto(produto_id, data_venda)
 
 
 def _criar_interacao_ia(
@@ -2224,13 +2197,13 @@ def _data_ou_none(valor: str | None) -> date | None:
 
 
 def _data_ou_hoje(valor: str | None) -> date:
-    return _data_ou_none(valor) or date.today()
+    return _data_ou_none(valor) or data_operacional_hoje()
 
 
 def _extrair_data_do_texto(texto: str) -> str | None:
     texto_normalizado = _normalizar(texto)
     tokens = set(texto_normalizado.split())
-    hoje = date.today()
+    hoje = data_operacional_hoje()
     if "hoje" in tokens:
         return hoje.isoformat()
     if "ontem" in tokens:

@@ -7,7 +7,12 @@ from uuid import UUID
 from app.core.errors import BadRequestError, NotFoundError
 from app.db.supabase import get_supabase_client
 from app.modules.dias_de_venda import servico as servico_de_dias_de_venda
-from app.modules.produtos import servico as servico_de_produtos
+from app.modules.produtos import public as produtos_public
+from app.modules.vendas.domain.availability import (
+    calcular_quantidade_disponivel,
+    calcular_quantidade_vendida,
+    esgotou_com_a_venda,
+)
 from app.modules.vendas.esquemas import RequisicaoCancelarVenda, RequisicaoRegistrarVenda
 from app.shared.db import first_or_none, to_db_payload
 from app.shared.linha_do_tempo import registrar_evento_na_linha_do_tempo
@@ -167,18 +172,16 @@ def _registrar_eventos_de_esgotamento(
             dia_de_venda["id"],
             produto_id,
         )
-        if quantidade_disponivel <= 0:
-            continue
-
         quantidade_vendida = _calcular_quantidade_vendida_ativa_do_produto(
             client,
             dia_de_venda["id"],
             produto_id,
         )
-        quantidade_vendida_antes = quantidade_vendida - resumo_item["quantidade"]
-        if quantidade_vendida_antes >= quantidade_disponivel:
-            continue
-        if quantidade_vendida < quantidade_disponivel:
+        if not esgotou_com_a_venda(
+            quantidade_disponivel=quantidade_disponivel,
+            quantidade_vendida_atual=quantidade_vendida,
+            quantidade_vendida_nesta_venda=resumo_item["quantidade"],
+        ):
             continue
 
         item = resumo_item["produto"]
@@ -219,9 +222,7 @@ def _calcular_quantidade_disponivel_do_produto(
         .execute()
         .data
     )
-    return sum(item["quantidade_produzida"] for item in itens_producao) + sum(
-        decisao["quantidade_usada_hoje"] for decisao in decisoes_sobra
-    )
+    return calcular_quantidade_disponivel(itens_producao, decisoes_sobra)
 
 
 def _calcular_quantidade_vendida_ativa_do_produto(
@@ -249,7 +250,7 @@ def _calcular_quantidade_vendida_ativa_do_produto(
         .execute()
         .data
     )
-    return sum(item["quantidade"] for item in itens_venda)
+    return calcular_quantidade_vendida(itens_venda)
 
 
 def _montar_dados_item_vendido(
@@ -259,7 +260,7 @@ def _montar_dados_item_vendido(
     quantidade: int,
 ) -> dict:
     data_venda = date.fromisoformat(dia_de_venda["data_venda"])
-    snapshot = servico_de_produtos.buscar_snapshot_do_produto(produto_id, data_venda)
+    snapshot = produtos_public.buscar_snapshot_do_produto(produto_id, data_venda)
     produto = snapshot["produto"]
     preco = snapshot["preco"]
     preco_venda = Decimal(str(preco["preco_venda"]))

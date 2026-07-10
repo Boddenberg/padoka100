@@ -12,6 +12,7 @@ from app.core.config import get_settings
 from app.core.errors import BadRequestError, MissingConfigurationError, NotFoundError
 from app.db.openai import get_openai_client
 from app.db.supabase import get_supabase_client
+from app.modules.custos.domain.status import consolidar_status
 from app.modules.custos.esquemas import (
     ItemAtualizacaoPrecoCompra,
     RequisicaoAtualizarInsumo,
@@ -1555,9 +1556,7 @@ def _descrever_unidade_com_equivalencia_informada(unidade_normalizada: str) -> s
 
 
 def _consolidar_status(statuses: list[str]) -> str:
-    if not statuses:
-        return "PENDENTE"
-    return max(statuses, key=lambda status: STATUS_ORDEM.get(status, 0))
+    return consolidar_status(statuses)
 
 
 def _custos_incluidos(

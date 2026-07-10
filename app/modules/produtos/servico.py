@@ -1,8 +1,17 @@
-from datetime import date, timedelta
+from datetime import date
 from uuid import UUID
 
+from app.core.clock import hoje_operacional
 from app.core.errors import ConflictError, NotFoundError
 from app.db.supabase import get_supabase_client
+from app.infra.supabase.result import inserted_one, updated_one
+from app.modules.produtos.domain.pricing import (
+    buscar_preco_anterior,
+    buscar_proximo_preco,
+    calcular_vigencia_ate_da_nova_versao,
+    calcular_vigencia_ate_da_versao_anterior,
+    preco_cobre_data,
+)
 from app.modules.produtos.esquemas import (
     RequisicaoAtualizarProduto,
     RequisicaoCriarProduto,
@@ -20,7 +29,7 @@ def listar_produtos(*, somente_ativos: bool = True, data_preco: date | None = No
     if somente_ativos:
         consulta = consulta.eq("situacao", "ativo")
     produtos = consulta.execute().data
-    data_alvo = data_preco or date.today()
+    data_alvo = data_preco or hoje_operacional()
     return [_anexar_preco_atual(client, produto, data_alvo) for produto in produtos]
 
 
@@ -37,7 +46,7 @@ def formatar_produtos_para_lista_http(
 def buscar_produto(produto_id: UUID, *, data_preco: date | None = None) -> dict:
     client = get_supabase_client()
     produto = _buscar_linha_produto(client, produto_id)
-    return _anexar_preco_atual(client, produto, data_preco or date.today())
+    return _anexar_preco_atual(client, produto, data_preco or hoje_operacional())
 
 
 def criar_produto(requisicao: RequisicaoCriarProduto) -> dict:
@@ -58,7 +67,7 @@ def criar_produto(requisicao: RequisicaoCriarProduto) -> dict:
             "situacao": "ativo",
         }
     )
-    produto = client.table("produtos").insert(dados_produto).execute().data[0]
+    produto = inserted_one(client.table("produtos").insert(dados_produto).execute())
 
     dados_preco = to_db_payload(
         {
@@ -71,7 +80,7 @@ def criar_produto(requisicao: RequisicaoCriarProduto) -> dict:
             "gerado_por_ia": gerado_por_ia,
         }
     )
-    preco = client.table("versoes_preco_produto").insert(dados_preco).execute().data[0]
+    preco = inserted_one(client.table("versoes_preco_produto").insert(dados_preco).execute())
 
     registrar_evento_na_linha_do_tempo(
         client,
@@ -96,14 +105,15 @@ def atualizar_produto(produto_id: UUID, requisicao: RequisicaoAtualizarProduto) 
             ignorar_id=produto_id,
         )
     if not dados_atualizacao:
-        return _anexar_preco_atual(client, produto, date.today())
+        return _anexar_preco_atual(client, produto, hoje_operacional())
 
-    produto_atualizado = (
+    produto_atualizado = updated_one(
         client.table("produtos")
         .update(to_db_payload(dados_atualizacao))
         .eq("id", str(produto_id))
-        .execute()
-        .data[0]
+        .execute(),
+        resource="Produto",
+        resource_id=str(produto_id),
     )
     registrar_evento_na_linha_do_tempo(
         client,
@@ -113,7 +123,7 @@ def atualizar_produto(produto_id: UUID, requisicao: RequisicaoAtualizarProduto) 
         entidade_id=produto_id,
         detalhes={"campos_alterados": sorted(dados_atualizacao.keys())},
     )
-    return _anexar_preco_atual(client, produto_atualizado, date.today())
+    return _anexar_preco_atual(client, produto_atualizado, hoje_operacional())
 
 
 def listar_versoes_de_preco(produto_id: UUID) -> list[dict]:
@@ -156,14 +166,14 @@ def criar_versao_de_preco(
         requisicao.origem,
         requisicao.gerado_por_ia,
     )
-    versao_anterior = _buscar_preco_anterior(versoes_existentes, requisicao.vigente_desde)
-    proxima_versao = _buscar_proximo_preco(versoes_existentes, requisicao.vigente_desde)
-    nova_vigencia_ate = None
-    if proxima_versao:
-        nova_vigencia_ate = date.fromisoformat(proxima_versao["vigente_desde"]) - timedelta(days=1)
+    versao_anterior = buscar_preco_anterior(versoes_existentes, requisicao.vigente_desde)
+    proxima_versao = buscar_proximo_preco(versoes_existentes, requisicao.vigente_desde)
+    nova_vigencia_ate = calcular_vigencia_ate_da_nova_versao(proxima_versao)
 
-    if versao_anterior and _preco_cobre_data(versao_anterior, requisicao.vigente_desde):
-        vigencia_anterior_ate = requisicao.vigente_desde - timedelta(days=1)
+    if versao_anterior and preco_cobre_data(versao_anterior, requisicao.vigente_desde):
+        vigencia_anterior_ate = calcular_vigencia_ate_da_versao_anterior(
+            requisicao.vigente_desde
+        )
         (
             client.table("versoes_preco_produto")
             .update(to_db_payload({"vigente_ate": vigencia_anterior_ate}))
@@ -183,7 +193,7 @@ def criar_versao_de_preco(
             "gerado_por_ia": gerado_por_ia,
         }
     )
-    preco = client.table("versoes_preco_produto").insert(dados_preco).execute().data[0]
+    preco = inserted_one(client.table("versoes_preco_produto").insert(dados_preco).execute())
     registrar_evento_na_linha_do_tempo(
         client,
         tipo_evento="preco_produto_alterado",
@@ -305,22 +315,3 @@ def _criar_slug_unico(client: Client, nome: str, *, ignorar_id: UUID | None = No
             return candidato
         candidato = f"{slug_base}-{sufixo}"
         sufixo += 1
-
-
-def _buscar_preco_anterior(versoes: list[dict], data_alvo: date) -> dict | None:
-    versoes_anteriores = [
-        versao for versao in versoes if date.fromisoformat(versao["vigente_desde"]) < data_alvo
-    ]
-    return versoes_anteriores[-1] if versoes_anteriores else None
-
-
-def _buscar_proximo_preco(versoes: list[dict], data_alvo: date) -> dict | None:
-    proximas_versoes = [
-        versao for versao in versoes if date.fromisoformat(versao["vigente_desde"]) > data_alvo
-    ]
-    return proximas_versoes[0] if proximas_versoes else None
-
-
-def _preco_cobre_data(versao: dict, data_alvo: date) -> bool:
-    vigente_ate = versao.get("vigente_ate")
-    return vigente_ate is None or date.fromisoformat(vigente_ate) >= data_alvo
