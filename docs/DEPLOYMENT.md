@@ -34,6 +34,7 @@ CORS_ORIGINS=https://seu-front.com
 API_KEY=gere-uma-chave-grande-aqui
 
 SUPABASE_URL=https://seu-projeto.supabase.co
+SUPABASE_KEY=sua-anon-key
 SUPABASE_SERVICE_ROLE_KEY=sua-service-role-key
 SUPABASE_STORAGE_BUCKET=padoka-midia
 
@@ -44,7 +45,7 @@ OPENAI_TRANSCRIPTION_MODEL=gpt-4o-transcribe
 
 `PORT` e configurada automaticamente pelo Railway.
 
-`API_KEY` e opcional localmente, mas deve ser configurada em producao. Quando ela existir, todos os endpoints em `/api/v1` exigem o header:
+`API_KEY` e opcional localmente, mas deve ser configurada em producao. Quando ela existir, todos os endpoints em `/api/v1` exigem `Authorization: Bearer <supabase_access_token>` ou o header operacional:
 
 ```text
 X-API-Key: sua-chave
@@ -127,6 +128,7 @@ CORS_ORIGINS=https://seu-front.com
 API_KEY=gere-uma-chave-grande-aqui
 
 SUPABASE_URL=https://seu-projeto.supabase.co
+SUPABASE_KEY=sua-anon-key
 SUPABASE_SERVICE_ROLE_KEY=sua-service-role-key
 SUPABASE_STORAGE_BUCKET=padoka-midia
 
@@ -135,7 +137,7 @@ OPENAI_TEXT_MODEL=gpt-5.4-mini
 OPENAI_TRANSCRIPTION_MODEL=gpt-4o-transcribe
 ```
 
-`API_KEY` e opcional localmente, mas deve ser configurada em producao. Quando ela existir, todos os endpoints em `/api/v1` exigem o header:
+`API_KEY` e opcional localmente, mas deve ser configurada em producao. Quando ela existir, todos os endpoints em `/api/v1` exigem `Authorization: Bearer <supabase_access_token>` ou o header operacional:
 
 ```text
 X-API-Key: sua-chave

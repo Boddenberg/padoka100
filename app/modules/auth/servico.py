@@ -5,7 +5,9 @@ from fastapi import UploadFile
 
 from app.core.errors import AppError, ConflictError, NotFoundError
 from app.db.supabase import get_supabase_client
-from app.infra.supabase.result import tabela_ausente
+from app.infra.supabase.result import coluna_ausente, tabela_ausente
+from app.modules.auth.adapters import supabase_auth
+from app.modules.auth.domain.usuario_supabase import montar_dados_usuario_supabase
 from app.modules.auth.esquemas import (
     RequisicaoAtualizarPapel,
     RequisicaoAtualizarPerfil,
@@ -107,12 +109,8 @@ def buscar_usuario_por_token(token: str) -> tuple[dict, dict]:
         .data
     )
     if not sessao:
-        raise AppError(
-            status_code=401,
-            code="invalid_token",
-            message="Sessao invalida ou expirada.",
-            details={},
-        )
+        usuario = buscar_usuario_por_token_supabase(token)
+        return usuario, {"id": None, "provedor": "supabase"}
     if datetime.fromisoformat(sessao["expira_em"].replace("Z", "+00:00")) < datetime.now(UTC):
         raise AppError(
             status_code=401,
@@ -133,6 +131,49 @@ def buscar_usuario_por_token(token: str) -> tuple[dict, dict]:
         to_db_payload({"ultimo_uso_em": datetime.now(UTC)})
     ).eq("id", sessao["id"]).execute()
     return _usuario_publico(usuario), sessao
+
+
+def buscar_usuario_por_token_supabase(token: str) -> dict:
+    usuario_supabase = supabase_auth.buscar_usuario_do_token(token)
+    return sincronizar_usuario_supabase(usuario_supabase)
+
+
+def sincronizar_usuario_supabase(usuario_supabase: dict) -> dict:
+    client = get_supabase_client()
+    auth_id = str(usuario_supabase.get("id") or "").strip()
+    email = normalizar_email(str(usuario_supabase.get("email") or ""))
+    if not auth_id or not email:
+        raise AppError(
+            status_code=401,
+            code="invalid_token",
+            message="Sessao invalida ou expirada.",
+            details={},
+        )
+
+    usuario = _buscar_usuario_por_supabase_auth_id(client, auth_id)
+    if usuario:
+        return _usuario_publico(
+            _atualizar_usuario_supabase_existente(client, usuario, usuario_supabase)
+        )
+
+    usuario_por_email = _buscar_usuario_por_email(client, email)
+    if usuario_por_email:
+        return _usuario_publico(
+            _atualizar_usuario_supabase_existente(client, usuario_por_email, usuario_supabase)
+        )
+
+    criado = (
+        client.table("usuarios")
+        .insert(
+            montar_dados_usuario_supabase(
+                usuario_supabase,
+                primeiro_usuario=_contar_usuarios(client) == 0,
+            )
+        )
+        .execute()
+        .data[0]
+    )
+    return _usuario_publico(criado)
 
 
 def buscar_usuario_padrao_sem_token() -> dict:
@@ -310,6 +351,46 @@ def _buscar_usuario_por_email(client, email: str) -> dict | None:
     )
 
 
+def _buscar_usuario_por_supabase_auth_id(client, auth_id: str) -> dict | None:
+    try:
+        return first_or_none(
+            client.table("usuarios")
+            .select("*")
+            .eq("supabase_auth_id", auth_id)
+            .limit(1)
+            .execute()
+            .data
+        )
+    except Exception as exc:
+        if _erro_coluna_ausente(exc, "supabase_auth_id"):
+            return None
+        raise
+
+
+def _atualizar_usuario_supabase_existente(client, usuario: dict, usuario_supabase: dict) -> dict:
+    dados_supabase = montar_dados_usuario_supabase(
+        usuario_supabase,
+        primeiro_usuario=usuario.get("papel") == "dono",
+    )
+    dados = {
+        "supabase_auth_id": dados_supabase["supabase_auth_id"],
+        "email": dados_supabase["email"],
+    }
+    if not usuario.get("nome") and dados_supabase.get("nome"):
+        dados["nome"] = dados_supabase["nome"]
+    if not usuario.get("foto_url") and dados_supabase.get("foto_url"):
+        dados["foto_url"] = dados_supabase["foto_url"]
+    if not usuario.get("telefone") and dados_supabase.get("telefone"):
+        dados["telefone"] = dados_supabase["telefone"]
+    return (
+        client.table("usuarios")
+        .update(to_db_payload(dados))
+        .eq("id", usuario["id"])
+        .execute()
+        .data[0]
+    )
+
+
 def _contar_usuarios(client) -> int:
     return len(client.table("usuarios").select("id").limit(2).execute().data)
 
@@ -318,5 +399,6 @@ def _usuario_publico(usuario: dict) -> dict:
     return {key: value for key, value in usuario.items() if key != "senha_hash"}
 
 
-# Helper centralizado em infra; alias preserva o nome local.
+# Helpers centralizados em infra; aliases preservam os nomes locais.
 _erro_tabela_ausente = tabela_ausente
+_erro_coluna_ausente = coluna_ausente

@@ -54,3 +54,9 @@ def executar_lista_opcional(consulta) -> list[dict[str, Any]]:
 def tabela_ausente(exc: Exception) -> bool:
     mensagem = str(exc)
     return "PGRST205" in mensagem and "Could not find the table" in mensagem
+
+
+def coluna_ausente(exc: Exception, coluna: str) -> bool:
+    """Detecta consulta em coluna ainda nao migrada (ambiente atrasado)."""
+    mensagem = str(exc)
+    return coluna in mensagem and ("PGRST204" in mensagem or "Could not find" in mensagem)
