@@ -99,6 +99,21 @@ DESCRICOES_UNIDADES_APROXIMADAS = {
     "bandeja de ovos": "bandeja de ovos = 30 unidades",
     "bandejas de ovos": "bandeja de ovos = 30 unidades",
 }
+PADROES_UNIDADES_COM_RUIDO = (
+    (r"\bcolher(?:es)?\s*(?:de\s*)?sopa\b", "colher sopa"),
+    (r"\bcolher(?:es)?\s*(?:de\s*)?cha\b", "colher cha"),
+    (r"\bxicaras?\b", "xicara"),
+    (r"\bcopos?\b", "copo"),
+    (r"\bpratos?\s+cheios?\b", "prato cheio"),
+    (r"\bcartelas?(?:\s+de\s+ovos)?\b", "cartela"),
+    (r"\bbandejas?(?:\s+de\s+ovos)?\b", "bandeja de ovos"),
+    (r"\bduzias?\b", "duzia"),
+    (r"\b(?:un|und|unidades?|ovos?)\b", "unidade"),
+    (r"\b(?:kg|quilo|quilos|kilograma|kilogramas)\b", "kg"),
+    (r"\b(?:g|grama|gramas)\b", "g"),
+    (r"\b(?:ml|mililitro|mililitros)\b", "ml"),
+    (r"\b(?:l|lt|litro|litros)\b", "l"),
+)
 
 STATUS_ORDEM = {
     "CONFIRMADO": 0,
@@ -348,6 +363,12 @@ def buscar_insumo_compativel_por_nome(nome: str | None) -> dict | None:
         if nomes_insumos_compativeis(nome, insumo["nome"])
     ]
     return _anexar_preco_atual(candidatos[0]) if len(candidatos) == 1 else None
+
+
+def normalizar_unidade(unidade: str | None) -> str | None:
+    if not unidade:
+        return None
+    return _normalizar_unidade(unidade)
 
 
 def criar_receita(produto_id: UUID, requisicao: RequisicaoCriarReceita) -> dict:
@@ -1263,7 +1284,22 @@ def _resolver_unidade(unidade: str) -> tuple[str, Decimal]:
 def _normalizar_unidade(unidade: str) -> str:
     texto = unicodedata.normalize("NFKD", str(unidade).strip().lower())
     texto = texto.encode("ascii", "ignore").decode("ascii")
-    return re.sub(r"[^a-z0-9]+", " ", texto).strip()
+    unidade_normalizada = re.sub(r"[^a-z0-9]+", " ", texto).strip()
+    if _resolver_unidade_com_equivalencia_informada(unidade_normalizada):
+        return unidade_normalizada
+    return _extrair_unidade_de_texto_com_ruido(unidade_normalizada) or unidade_normalizada
+
+
+def _extrair_unidade_de_texto_com_ruido(texto: str) -> str | None:
+    if not texto or texto in UNIDADES_BASE:
+        return texto or None
+    texto_sem_quantidade = re.sub(r"^\d+(?:[,.]\d+)?\s*", "", texto).strip()
+    if texto_sem_quantidade in UNIDADES_BASE:
+        return texto_sem_quantidade
+    for padrao, unidade in PADROES_UNIDADES_COM_RUIDO:
+        if re.search(padrao, texto_sem_quantidade):
+            return unidade
+    return None
 
 
 def normalizar_nome_insumo(nome: str | None) -> str:

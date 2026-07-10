@@ -711,8 +711,12 @@ def _normalizar_ingrediente(item: dict) -> dict:
         or item.get("quantidadeUsada")
         or item.get("quantidade")
     )
-    unidade_usada = item.get("unidade_usada") or item.get("unidadeUsada") or item.get("unidade")
-    unidade_compra = _texto_ou_none(item.get("unidade_compra") or item.get("unidadeCompra"))
+    unidade_usada_original = (
+        item.get("unidade_usada") or item.get("unidadeUsada") or item.get("unidade")
+    )
+    unidade_compra_original = item.get("unidade_compra") or item.get("unidadeCompra")
+    unidade_usada = _normalizar_unidade_de_entrada(unidade_usada_original)
+    unidade_compra = _normalizar_unidade_de_entrada(unidade_compra_original)
     normalizado = {
         "insumo_id": _uuid_str_ou_none(item.get("insumo_id") or item.get("insumoId")),
         "nome": _texto_ou_none(item.get("nome") or item.get("nome_insumo") or item.get("insumo")),
@@ -735,7 +739,7 @@ def _normalizar_ingrediente(item: dict) -> dict:
     _resolver_quantidade_ambigua_no_rascunho(
         normalizado,
         quantidade_original=quantidade_usada,
-        unidade_original=unidade_usada,
+        unidade_original=unidade_usada_original,
     )
     return normalizado
 
@@ -2595,6 +2599,11 @@ def _texto_ou_none(valor) -> str | None:
         return None
     texto = str(valor).strip()
     return texto or None
+
+
+def _normalizar_unidade_de_entrada(valor) -> str | None:
+    texto = _texto_ou_none(valor)
+    return servico_de_custos.normalizar_unidade(texto) if texto else None
 
 
 def _lista_ou_vazia(valor) -> list:
