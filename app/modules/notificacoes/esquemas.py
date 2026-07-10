@@ -26,6 +26,11 @@ class MidiaNotificacaoSaida(MidiaNotificacaoEntrada):
     origem: Literal["externa", "upload"] = "externa"
 
 
+class MidiaNotificacaoPublicaSaida(ApiModel):
+    url: str
+    descricao: str | None = None
+
+
 class RequisicaoCriarNotificacao(ApiModel):
     titulo: str = Field(min_length=1, max_length=160)
     corpo: str = Field(min_length=1, max_length=8000)
@@ -65,6 +70,17 @@ class NotificacaoSaida(ApiModel):
     oculta_em: datetime | None = None
     criado_em: datetime
     atualizado_em: datetime
+
+
+class NotificacaoPublicaSaida(ApiModel):
+    id: UUID
+    titulo: str
+    corpo: str
+    publicado_em: datetime | None = None
+    criado_em: datetime | None = None
+    lida: bool = False
+    lida_em: datetime | None = None
+    midias: list[MidiaNotificacaoPublicaSaida] = Field(default_factory=list)
 
 
 class EstadoNotificacaoSaida(ApiModel):

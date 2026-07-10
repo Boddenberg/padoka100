@@ -127,6 +127,51 @@ curl -X POST http://localhost:8000/api/v1/produtos \
   }'
 ```
 
+Listar produtos para venda/lista de compras:
+
+```bash
+curl "http://localhost:8000/api/v1/produtos?somente_ativos=true"
+```
+
+A lista de ativos e enxuta por padrao e devolve somente os campos usados pelo
+front nessas telas:
+
+```json
+[
+  {
+    "id": "PRODUTO_ID",
+    "nome": "Pao frances",
+    "url_imagem_principal": "https://...",
+    "preco_atual": {
+      "preco_venda": "0.75"
+    }
+  }
+]
+```
+
+Para catalogo/custeio, use `somente_ativos=false`. A resposta continua trazendo
+campos de cadastro, mas sem `descricao_visual`, `slug`, datas internas nem a
+versao de preco completa:
+
+```json
+[
+  {
+    "id": "PRODUTO_ID",
+    "nome": "Pao frances",
+    "descricao": "Pao de sal tradicional",
+    "url_imagem_principal": "https://...",
+    "cor_botao": "#D97706",
+    "ordem_exibicao": 1,
+    "situacao": "ativo",
+    "preco_atual": {
+      "preco_venda": "0.75",
+      "preco_custo": "0.32",
+      "origem": "ia"
+    }
+  }
+]
+```
+
 ## 3. Enviar foto do produto
 
 ```bash
@@ -709,17 +754,26 @@ Listar:
 curl "http://localhost:8000/api/v1/notificacoes?limite=50&incluir_lidas=true"
 ```
 
-Campos extras na resposta:
+Resposta publica enxuta:
 
 ```json
-{
-  "id": "NOTIFICACAO_ID",
-  "titulo": "Aviso",
-  "lida": false,
-  "lida_em": null,
-  "oculta": false,
-  "oculta_em": null
-}
+[
+  {
+    "id": "NOTIFICACAO_ID",
+    "titulo": "Aviso",
+    "corpo": "Texto da notificacao",
+    "publicado_em": "2026-07-10T10:00:00Z",
+    "criado_em": "2026-07-10T09:50:00Z",
+    "lida": false,
+    "lida_em": null,
+    "midias": [
+      {
+        "url": "https://...",
+        "descricao": "Foto do aviso"
+      }
+    ]
+  }
+]
 ```
 
 Marcar lida, desfazer e ocultar:
@@ -730,6 +784,11 @@ curl -X POST http://localhost:8000/api/v1/notificacoes/NOTIFICACAO_ID/ler
 curl -X POST http://localhost:8000/api/v1/notificacoes/NOTIFICACAO_ID/nao-lida
 curl -X POST http://localhost:8000/api/v1/notificacoes/NOTIFICACAO_ID/ocultar
 ```
+
+As rotas de acao devolvem o estado completo (`lida`, `lida_em`, `oculta`,
+`oculta_em`, `persistida`). A lista publica nao devolve campos internos/admin,
+como `publico`, `prioridade`, `status`, `metadados`, `expira_em` ou usuario
+criador.
 
 Contagem de nao lidas:
 
@@ -752,6 +811,23 @@ Resposta:
 curl http://localhost:8000/api/v1/historico/linha-do-tempo?dia_de_venda_id=DIA_DE_VENDA_ID
 ```
 
-Eventos importantes entram em `eventos_linha_do_tempo` com `tipo` publico em caixa alta,
-`dataHora` e `dados`, alem dos campos antigos mantidos por compatibilidade.
+Resposta enxuta para a linha do tempo:
+
+```json
+[
+  {
+    "id": "EVENTO_ID",
+    "tipo": "VENDA_REALIZADA",
+    "titulo": "Venda realizada",
+    "dataHora": "2026-07-10T14:30:00Z",
+    "detalhes": {
+      "nome_produto": "Pao frances",
+      "quantidade": 12
+    }
+  }
+]
+```
+
+O endpoint nao devolve mais `dados` nem snapshots completos de entidades. Quando
+existirem em `detalhes`, a API preserva apenas `nome_produto` e `quantidade`.
 

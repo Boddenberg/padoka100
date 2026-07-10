@@ -20,16 +20,10 @@ class SnapshotDePreco(ApiModel):
 
 class EventoLinhaDoTempoSaida(ApiModel):
     id: UUID
-    dia_de_venda_id: UUID | None = None
-    tipo_entidade: str
-    entidade_id: UUID | None = None
-    tipo_evento: str
     tipo: str
     titulo: str
     detalhes: dict
-    dados: dict
     dataHora: datetime
-    criado_em: datetime
 
 
 class CorrecaoDiaFechadoSaida(ApiModel):

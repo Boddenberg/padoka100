@@ -8,6 +8,7 @@ from app.modules.midia import servico as servico_de_midia
 from app.modules.midia.esquemas import MidiaSaida
 from app.modules.produtos import servico
 from app.modules.produtos.esquemas import (
+    ProdutoListaSaida,
     ProdutoSaida,
     RequisicaoAtualizarProduto,
     RequisicaoCriarProduto,
@@ -18,12 +19,18 @@ from app.modules.produtos.esquemas import (
 router = APIRouter(prefix="/produtos", tags=["produtos"])
 
 
-@router.get("", response_model=list[ProdutoSaida])
+@router.get(
+    "",
+    response_model=list[ProdutoListaSaida],
+    response_model_exclude_none=True,
+    response_model_exclude_unset=True,
+)
 def listar_produtos(
     somente_ativos: bool = True,
     data_preco: Annotated[date | None, Query()] = None,
 ) -> list[dict]:
-    return servico.listar_produtos(somente_ativos=somente_ativos, data_preco=data_preco)
+    produtos = servico.listar_produtos(somente_ativos=somente_ativos, data_preco=data_preco)
+    return servico.formatar_produtos_para_lista_http(produtos, somente_ativos=somente_ativos)
 
 
 @router.post(

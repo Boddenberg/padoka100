@@ -60,6 +60,23 @@ class VersaoDePrecoSaida(ApiModel):
     criado_em: datetime
 
 
+class PrecoAtualProdutoListaSaida(ApiModel):
+    preco_venda: Decimal | None = None
+    preco_custo: Decimal | None = None
+    origem: str | None = None
+
+
+class ProdutoListaSaida(ApiModel):
+    id: UUID
+    nome: str
+    descricao: str | None = None
+    url_imagem_principal: str | None = None
+    cor_botao: str | None = None
+    ordem_exibicao: int | None = None
+    situacao: str | None = None
+    preco_atual: PrecoAtualProdutoListaSaida | None = None
+
+
 class ProdutoSaida(ProdutoBase):
     id: UUID
     slug: str | None = None

@@ -25,17 +25,18 @@ def listar_notificacoes_publicas(
     linhas = _consultar_notificacoes_publicas(
         client,
         limite=_limite_consulta_estado(limite, usuario_id),
+        campos="id,titulo,corpo,midias,publicado_em,criado_em",
     )
     notificacoes = _anexar_estado(
         client,
-        _anexar_midias(client, linhas),
+        _anexar_midias(client, linhas, enxuto=True),
         usuario_id=usuario_id,
     )
     if not incluir_ocultas:
         notificacoes = [notificacao for notificacao in notificacoes if not notificacao["oculta"]]
     if not incluir_lidas:
         notificacoes = [notificacao for notificacao in notificacoes if not notificacao["lida"]]
-    return notificacoes[:limite]
+    return [_formatar_notificacao_publica(notificacao) for notificacao in notificacoes[:limite]]
 
 
 def listar_notificacoes_admin(*, status: str | None = None, limite: int = 100) -> list[dict]:
@@ -63,7 +64,9 @@ def buscar_notificacao_publica(
         or (expira_em and expira_em < agora)
     ):
         raise NotFoundError("Notificacao", str(notificacao_id))
-    return _anexar_estado(get_supabase_client(), [notificacao], usuario_id=usuario_id)[0]
+    return _formatar_notificacao_publica(
+        _anexar_estado(get_supabase_client(), [notificacao], usuario_id=usuario_id)[0]
+    )
 
 
 def buscar_notificacao(notificacao_id: UUID) -> dict:
@@ -299,7 +302,12 @@ def _limite_consulta_estado(limite: int, usuario_id: UUID | str | None) -> int:
     return min(max(limite * 3, limite), 300)
 
 
-def _anexar_midias(client: Client, notificacoes: list[dict]) -> list[dict]:
+def _anexar_midias(
+    client: Client,
+    notificacoes: list[dict],
+    *,
+    enxuto: bool = False,
+) -> list[dict]:
     if not notificacoes:
         return []
     ids = [linha["id"] for linha in notificacoes]
@@ -314,8 +322,12 @@ def _anexar_midias(client: Client, notificacoes: list[dict]) -> list[dict]:
     )
     por_entidade: dict[str, list[dict]] = {str(entidade_id): [] for entidade_id in ids}
     for midia in midias_upload:
-        por_entidade.setdefault(str(midia["entidade_id"]), []).append(
-            {
+        item_midia = {
+            "url": midia.get("url_publica") or "",
+            "descricao": midia.get("descricao") or midia.get("texto_alternativo"),
+        }
+        if not enxuto:
+            item_midia = {
                 "id": midia["id"],
                 "origem": "upload",
                 "tipo": _inferir_tipo_midia(midia.get("tipo_conteudo")),
@@ -325,15 +337,46 @@ def _anexar_midias(client: Client, notificacoes: list[dict]) -> list[dict]:
                 "texto_alternativo": midia.get("texto_alternativo"),
                 "thumbnail_url": None,
             }
+        por_entidade.setdefault(str(midia["entidade_id"]), []).append(
+            item_midia
         )
 
     for notificacao in notificacoes:
-        externas = [
-            {**midia, "id": None, "origem": "externa"}
-            for midia in (notificacao.get("midias") or [])
-        ]
+        if enxuto:
+            externas = [
+                _formatar_midia_publica(midia)
+                for midia in (notificacao.get("midias") or [])
+            ]
+        else:
+            externas = [
+                {**midia, "id": None, "origem": "externa"}
+                for midia in (notificacao.get("midias") or [])
+            ]
         notificacao["midias"] = externas + por_entidade.get(str(notificacao["id"]), [])
     return notificacoes
+
+
+def _formatar_notificacao_publica(notificacao: dict) -> dict:
+    return {
+        "id": notificacao["id"],
+        "titulo": notificacao["titulo"],
+        "corpo": notificacao["corpo"],
+        "publicado_em": notificacao.get("publicado_em"),
+        "criado_em": notificacao.get("criado_em"),
+        "lida": notificacao.get("lida", False),
+        "lida_em": notificacao.get("lida_em"),
+        "midias": [
+            _formatar_midia_publica(midia)
+            for midia in (notificacao.get("midias") or [])
+        ],
+    }
+
+
+def _formatar_midia_publica(midia: dict) -> dict:
+    return {
+        "url": midia.get("url") or midia.get("url_publica") or "",
+        "descricao": midia.get("descricao") or midia.get("texto_alternativo"),
+    }
 
 
 def _anexar_estado(

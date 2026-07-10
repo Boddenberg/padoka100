@@ -8,6 +8,7 @@ from app.modules.notificacoes import servico
 from app.modules.notificacoes.esquemas import (
     ContagemNotificacoesNaoLidasSaida,
     EstadoNotificacaoSaida,
+    NotificacaoPublicaSaida,
     NotificacaoSaida,
     RequisicaoAtualizarNotificacao,
     RequisicaoCriarNotificacao,
@@ -27,7 +28,7 @@ USUARIO_SISTEMA_SEM_AUTH = {
 SessaoOpcional = Annotated[dict | None, Depends(obter_sessao_opcional)]
 
 
-@router.get("/notificacoes", response_model=list[NotificacaoSaida])
+@router.get("/notificacoes", response_model=list[NotificacaoPublicaSaida])
 def listar_notificacoes_publicas(
     limite: Annotated[int, Query(ge=1, le=100)] = 50,
     incluir_lidas: bool = True,
@@ -50,7 +51,7 @@ def contar_notificacoes_nao_lidas(sessao: SessaoOpcional = None) -> dict:
     return servico.contar_notificacoes_nao_lidas(usuario_id=_usuario_id_da_sessao(sessao))
 
 
-@router.get("/notificacoes/{notificacao_id}", response_model=NotificacaoSaida)
+@router.get("/notificacoes/{notificacao_id}", response_model=NotificacaoPublicaSaida)
 def buscar_notificacao_publica(
     notificacao_id: UUID,
     sessao: SessaoOpcional = None,

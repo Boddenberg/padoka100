@@ -62,3 +62,70 @@ def montar_evento_publico(evento: dict) -> dict:
         "dataHora": evento["criado_em"],
         "dados": dados,
     }
+
+
+def montar_evento_publico_enxuto(evento: dict) -> dict:
+    tipo_publico = normalizar_tipo_evento_publico(evento["tipo_evento"])
+    return {
+        "id": evento["id"],
+        "tipo": tipo_publico,
+        "titulo": evento.get("titulo") or tipo_publico,
+        "detalhes": _resumir_detalhes_evento(evento.get("detalhes") or {}),
+        "dataHora": evento["criado_em"],
+    }
+
+
+def _resumir_detalhes_evento(detalhes: dict[str, Any]) -> dict[str, Any]:
+    resumo = {}
+    nome_produto = _buscar_valor_em_detalhes(
+        detalhes,
+        {
+            "nome_produto",
+            "nome_produto_no_momento",
+            "produto",
+            "nome",
+        },
+    )
+    quantidade = _buscar_valor_em_detalhes(
+        detalhes,
+        {
+            "quantidade",
+            "quantidade_produzida",
+            "quantidade_vendida",
+            "quantidade_sobra",
+            "quantidade_usada",
+        },
+    )
+    if nome_produto is not None:
+        resumo["nome_produto"] = nome_produto
+    if quantidade is not None:
+        resumo["quantidade"] = quantidade
+    return resumo
+
+
+def _buscar_valor_em_detalhes(valor: Any, chaves: set[str], *, profundidade: int = 0) -> Any:
+    if profundidade > 4:
+        return None
+    if isinstance(valor, dict):
+        for chave in chaves:
+            item = valor.get(chave)
+            if _valor_resumivel(item):
+                return item
+            if isinstance(item, dict):
+                aninhado = _buscar_valor_em_detalhes(item, chaves, profundidade=profundidade + 1)
+                if _valor_resumivel(aninhado):
+                    return aninhado
+        for item in valor.values():
+            aninhado = _buscar_valor_em_detalhes(item, chaves, profundidade=profundidade + 1)
+            if _valor_resumivel(aninhado):
+                return aninhado
+    if isinstance(valor, list):
+        for item in valor[:5]:
+            aninhado = _buscar_valor_em_detalhes(item, chaves, profundidade=profundidade + 1)
+            if _valor_resumivel(aninhado):
+                return aninhado
+    return None
+
+
+def _valor_resumivel(valor: Any) -> bool:
+    return isinstance(valor, str | int | float | bool) and str(valor).strip() != ""
