@@ -3,6 +3,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, File, UploadFile
 
+from app.modules.admin.dependencias import exigir_admin_real
 from app.modules.auth import servico
 from app.modules.auth.dependencias import obter_sessao_autenticada
 from app.modules.auth.esquemas import (
@@ -17,6 +18,7 @@ from app.modules.auth.esquemas import (
 
 router = APIRouter(tags=["auth"])
 SessaoAtual = Annotated[dict, Depends(obter_sessao_autenticada)]
+AdminReal = Annotated[dict, Depends(exigir_admin_real)]
 
 
 @router.post("/auth/registrar", response_model=UsuarioSaida, status_code=201)
@@ -45,7 +47,7 @@ def trocar_senha(
 
 
 @router.get("/auth/usuarios", response_model=list[UsuarioSaida])
-def listar_usuarios() -> list[dict]:
+def listar_usuarios(_: AdminReal) -> list[dict]:
     return servico.listar_usuarios()
 
 
@@ -53,6 +55,7 @@ def listar_usuarios() -> list[dict]:
 def atualizar_papel_usuario(
     usuario_id: UUID,
     requisicao: RequisicaoAtualizarPapel,
+    _: AdminReal,
 ) -> dict:
     return servico.atualizar_papel_usuario(usuario_id, requisicao)
 

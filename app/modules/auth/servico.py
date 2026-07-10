@@ -1,8 +1,10 @@
 from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
+import httpx
 from fastapi import UploadFile
 
+from app.core.config import get_settings
 from app.core.errors import AppError, ConflictError, NotFoundError
 from app.db.supabase import get_supabase_client
 from app.modules.auth.esquemas import (
@@ -106,12 +108,8 @@ def buscar_usuario_por_token(token: str) -> tuple[dict, dict]:
         .data
     )
     if not sessao:
-        raise AppError(
-            status_code=401,
-            code="invalid_token",
-            message="Sessao invalida ou expirada.",
-            details={},
-        )
+        usuario = buscar_usuario_por_token_supabase(token)
+        return usuario, {"id": None, "provedor": "supabase"}
     if datetime.fromisoformat(sessao["expira_em"].replace("Z", "+00:00")) < datetime.now(UTC):
         raise AppError(
             status_code=401,
@@ -132,6 +130,94 @@ def buscar_usuario_por_token(token: str) -> tuple[dict, dict]:
         to_db_payload({"ultimo_uso_em": datetime.now(UTC)})
     ).eq("id", sessao["id"]).execute()
     return _usuario_publico(usuario), sessao
+
+
+def buscar_usuario_por_token_supabase(token: str) -> dict:
+    settings = get_settings()
+    if not settings.supabase_url or not settings.supabase_api_key:
+        raise AppError(
+            status_code=401,
+            code="supabase_auth_unavailable",
+            message="Autenticacao Supabase indisponivel.",
+            details={"missing": ["SUPABASE_URL", "SUPABASE_KEY ou SUPABASE_SERVICE_ROLE_KEY"]},
+        )
+
+    response = httpx.get(
+        f"{settings.supabase_url.rstrip('/')}/auth/v1/user",
+        headers={
+            "apikey": settings.supabase_api_key,
+            "Authorization": f"Bearer {token}",
+        },
+        timeout=10,
+    )
+    if response.status_code in {401, 403}:
+        raise AppError(
+            status_code=401,
+            code="invalid_token",
+            message="Sessao invalida ou expirada.",
+            details={},
+        )
+    response.raise_for_status()
+    return sincronizar_usuario_supabase(response.json())
+
+
+def sincronizar_usuario_supabase(usuario_supabase: dict) -> dict:
+    client = get_supabase_client()
+    auth_id = str(usuario_supabase.get("id") or "").strip()
+    email = normalizar_email(str(usuario_supabase.get("email") or ""))
+    if not auth_id or not email:
+        raise AppError(
+            status_code=401,
+            code="invalid_token",
+            message="Sessao invalida ou expirada.",
+            details={},
+        )
+
+    usuario = _buscar_usuario_por_supabase_auth_id(client, auth_id)
+    if usuario:
+        return _usuario_publico(
+            _atualizar_usuario_supabase_existente(client, usuario, usuario_supabase)
+        )
+
+    usuario_por_email = _buscar_usuario_por_email(client, email)
+    if usuario_por_email:
+        return _usuario_publico(
+            _atualizar_usuario_supabase_existente(client, usuario_por_email, usuario_supabase)
+        )
+
+    criado = (
+        client.table("usuarios")
+        .insert(
+            montar_dados_usuario_supabase(
+                usuario_supabase,
+                primeiro_usuario=_contar_usuarios(client) == 0,
+            )
+        )
+        .execute()
+        .data[0]
+    )
+    return _usuario_publico(criado)
+
+
+def montar_dados_usuario_supabase(usuario_supabase: dict, *, primeiro_usuario: bool) -> dict:
+    metadata = usuario_supabase.get("user_metadata") or {}
+    nome = (
+        metadata.get("name")
+        or metadata.get("full_name")
+        or metadata.get("display_name")
+        or usuario_supabase.get("email")
+    )
+    return to_db_payload(
+        {
+            "supabase_auth_id": str(usuario_supabase.get("id") or "").strip(),
+            "email": normalizar_email(str(usuario_supabase.get("email") or "")),
+            "nome": str(nome).strip() if nome else None,
+            "foto_url": metadata.get("avatar_url") or metadata.get("picture"),
+            "telefone": metadata.get("phone") or usuario_supabase.get("phone"),
+            "papel": "dono" if primeiro_usuario else "usuario",
+            "situacao": "ativo",
+        }
+    )
 
 
 def buscar_usuario_padrao_sem_token() -> dict:
@@ -309,6 +395,46 @@ def _buscar_usuario_por_email(client, email: str) -> dict | None:
     )
 
 
+def _buscar_usuario_por_supabase_auth_id(client, auth_id: str) -> dict | None:
+    try:
+        return first_or_none(
+            client.table("usuarios")
+            .select("*")
+            .eq("supabase_auth_id", auth_id)
+            .limit(1)
+            .execute()
+            .data
+        )
+    except Exception as exc:
+        if _erro_coluna_ausente(exc, "supabase_auth_id"):
+            return None
+        raise
+
+
+def _atualizar_usuario_supabase_existente(client, usuario: dict, usuario_supabase: dict) -> dict:
+    dados_supabase = montar_dados_usuario_supabase(
+        usuario_supabase,
+        primeiro_usuario=usuario.get("papel") == "dono",
+    )
+    dados = {
+        "supabase_auth_id": dados_supabase["supabase_auth_id"],
+        "email": dados_supabase["email"],
+    }
+    if not usuario.get("nome") and dados_supabase.get("nome"):
+        dados["nome"] = dados_supabase["nome"]
+    if not usuario.get("foto_url") and dados_supabase.get("foto_url"):
+        dados["foto_url"] = dados_supabase["foto_url"]
+    if not usuario.get("telefone") and dados_supabase.get("telefone"):
+        dados["telefone"] = dados_supabase["telefone"]
+    return (
+        client.table("usuarios")
+        .update(to_db_payload(dados))
+        .eq("id", usuario["id"])
+        .execute()
+        .data[0]
+    )
+
+
 def _contar_usuarios(client) -> int:
     return len(client.table("usuarios").select("id").limit(2).execute().data)
 
@@ -320,3 +446,8 @@ def _usuario_publico(usuario: dict) -> dict:
 def _erro_tabela_ausente(exc: Exception) -> bool:
     mensagem = str(exc)
     return "PGRST205" in mensagem and "Could not find the table" in mensagem
+
+
+def _erro_coluna_ausente(exc: Exception, coluna: str) -> bool:
+    mensagem = str(exc)
+    return coluna in mensagem and ("PGRST204" in mensagem or "Could not find" in mensagem)
