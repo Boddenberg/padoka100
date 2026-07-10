@@ -2,9 +2,9 @@ from datetime import date
 from uuid import UUID
 
 from app.core.errors import NotFoundError
-from app.db.supabase import get_supabase_client
+from app.infra.supabase.client import get_supabase_client
+from app.infra.supabase.payload import to_db_payload
 from app.infra.supabase.result import inserted_one, one_or_none, updated_one
-from app.shared.db import to_db_payload
 from supabase import Client
 
 

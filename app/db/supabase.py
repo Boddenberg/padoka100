@@ -1,18 +1,9 @@
-from functools import lru_cache
+"""Compatibilidade: o cliente Supabase vive agora em app.infra.supabase.client.
 
-from app.core.config import get_settings
-from app.core.errors import MissingConfigurationError
-from supabase import Client, create_client
+Mantido como reexport para nao quebrar imports existentes. Prefira importar de
+``app.infra.supabase.client`` em codigo novo.
+"""
 
+from app.infra.supabase.client import get_supabase_client
 
-@lru_cache
-def get_supabase_client() -> Client:
-    settings = get_settings()
-    missing = []
-    if not settings.supabase_url:
-        missing.append("SUPABASE_URL")
-    if not settings.supabase_api_key:
-        missing.append("SUPABASE_SERVICE_ROLE_KEY ou SUPABASE_KEY")
-    if missing:
-        raise MissingConfigurationError("Supabase", missing)
-    return create_client(settings.supabase_url, settings.supabase_api_key)
+__all__ = ["get_supabase_client"]

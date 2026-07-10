@@ -1,5 +1,3 @@
-from secrets import compare_digest
-
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -7,21 +5,11 @@ from fastapi.responses import JSONResponse
 from app.api.router import api_router
 from app.core.config import get_settings
 from app.core.errors import register_exception_handlers
-
-
-def _rota_isenta_de_api_key(path: str, api_prefix: str) -> bool:
-    rotas_exatas = {
-        f"{api_prefix}/auth/login",
-        f"{api_prefix}/auth/registrar",
-        f"{api_prefix}/admin/seed/vendas-fake",
-        f"{api_prefix}/notificacoes",
-        f"{api_prefix}/admin/notificacoes",
-    }
-    prefixos = (
-        f"{api_prefix}/notificacoes/",
-        f"{api_prefix}/admin/notificacoes/",
-    )
-    return path in rotas_exatas or any(path.startswith(prefixo) for prefixo in prefixos)
+from app.core.security import (
+    api_key_obrigatoria,
+    requisicao_tem_credencial_valida,
+    resposta_api_key_invalida,
+)
 
 
 def create_app() -> FastAPI:
@@ -44,30 +32,10 @@ def create_app() -> FastAPI:
 
     @app.middleware("http")
     async def require_api_key(request: Request, call_next):
-        if (
-            settings.api_key
-            and request.method != "OPTIONS"
-            and request.url.path.startswith(settings.api_prefix)
+        if api_key_obrigatoria(request, settings) and not requisicao_tem_credencial_valida(
+            request, settings
         ):
-            header_api_key = request.headers.get("x-api-key", "")
-            authorization = request.headers.get("authorization", "")
-            tem_bearer = authorization.lower().startswith("bearer ")
-            rota_isenta = _rota_isenta_de_api_key(request.url.path, settings.api_prefix)
-            if (
-                not rota_isenta
-                and not tem_bearer
-                and not compare_digest(header_api_key, settings.api_key)
-            ):
-                return JSONResponse(
-                    status_code=401,
-                    content={
-                        "error": {
-                            "code": "unauthorized",
-                            "message": "Chave de API ausente ou invalida.",
-                            "details": {"header": "X-API-Key"},
-                        }
-                    },
-                )
+            return JSONResponse(status_code=401, content=resposta_api_key_invalida())
         return await call_next(request)
 
     app.include_router(api_router, prefix=settings.api_prefix)

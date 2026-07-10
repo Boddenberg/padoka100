@@ -2,8 +2,8 @@ from datetime import date
 from decimal import Decimal
 from uuid import UUID
 
+from app.infra.supabase.payload import to_db_payload
 from app.modules.produtos import public as produtos_public
-from app.shared.db import to_db_payload
 
 
 def montar_dados_item_vendido(

@@ -1,15 +1,9 @@
-from functools import lru_cache
+"""Compatibilidade: o cliente OpenAI vive agora em app.infra.openai.client.
 
-from openai import OpenAI
+Mantido como reexport para nao quebrar imports existentes. Prefira importar de
+``app.infra.openai.client`` em codigo novo.
+"""
 
-from app.core.config import get_settings
-from app.core.errors import MissingConfigurationError
+from app.infra.openai.client import get_openai_client
 
-
-@lru_cache
-def get_openai_client() -> OpenAI:
-    settings = get_settings()
-    if not settings.openai_api_key:
-        raise MissingConfigurationError("OpenAI", ["OPENAI_API_KEY"])
-    return OpenAI(api_key=settings.openai_api_key)
-
+__all__ = ["get_openai_client"]
