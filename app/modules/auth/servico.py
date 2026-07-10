@@ -200,6 +200,10 @@ def buscar_usuario_padrao_sem_token() -> dict:
     return _usuario_sem_token()
 
 
+def usuario_sem_token() -> dict:
+    return _usuario_sem_token()
+
+
 def _usuario_sem_token() -> dict:
     agora = datetime.now(UTC)
     return {

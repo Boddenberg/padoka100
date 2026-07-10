@@ -21,6 +21,15 @@ TIPOS_DE_ENTIDADE_COM_MIDIA = {
     "notificacao",
 }
 
+TIPOS_CONTEUDO_BLOQUEADOS = {
+    "application/javascript",
+    "application/x-javascript",
+    "application/xhtml+xml",
+    "image/svg+xml",
+    "text/html",
+    "text/javascript",
+}
+
 
 async def enviar_midia(
     *,
@@ -65,6 +74,11 @@ def enviar_midia_em_bytes(
         raise BadRequestError("Arquivo vazio.")
 
     settings = get_settings()
+    _validar_upload(
+        conteudo=conteudo,
+        tipo_conteudo=tipo_conteudo,
+        limite_bytes=settings.max_upload_bytes,
+    )
     client = get_supabase_client()
     bucket = settings.supabase_storage_bucket
     caminho_arquivo = _montar_caminho_do_arquivo(tipo_entidade, entidade_id, nome_arquivo)
@@ -128,6 +142,21 @@ def _montar_caminho_do_arquivo(
     sufixo = Path(nome_arquivo or "upload").suffix.lower()
     nome_seguro = _normalizar_nome_arquivo(Path(nome_arquivo or "upload").stem)
     return f"{tipo_entidade}/{entidade_id}/{uuid4()}-{nome_seguro}{sufixo}"
+
+
+def _validar_upload(*, conteudo: bytes, tipo_conteudo: str | None, limite_bytes: int) -> None:
+    if limite_bytes > 0 and len(conteudo) > limite_bytes:
+        raise BadRequestError(
+            "Arquivo excede o tamanho maximo permitido.",
+            {"limite_bytes": limite_bytes, "tamanho_bytes": len(conteudo)},
+        )
+
+    tipo_normalizado = (tipo_conteudo or "").split(";", 1)[0].strip().lower()
+    if tipo_normalizado in TIPOS_CONTEUDO_BLOQUEADOS:
+        raise BadRequestError(
+            "Tipo de arquivo nao permitido para upload.",
+            {"tipo_conteudo": tipo_normalizado},
+        )
 
 
 def _normalizar_nome_arquivo(valor: str) -> str:
