@@ -1,9 +1,7 @@
 import base64
 import json
-import re
-import unicodedata
 from datetime import date
-from decimal import ROUND_HALF_UP, Decimal
+from decimal import Decimal
 from uuid import UUID
 
 from fastapi import UploadFile
@@ -12,6 +10,15 @@ from app.core.config import get_settings
 from app.core.errors import BadRequestError, MissingConfigurationError, NotFoundError
 from app.db.openai import get_openai_client
 from app.db.supabase import get_supabase_client
+from app.modules.custos.domain import (
+    ingredientes as _ingredientes,
+)
+from app.modules.custos.domain import (
+    receita as _receita,
+)
+from app.modules.custos.domain import (
+    unidades as _unidades,
+)
 from app.modules.custos.domain.status import consolidar_status
 from app.modules.custos.esquemas import (
     ItemAtualizacaoPrecoCompra,
@@ -26,228 +33,38 @@ from app.modules.custos.esquemas import (
 from app.modules.produtos import servico as servico_de_produtos
 from app.shared.db import first_or_none, to_db_payload
 
-UNIDADES_BASE = {
-    "kg": ("massa", Decimal("1000")),
-    "quilo": ("massa", Decimal("1000")),
-    "quilos": ("massa", Decimal("1000")),
-    "kilograma": ("massa", Decimal("1000")),
-    "kilogramas": ("massa", Decimal("1000")),
-    "g": ("massa", Decimal("1")),
-    "grama": ("massa", Decimal("1")),
-    "gramas": ("massa", Decimal("1")),
-    "l": ("volume", Decimal("1000")),
-    "lt": ("volume", Decimal("1000")),
-    "litro": ("volume", Decimal("1000")),
-    "litros": ("volume", Decimal("1000")),
-    "ml": ("volume", Decimal("1")),
-    "mililitro": ("volume", Decimal("1")),
-    "mililitros": ("volume", Decimal("1")),
-    "copo": ("volume", Decimal("200")),
-    "copos": ("volume", Decimal("200")),
-    "copo americano": ("volume", Decimal("200")),
-    "copos americanos": ("volume", Decimal("200")),
-    "xicara": ("volume", Decimal("240")),
-    "xicaras": ("volume", Decimal("240")),
-    "colher sopa": ("volume", Decimal("15")),
-    "colheres sopa": ("volume", Decimal("15")),
-    "colher de sopa": ("volume", Decimal("15")),
-    "colheres de sopa": ("volume", Decimal("15")),
-    "colher cha": ("volume", Decimal("5")),
-    "colheres cha": ("volume", Decimal("5")),
-    "colher de cha": ("volume", Decimal("5")),
-    "colheres de cha": ("volume", Decimal("5")),
-    "prato cheio": ("massa", Decimal("350")),
-    "pratos cheios": ("massa", Decimal("350")),
-    "un": ("unidade", Decimal("1")),
-    "und": ("unidade", Decimal("1")),
-    "unidade": ("unidade", Decimal("1")),
-    "unidades": ("unidade", Decimal("1")),
-    "ovo": ("unidade", Decimal("1")),
-    "ovos": ("unidade", Decimal("1")),
-    "barra": ("unidade", Decimal("1")),
-    "barras": ("unidade", Decimal("1")),
-    "bisnaga": ("unidade", Decimal("1")),
-    "bisnagas": ("unidade", Decimal("1")),
-    "caixa": ("unidade", Decimal("1")),
-    "caixas": ("unidade", Decimal("1")),
-    "caixinha": ("unidade", Decimal("1")),
-    "caixinhas": ("unidade", Decimal("1")),
-    "cx": ("unidade", Decimal("1")),
-    "dente": ("unidade", Decimal("1")),
-    "dentes": ("unidade", Decimal("1")),
-    "emb": ("unidade", Decimal("1")),
-    "embalagem": ("unidade", Decimal("1")),
-    "embalagens": ("unidade", Decimal("1")),
-    "fatia": ("unidade", Decimal("1")),
-    "fatias": ("unidade", Decimal("1")),
-    "folha": ("unidade", Decimal("1")),
-    "folhas": ("unidade", Decimal("1")),
-    "frasco": ("unidade", Decimal("1")),
-    "frascos": ("unidade", Decimal("1")),
-    "frasquinho": ("unidade", Decimal("1")),
-    "frasquinhos": ("unidade", Decimal("1")),
-    "garrafa": ("unidade", Decimal("1")),
-    "garrafas": ("unidade", Decimal("1")),
-    "garrafinha": ("unidade", Decimal("1")),
-    "garrafinhas": ("unidade", Decimal("1")),
-    "lata": ("unidade", Decimal("1")),
-    "latas": ("unidade", Decimal("1")),
-    "latinha": ("unidade", Decimal("1")),
-    "latinhas": ("unidade", Decimal("1")),
-    "maco": ("unidade", Decimal("1")),
-    "macos": ("unidade", Decimal("1")),
-    "pacote": ("unidade", Decimal("1")),
-    "pacotes": ("unidade", Decimal("1")),
-    "pacotinho": ("unidade", Decimal("1")),
-    "pacotinhos": ("unidade", Decimal("1")),
-    "pitada": ("unidade", Decimal("1")),
-    "pitadas": ("unidade", Decimal("1")),
-    "porcao": ("unidade", Decimal("1")),
-    "porcoes": ("unidade", Decimal("1")),
-    "pct": ("unidade", Decimal("1")),
-    "pcts": ("unidade", Decimal("1")),
-    "pcte": ("unidade", Decimal("1")),
-    "pote": ("unidade", Decimal("1")),
-    "potes": ("unidade", Decimal("1")),
-    "potinho": ("unidade", Decimal("1")),
-    "potinhos": ("unidade", Decimal("1")),
-    "punhado": ("unidade", Decimal("1")),
-    "punhados": ("unidade", Decimal("1")),
-    "ramo": ("unidade", Decimal("1")),
-    "ramos": ("unidade", Decimal("1")),
-    "rolo": ("unidade", Decimal("1")),
-    "rolos": ("unidade", Decimal("1")),
-    "sache": ("unidade", Decimal("1")),
-    "saches": ("unidade", Decimal("1")),
-    "saco": ("unidade", Decimal("1")),
-    "sacos": ("unidade", Decimal("1")),
-    "saquinho": ("unidade", Decimal("1")),
-    "saquinhos": ("unidade", Decimal("1")),
-    "tablete": ("unidade", Decimal("1")),
-    "tabletes": ("unidade", Decimal("1")),
-    "vidro": ("unidade", Decimal("1")),
-    "vidros": ("unidade", Decimal("1")),
-    "duzia": ("unidade", Decimal("12")),
-    "duzias": ("unidade", Decimal("12")),
-    "cartela": ("unidade", Decimal("30")),
-    "cartelas": ("unidade", Decimal("30")),
-    "cartela de ovos": ("unidade", Decimal("30")),
-    "cartelas de ovos": ("unidade", Decimal("30")),
-    "bandeja de ovos": ("unidade", Decimal("30")),
-    "bandejas de ovos": ("unidade", Decimal("30")),
-}
-
-DESCRICOES_UNIDADES_APROXIMADAS = {
-    "copo": "copo = 200 ml",
-    "copos": "copo = 200 ml",
-    "copo americano": "copo americano = 200 ml",
-    "copos americanos": "copo americano = 200 ml",
-    "xicara": "xicara = 240 ml",
-    "xicaras": "xicara = 240 ml",
-    "colher sopa": "colher de sopa = 15 ml",
-    "colheres sopa": "colher de sopa = 15 ml",
-    "colher de sopa": "colher de sopa = 15 ml",
-    "colheres de sopa": "colher de sopa = 15 ml",
-    "colher cha": "colher de cha = 5 ml",
-    "colheres cha": "colher de cha = 5 ml",
-    "colher de cha": "colher de cha = 5 ml",
-    "colheres de cha": "colher de cha = 5 ml",
-    "prato cheio": "prato cheio = 350 g",
-    "pratos cheios": "prato cheio = 350 g",
-    "duzia": "duzia = 12 unidades",
-    "duzias": "duzia = 12 unidades",
-    "cartela": "cartela = 30 unidades",
-    "cartelas": "cartela = 30 unidades",
-    "cartela de ovos": "cartela de ovos = 30 unidades",
-    "cartelas de ovos": "cartela de ovos = 30 unidades",
-    "bandeja de ovos": "bandeja de ovos = 30 unidades",
-    "bandejas de ovos": "bandeja de ovos = 30 unidades",
-}
-PADROES_UNIDADES_COM_RUIDO = (
-    (r"\bcolher(?:es)?\s*(?:de\s*)?sopa\b", "colher sopa"),
-    (r"\bcolher(?:es)?\s*(?:de\s*)?cha\b", "colher cha"),
-    (r"\bxicaras?\b", "xicara"),
-    (r"\bcopos?\b", "copo"),
-    (r"\bpratos?\s+cheios?\b", "prato cheio"),
-    (r"\bcartelas?(?:\s+de\s+ovos)?\b", "cartela"),
-    (r"\bbandejas?(?:\s+de\s+ovos)?\b", "bandeja de ovos"),
-    (r"\bduzias?\b", "duzia"),
-    (r"\b(?:pacote|pacotes|pacotinho|pacotinhos|pct|pcts|pcte)\b", "pacote"),
-    (r"\b(?:saco|sacos|saquinho|saquinhos)\b", "saco"),
-    (r"\b(?:sache|saches)\b", "sache"),
-    (r"\b(?:caixa|caixas|caixinha|caixinhas|cx)\b", "caixa"),
-    (r"\b(?:emb|embalagem|embalagens)\b", "embalagem"),
-    (r"\b(?:frasco|frascos|frasquinho|frasquinhos)\b", "frasco"),
-    (r"\b(?:garrafa|garrafas|garrafinha|garrafinhas)\b", "garrafa"),
-    (r"\b(?:lata|latas|latinha|latinhas)\b", "lata"),
-    (r"\b(?:pote|potes|potinho|potinhos)\b", "pote"),
-    (r"\b(?:barra|barras)\b", "barra"),
-    (r"\b(?:tablete|tabletes)\b", "tablete"),
-    (r"\b(?:bisnaga|bisnagas)\b", "bisnaga"),
-    (r"\b(?:vidro|vidros)\b", "vidro"),
-    (r"\b(?:rolo|rolos)\b", "rolo"),
-    (r"\b(?:fatia|fatias)\b", "fatia"),
-    (r"\b(?:maco|macos)\b", "maco"),
-    (r"\b(?:ramo|ramos)\b", "ramo"),
-    (r"\b(?:folha|folhas)\b", "folha"),
-    (r"\b(?:dente|dentes)\b", "dente"),
-    (r"\b(?:pitada|pitadas)\b", "pitada"),
-    (r"\b(?:punhado|punhados)\b", "punhado"),
-    (r"\b(?:porcao|porcoes)\b", "porcao"),
-    (r"\b(?:un|und|unidades?|ovos?)\b", "unidade"),
-    (r"\b(?:kg|quilo|quilos|kilograma|kilogramas)\b", "kg"),
-    (r"\b(?:g|grama|gramas)\b", "g"),
-    (r"\b(?:ml|mililitro|mililitros)\b", "ml"),
-    (r"\b(?:l|lt|litro|litros)\b", "l"),
+# Compatibilidade: a logica pura de unidades, matching de ingrediente e
+# consolidacao de receita vive em app.modules.custos.domain. Mantemos aliases
+# sob os nomes ja usados aqui e por app.modules.custos.assistente_servico.
+_calcular_custo_por_unidade = _unidades.calcular_custo_por_unidade
+_calcular_custo_ingrediente = _unidades.calcular_custo_ingrediente
+_resolver_unidade = _unidades.resolver_unidade
+_normalizar_unidade = _unidades.normalizar_unidade
+_normalizar_unidade_com_equivalencia_informada = (
+    _unidades.normalizar_unidade_com_equivalencia_informada
 )
-
-STATUS_ORDEM = {
-    "CONFIRMADO": 0,
-    "ESTIMADO": 1,
-    "PENDENTE": 2,
-    "PRECISA_REVISAR": 3,
-}
-
-DESCRITORES_INGREDIENTE = {
-    "branca",
-    "brancas",
-    "branco",
-    "brancos",
-    "especial",
-    "especiais",
-    "extra",
-    "fina",
-    "fino",
-    "grande",
-    "grandes",
-    "integral",
-    "iodada",
-    "iodado",
-    "ralado",
-    "ralada",
-    "refinada",
-    "refinado",
-    "tradicional",
-    "tradicionais",
-}
-STOPWORDS_INGREDIENTE = {
-    "a",
-    "as",
-    "com",
-    "da",
-    "das",
-    "de",
-    "do",
-    "dos",
-    "e",
-    "o",
-    "os",
-    "ou",
-    "para",
-    "sem",
-    "tipo",
-}
-INGREDIENTES_GENERICOS_PARA_MATCH = {"queijo"}
+_decimal_unidade_str = _unidades.decimal_unidade_str
+_extrair_unidade_de_texto_com_ruido = _unidades.extrair_unidade_de_texto_com_ruido
+_unidade_base_para_tipo = _unidades.unidade_base_para_tipo
+_formatar_quantidade_para_compra = _unidades.formatar_quantidade_para_compra
+_resolver_unidade_com_equivalencia_informada = (
+    _unidades.resolver_unidade_com_equivalencia_informada
+)
+_unidade_indica_quantidade_alternativa = _unidades.unidade_indica_quantidade_alternativa
+_descrever_unidade_com_equivalencia_informada = (
+    _unidades.descrever_unidade_com_equivalencia_informada
+)
+_arredondar_moeda = _unidades.arredondar_moeda
+_arredondar_custo_unitario = _unidades.arredondar_custo_unitario
+_arredondar_quantidade = _unidades.arredondar_quantidade
+unidade_suportada = _unidades.unidade_suportada
+descrever_unidade_aproximada = _unidades.descrever_unidade_aproximada
+normalizar_nome_insumo = _ingredientes.normalizar_nome_insumo
+nomes_insumos_compativeis = _ingredientes.nomes_insumos_compativeis
+_deduplicar_textos = _ingredientes.deduplicar_textos
+_custos_incluidos = _receita.custos_incluidos
+_listar_pendencias = _receita.listar_pendencias
+_consolidar_status = consolidar_status
 
 
 def listar_insumos() -> list[dict]:
@@ -1326,296 +1143,6 @@ def _listar_custos_adicionais(produto_id: UUID, receita_id: UUID | str | None) -
     if receita_id:
         consulta = consulta.or_(f"receita_id.is.null,receita_id.eq.{receita_id}")
     return _executar_lista_opcional(consulta.order("criado_em"))
-
-
-def _calcular_custo_por_unidade(
-    preco_total: Decimal,
-    quantidade: Decimal,
-    unidade: str,
-) -> Decimal:
-    _, fator = _resolver_unidade(unidade)
-    quantidade_base = Decimal(str(quantidade)) * fator
-    if quantidade_base <= 0:
-        raise BadRequestError("Quantidade comprada precisa ser maior que zero.")
-    return _arredondar_custo_unitario(Decimal(str(preco_total)) / quantidade_base)
-
-
-def _calcular_custo_ingrediente(
-    custo_unitario_base: Decimal,
-    quantidade_usada: Decimal,
-    unidade_usada: str,
-    unidade_compra: str,
-) -> Decimal:
-    tipo_compra, _ = _resolver_unidade(unidade_compra)
-    tipo_usado, fator_usado = _resolver_unidade(unidade_usada)
-    if tipo_compra != tipo_usado:
-        raise BadRequestError(
-            "Unidade do ingrediente incompativel com a unidade de compra.",
-            {"unidade_compra": unidade_compra, "unidade_usada": unidade_usada},
-        )
-    quantidade_base = Decimal(str(quantidade_usada)) * fator_usado
-    return _arredondar_moeda(custo_unitario_base * quantidade_base)
-
-
-def _resolver_unidade(unidade: str) -> tuple[str, Decimal]:
-    unidade_normalizada = _normalizar_unidade(unidade)
-    unidade_com_equivalencia = _resolver_unidade_com_equivalencia_informada(unidade_normalizada)
-    if unidade_com_equivalencia:
-        return unidade_com_equivalencia
-    if unidade_normalizada not in UNIDADES_BASE:
-        raise BadRequestError("Unidade de medida ainda nao suportada.", {"unidade": unidade})
-    return UNIDADES_BASE[unidade_normalizada]
-
-
-def _normalizar_unidade(unidade: str) -> str:
-    texto = unicodedata.normalize("NFKD", str(unidade).strip().lower())
-    texto = texto.encode("ascii", "ignore").decode("ascii")
-    unidade_normalizada = re.sub(r"[^a-z0-9]+", " ", texto).strip()
-    unidade_com_equivalencia = _normalizar_unidade_com_equivalencia_informada(
-        unidade_normalizada
-    )
-    if unidade_com_equivalencia:
-        return unidade_com_equivalencia
-    return _extrair_unidade_de_texto_com_ruido(unidade_normalizada) or unidade_normalizada
-
-
-def _normalizar_unidade_com_equivalencia_informada(unidade_normalizada: str) -> str | None:
-    if _unidade_indica_quantidade_alternativa(unidade_normalizada):
-        return None
-    padroes = (
-        (r"(\d+(?:[,.]\d+)?)\s*(kg|quilo|quilos|kilograma|kilogramas)\b", "kg"),
-        (r"(\d+(?:[,.]\d+)?)\s*(g|grama|gramas)\b", "g"),
-        (r"(\d+(?:[,.]\d+)?)\s*(ml|mililitro|mililitros)\b", "ml"),
-        (r"(\d+(?:[,.]\d+)?)\s*(l|lt|litro|litros)\b", "l"),
-        (r"(\d+(?:[,.]\d+)?)\s*(un|und|unidade|unidades)\b", "unidade"),
-        (r"(\d+(?:[,.]\d+)?)\s*(ovo|ovos)\b", "ovos"),
-    )
-    for padrao, unidade in padroes:
-        match = re.search(padrao, unidade_normalizada)
-        if match:
-            quantidade = Decimal(match.group(1).replace(",", "."))
-            return f"{_decimal_unidade_str(quantidade)}{unidade}"
-    return None
-
-
-def _decimal_unidade_str(valor: Decimal) -> str:
-    texto = format(valor.normalize(), "f")
-    return texto.rstrip("0").rstrip(".") if "." in texto else texto
-
-
-def _extrair_unidade_de_texto_com_ruido(texto: str) -> str | None:
-    if not texto or texto in UNIDADES_BASE:
-        return texto or None
-    texto_sem_quantidade = re.sub(r"^\d+(?:[,.]\d+)?\s*", "", texto).strip()
-    if texto_sem_quantidade in UNIDADES_BASE:
-        return texto_sem_quantidade
-    for padrao, unidade in PADROES_UNIDADES_COM_RUIDO:
-        if re.search(padrao, texto_sem_quantidade):
-            return unidade
-    return None
-
-
-def normalizar_nome_insumo(nome: str | None) -> str:
-    texto = unicodedata.normalize("NFKD", str(nome or "").strip().lower())
-    texto = texto.encode("ascii", "ignore").decode("ascii")
-    texto = re.sub(r"[^a-z0-9]+", " ", texto).strip()
-    substituicoes = {
-        "mucarela": "mussarela",
-        "mozarela": "mussarela",
-        "mozzarella": "mussarela",
-        "ovos": "ovo",
-        "queijos": "queijo",
-    }
-    tokens = []
-    for token in texto.split():
-        token = substituicoes.get(token, token)
-        if token in STOPWORDS_INGREDIENTE or token in DESCRITORES_INGREDIENTE:
-            continue
-        tokens.append(token)
-    return " ".join(tokens)
-
-
-def nomes_insumos_compativeis(nome_a: str | None, nome_b: str | None) -> bool:
-    normalizado_a = normalizar_nome_insumo(nome_a)
-    normalizado_b = normalizar_nome_insumo(nome_b)
-    if not normalizado_a or not normalizado_b:
-        return False
-    if normalizado_a == normalizado_b:
-        return True
-
-    tokens_a = set(normalizado_a.split())
-    tokens_b = set(normalizado_b.split())
-    tokens_menores = tokens_a if len(tokens_a) <= len(tokens_b) else tokens_b
-    tokens_maiores = tokens_b if len(tokens_a) <= len(tokens_b) else tokens_a
-    if tokens_menores and tokens_menores <= tokens_maiores:
-        return bool(tokens_menores - INGREDIENTES_GENERICOS_PARA_MATCH)
-
-    if len(tokens_a) < 2 and len(tokens_b) < 2:
-        return False
-    comuns = tokens_a & tokens_b
-    if not comuns:
-        return False
-    cobertura_menor = len(comuns) / min(len(tokens_a), len(tokens_b))
-    cobertura_maior = len(comuns) / max(len(tokens_a), len(tokens_b))
-    return cobertura_menor >= 0.75 and cobertura_maior >= 0.45
-
-
-def _unidade_base_para_tipo(tipo_unidade: str) -> str:
-    if tipo_unidade == "massa":
-        return "g"
-    if tipo_unidade == "volume":
-        return "ml"
-    return "unidade"
-
-
-def _formatar_quantidade_para_compra(
-    tipo_unidade: str,
-    quantidade_base: Decimal,
-) -> tuple[str, Decimal]:
-    quantidade = Decimal(str(quantidade_base))
-    if tipo_unidade == "massa" and quantidade >= Decimal("1000"):
-        return "kg", _arredondar_quantidade(quantidade / Decimal("1000"))
-    if tipo_unidade == "volume" and quantidade >= Decimal("1000"):
-        return "l", _arredondar_quantidade(quantidade / Decimal("1000"))
-    return _unidade_base_para_tipo(tipo_unidade), _arredondar_quantidade(quantidade)
-
-
-def _resolver_unidade_com_equivalencia_informada(
-    unidade_normalizada: str,
-) -> tuple[str, Decimal] | None:
-    if _unidade_indica_quantidade_alternativa(unidade_normalizada):
-        return None
-
-    match = re.search(
-        r"(\d+(?:[,.]\d+)?)\s*(kg|quilo|quilos|kilograma|kilogramas)\b",
-        unidade_normalizada,
-    )
-    if match:
-        return "massa", Decimal(match.group(1).replace(",", ".")) * Decimal("1000")
-
-    match = re.search(r"(\d+(?:[,.]\d+)?)\s*(g|grama|gramas)\b", unidade_normalizada)
-    if match:
-        return "massa", Decimal(match.group(1).replace(",", "."))
-
-    match = re.search(
-        r"(\d+(?:[,.]\d+)?)\s*(ml|mililitro|mililitros)\b",
-        unidade_normalizada,
-    )
-    if match:
-        return "volume", Decimal(match.group(1).replace(",", "."))
-
-    match = re.search(r"(\d+(?:[,.]\d+)?)\s*(l|lt|litro|litros)\b", unidade_normalizada)
-    if match:
-        return "volume", Decimal(match.group(1).replace(",", ".")) * Decimal("1000")
-
-    match = re.search(
-        r"(\d+(?:[,.]\d+)?)\s*(un|und|unidade|unidades|ovo|ovos)\b",
-        unidade_normalizada,
-    )
-    if match:
-        return "unidade", Decimal(match.group(1).replace(",", "."))
-
-    return None
-
-
-def _unidade_indica_quantidade_alternativa(unidade_normalizada: str) -> bool:
-    return bool(
-        re.search(r"\b(?:ou|ate)\b\s*\d", unidade_normalizada)
-        or re.search(r"\d+(?:[,.]\d+)?\s*(?:ou|a|ate|-)\s*\d", unidade_normalizada)
-    )
-
-
-def unidade_suportada(unidade: str | None) -> bool:
-    if not unidade:
-        return False
-    try:
-        _resolver_unidade(unidade)
-    except BadRequestError:
-        return False
-    return True
-
-
-def descrever_unidade_aproximada(unidade: str) -> str | None:
-    unidade_normalizada = _normalizar_unidade(unidade)
-    descricao = _descrever_unidade_com_equivalencia_informada(unidade_normalizada)
-    if descricao:
-        return descricao
-    return DESCRICOES_UNIDADES_APROXIMADAS.get(unidade_normalizada)
-
-
-def _descrever_unidade_com_equivalencia_informada(unidade_normalizada: str) -> str | None:
-    unidade_resolvida = _resolver_unidade_com_equivalencia_informada(unidade_normalizada)
-    if not unidade_resolvida:
-        return None
-    tipo, fator = unidade_resolvida
-    if tipo == "massa":
-        return f"{unidade_normalizada} = {fator} g"
-    if tipo == "volume":
-        return f"{unidade_normalizada} = {fator} ml"
-    return f"{unidade_normalizada} = {fator} unidades"
-
-
-def _consolidar_status(statuses: list[str]) -> str:
-    return consolidar_status(statuses)
-
-
-def _custos_incluidos(
-    custos_adicionais: list[dict],
-    *,
-    ingredientes_incluidos: bool,
-) -> dict:
-    tipos = {custo["tipo"] for custo in custos_adicionais}
-    return {
-        "ingredientes": ingredientes_incluidos,
-        "embalagem": "embalagem" in tipos,
-        "gas": any(custo["nome"].lower() == "gas" for custo in custos_adicionais),
-        "energia": any(custo["nome"].lower() == "energia" for custo in custos_adicionais),
-        "transporte": "transporte" in tipos,
-    }
-
-
-def _listar_pendencias(
-    receita: dict,
-    ingredientes: list[dict],
-    custos_adicionais: list[dict],
-) -> list[str]:
-    pendencias = []
-    if not ingredientes:
-        pendencias.append("Receita sem ingredientes cadastrados.")
-    for ingrediente in ingredientes:
-        if ingrediente.get("custo_total_estimado") is None:
-            pendencias.append(
-                f"Ingrediente {ingrediente['nome_insumo_no_momento']} sem custo calculado."
-            )
-    if Decimal(str(receita["rendimento"])) <= 0:
-        pendencias.append("Receita sem rendimento valido.")
-    if not custos_adicionais:
-        pendencias.append("Custos de embalagem, transporte e indiretos ainda nao informados.")
-    return pendencias
-
-
-def _arredondar_moeda(valor: Decimal) -> Decimal:
-    return Decimal(str(valor)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
-
-
-def _arredondar_custo_unitario(valor: Decimal) -> Decimal:
-    return Decimal(str(valor)).quantize(Decimal("0.000001"), rounding=ROUND_HALF_UP)
-
-
-def _arredondar_quantidade(valor: Decimal) -> Decimal:
-    return Decimal(str(valor)).quantize(Decimal("0.001"), rounding=ROUND_HALF_UP)
-
-
-def _deduplicar_textos(textos: list[str]) -> list[str]:
-    resultado = []
-    vistos = set()
-    for texto in textos:
-        chave = re.sub(r"\s+", " ", str(texto).strip().lower())
-        if not chave or chave in vistos:
-            continue
-        vistos.add(chave)
-        resultado.append(str(texto))
-    return resultado
 
 
 def _executar_lista_opcional(consulta) -> list[dict]:
