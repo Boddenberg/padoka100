@@ -53,22 +53,6 @@ class ResumoDoDiaDeVenda(ApiModel):
     correcoes: list[CorrecaoDiaFechadoSaida] = Field(default_factory=list)
 
 
-class ResumoDoPeriodo(ApiModel):
-    data_inicio: date
-    data_fim: date
-    produto_id: UUID | None = None
-    total_produzido: int = 0
-    total_sobra_aproveitada: int = 0
-    total_sobra_descartada: int = 0
-    total_disponivel: int = 0
-    total_vendido: int = 0
-    total_sobra: int = 0
-    faturamento_bruto: Decimal = Decimal("0")
-    custo_estimado: Decimal = Decimal("0")
-    lucro_estimado: Decimal = Decimal("0")
-    dias: list[ResumoDoDiaDeVenda] = Field(default_factory=list)
-
-
 class ResumoDiaPeriodoLeve(ApiModel):
     dia_de_venda_id: UUID
     data_venda: date
@@ -76,6 +60,17 @@ class ResumoDiaPeriodoLeve(ApiModel):
     situacao: str
     faturamento_bruto: Decimal = Decimal("0")
     lucro_estimado: Decimal = Decimal("0")
+
+
+class ResumoDoPeriodo(ApiModel):
+    data_inicio: date
+    data_fim: date
+    produto_id: UUID | None = None
+    faturamento_bruto: Decimal = Decimal("0")
+    lucro_estimado: Decimal = Decimal("0")
+    total_vendido: int = 0
+    total_sobra: int = 0
+    dias: list[ResumoDiaPeriodoLeve] = Field(default_factory=list)
 
 
 class ResumoPeriodoAnteriorLeve(ApiModel):

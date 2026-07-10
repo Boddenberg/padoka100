@@ -374,15 +374,39 @@ Produtos que entraram e esgotaram continuam aparecendo com `esgotado: true`.
 curl http://localhost:8000/api/v1/relatorios/dias/DIA_DE_VENDA_ID/produtos-venda
 ```
 
-O resumo de periodo bloqueia datas futuras e aceita filtro opcional por produto:
+O resumo de periodo bloqueia datas futuras, aceita filtro opcional por produto e
+devolve somente dados agregados. Ele nao carrega produtos, historico nem correcoes;
+para abrir o detalhe de um dia, use `GET /relatorios/dias/{dia_de_venda_id}/resumo`.
 
 ```bash
 curl "http://localhost:8000/api/v1/relatorios/periodo?data_inicio=2026-07-01&data_fim=2026-07-08&produto_id=PRODUTO_ID"
 ```
 
-Para o primeiro card da tela Resumo, use a rota leve. Ela calcula os mesmos
-totais principais da rota completa, mas nao carrega produtos, historico nem
-correcoes:
+Resposta:
+
+```json
+{
+  "data_inicio": "2026-07-01",
+  "data_fim": "2026-07-08",
+  "produto_id": "PRODUTO_ID",
+  "faturamento_bruto": "650.00",
+  "lucro_estimado": "410.00",
+  "total_vendido": 25,
+  "total_sobra": 13,
+  "dias": [
+    {
+      "dia_de_venda_id": "DIA_DE_VENDA_ID",
+      "data_venda": "2026-07-08",
+      "nome_local": "Condominio Primavera",
+      "situacao": "fechado",
+      "faturamento_bruto": "250.00",
+      "lucro_estimado": "150.00"
+    }
+  ]
+}
+```
+
+Para o primeiro card da tela Resumo com comparacao de periodo anterior, use:
 
 ```bash
 curl "http://localhost:8000/api/v1/relatorios/periodo/resumo?data_inicio=2026-07-01&data_fim=2026-07-08&comparar=true&incluir_dias=true"

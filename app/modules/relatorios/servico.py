@@ -117,29 +117,14 @@ def buscar_resumo_do_periodo(
     produto_id: UUID | None = None,
 ) -> dict:
     validar_periodo(data_inicio, data_fim)
-    client = get_supabase_client()
-    dias = (
-        client.table("dias_de_venda")
-        .select("data_venda")
-        .gte("data_venda", data_inicio.isoformat())
-        .lte("data_venda", data_fim.isoformat())
-        .order("data_venda")
-        .execute()
-        .data
+    resumo = _buscar_resumo_leve_do_periodo(
+        data_inicio,
+        data_fim,
+        incluir_dias=True,
+        produto_id=produto_id,
     )
-    datas = sorted({dia["data_venda"] for dia in dias})
-    resumos_dias = [
-        buscar_resumo_do_dia_por_data(date.fromisoformat(data_venda), produto_id=produto_id)
-        for data_venda in datas
-    ]
-    totais = _somar_dias(resumos_dias)
-    return {
-        "data_inicio": data_inicio,
-        "data_fim": data_fim,
-        "produto_id": produto_id,
-        **totais,
-        "dias": resumos_dias,
-    }
+    resumo["produto_id"] = produto_id
+    return resumo
 
 
 def buscar_resumo_leve_do_periodo(
@@ -261,6 +246,7 @@ def _buscar_resumo_leve_do_periodo(
     data_fim: date,
     *,
     incluir_dias: bool,
+    produto_id: UUID | None = None,
 ) -> dict:
     client = get_supabase_client()
     dias = (
@@ -273,7 +259,11 @@ def _buscar_resumo_leve_do_periodo(
         .execute()
         .data
     )
-    resumos_por_abertura = _montar_resumos_leves_das_aberturas(client, dias)
+    resumos_por_abertura = _montar_resumos_leves_das_aberturas(
+        client,
+        dias,
+        produto_id=produto_id,
+    )
     resumos_por_data = _consolidar_resumos_leves_por_data(resumos_por_abertura)
     totais = _somar_dias(resumos_por_data)
     resumo = {
@@ -289,7 +279,12 @@ def _buscar_resumo_leve_do_periodo(
     return resumo
 
 
-def _montar_resumos_leves_das_aberturas(client, dias: list[dict]) -> list[dict]:
+def _montar_resumos_leves_das_aberturas(
+    client,
+    dias: list[dict],
+    *,
+    produto_id: UUID | None = None,
+) -> list[dict]:
     dia_ids = [dia["id"] for dia in dias]
     if not dia_ids:
         return []
@@ -335,6 +330,12 @@ def _montar_resumos_leves_das_aberturas(client, dias: list[dict]) -> list[dict]:
             vendas_por_dia.get(dia_id, []),
             decisoes_por_dia.get(dia_id, []),
         )
+        if produto_id:
+            produtos = [
+                produto
+                for produto in produtos
+                if str(produto["produto_id"]) == str(produto_id)
+            ]
         totais = _somar_produtos(produtos)
         resumos.append(
             {
