@@ -22,7 +22,8 @@ os contratos esperados.
 - Autenticacao atual: API key opcional via header `X-API-Key`
 - Autenticacao planejada: usuario/e-mail e senha, sessao ou token, troca de senha e permissoes
 - IA: OpenAI API para interpretar comandos de texto/audio e, futuramente, analises
-- Testes: ainda sem suite automatizada; `ruff` configurado para lint
+- Testes: `pytest` cobrindo o dominio puro (`python -m pytest`); `ruff` para lint
+  (ver [docs/ARQUITETURA_ATUAL.md](docs/ARQUITETURA_ATUAL.md))
 - Gerenciador/empacotamento: `pip`, `pyproject.toml`, Hatchling
 - Ambiente: variaveis em `.env` via `pydantic-settings`
 - Deploy: configuracoes para Render (`render.yaml`) e Railway (`railway.json`)
