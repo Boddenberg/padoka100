@@ -393,6 +393,57 @@ def listar_receitas_do_produto(produto_id: UUID) -> list[dict]:
     return [_anexar_ingredientes(receita) for receita in receitas]
 
 
+def listar_produtos_com_receita() -> list[dict]:
+    client = get_supabase_client()
+    produtos = (
+        client.table("produtos")
+        .select("id,nome,slug,situacao,ordem_exibicao")
+        .eq("situacao", "ativo")
+        .order("ordem_exibicao")
+        .order("nome")
+        .execute()
+        .data
+    )
+    if not produtos:
+        return []
+
+    produto_ids = [produto["id"] for produto in produtos]
+    receitas = _executar_lista_opcional(
+        client.table("receitas_produto")
+        .select("*")
+        .in_("produto_id", produto_ids)
+        .order("criado_em", desc=True)
+    )
+    receita_por_produto = _receita_mais_recente_por_produto(receitas)
+    if not receita_por_produto:
+        return []
+
+    ingredientes_por_receita = _contar_ingredientes_por_receita(
+        client,
+        [receita["id"] for receita in receita_por_produto.values()],
+    )
+    saida = []
+    for produto in produtos:
+        receita = receita_por_produto.get(str(produto["id"]))
+        if not receita:
+            continue
+        saida.append(
+            {
+                "produto_id": produto["id"],
+                "nome": produto["nome"],
+                "slug": produto.get("slug"),
+                "situacao": produto["situacao"],
+                "receita_id": receita["id"],
+                "receita_nome": receita.get("nome"),
+                "rendimento": receita["rendimento"],
+                "unidade_rendimento": receita["unidade_rendimento"],
+                "status": receita["status"],
+                "total_ingredientes": ingredientes_por_receita.get(str(receita["id"]), 0),
+            }
+        )
+    return saida
+
+
 def buscar_receita(receita_id: UUID | str) -> dict:
     client = get_supabase_client()
     receita = first_or_none(
@@ -1134,6 +1185,30 @@ def _resolver_receita(produto_id: UUID, receita_id: UUID | None) -> dict | None:
         return receita
     receitas = listar_receitas_do_produto(produto_id)
     return receitas[0] if receitas else None
+
+
+def _receita_mais_recente_por_produto(receitas: list[dict]) -> dict[str, dict]:
+    por_produto = {}
+    for receita in receitas:
+        produto_id = str(receita["produto_id"])
+        if produto_id not in por_produto:
+            por_produto[produto_id] = receita
+    return por_produto
+
+
+def _contar_ingredientes_por_receita(client, receita_ids: list[str]) -> dict[str, int]:
+    if not receita_ids:
+        return {}
+    ingredientes = _executar_lista_opcional(
+        client.table("ingredientes_receita")
+        .select("receita_id")
+        .in_("receita_id", receita_ids)
+    )
+    totais = {str(receita_id): 0 for receita_id in receita_ids}
+    for ingrediente in ingredientes:
+        receita_id = str(ingrediente["receita_id"])
+        totais[receita_id] = totais.get(receita_id, 0) + 1
+    return totais
 
 
 def _listar_custos_adicionais(produto_id: UUID, receita_id: UUID | str | None) -> list[dict]:

@@ -1,10 +1,13 @@
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, File, Form, Query, UploadFile
+from fastapi import APIRouter, Depends, File, Form, Query, UploadFile
 
+from app.modules.auth.dependencias import obter_sessao_opcional
 from app.modules.notificacoes import servico
 from app.modules.notificacoes.esquemas import (
+    ContagemNotificacoesNaoLidasSaida,
+    EstadoNotificacaoSaida,
     NotificacaoSaida,
     RequisicaoAtualizarNotificacao,
     RequisicaoCriarNotificacao,
@@ -21,16 +24,85 @@ USUARIO_SISTEMA_SEM_AUTH = {
 }
 
 
+SessaoOpcional = Annotated[dict | None, Depends(obter_sessao_opcional)]
+
+
 @router.get("/notificacoes", response_model=list[NotificacaoSaida])
 def listar_notificacoes_publicas(
     limite: Annotated[int, Query(ge=1, le=100)] = 50,
+    incluir_lidas: bool = True,
+    incluir_ocultas: bool = False,
+    sessao: SessaoOpcional = None,
 ) -> list[dict]:
-    return servico.listar_notificacoes_publicas(limite=limite)
+    return servico.listar_notificacoes_publicas(
+        limite=limite,
+        usuario_id=_usuario_id_da_sessao(sessao),
+        incluir_lidas=incluir_lidas,
+        incluir_ocultas=incluir_ocultas,
+    )
+
+
+@router.get(
+    "/notificacoes/nao-lidas/contagem",
+    response_model=ContagemNotificacoesNaoLidasSaida,
+)
+def contar_notificacoes_nao_lidas(sessao: SessaoOpcional = None) -> dict:
+    return servico.contar_notificacoes_nao_lidas(usuario_id=_usuario_id_da_sessao(sessao))
 
 
 @router.get("/notificacoes/{notificacao_id}", response_model=NotificacaoSaida)
-def buscar_notificacao_publica(notificacao_id: UUID) -> dict:
-    return servico.buscar_notificacao_publica(notificacao_id)
+def buscar_notificacao_publica(
+    notificacao_id: UUID,
+    sessao: SessaoOpcional = None,
+) -> dict:
+    return servico.buscar_notificacao_publica(
+        notificacao_id,
+        usuario_id=_usuario_id_da_sessao(sessao),
+    )
+
+
+@router.post("/notificacoes/{notificacao_id}/lida", response_model=EstadoNotificacaoSaida)
+def marcar_notificacao_lida(
+    notificacao_id: UUID,
+    sessao: SessaoOpcional = None,
+) -> dict:
+    return servico.marcar_notificacao_lida(
+        notificacao_id,
+        usuario_id=_usuario_id_da_sessao(sessao),
+    )
+
+
+@router.post("/notificacoes/{notificacao_id}/ler", response_model=EstadoNotificacaoSaida)
+def marcar_notificacao_lida_alias(
+    notificacao_id: UUID,
+    sessao: SessaoOpcional = None,
+) -> dict:
+    return servico.marcar_notificacao_lida(
+        notificacao_id,
+        usuario_id=_usuario_id_da_sessao(sessao),
+    )
+
+
+@router.post("/notificacoes/{notificacao_id}/nao-lida", response_model=EstadoNotificacaoSaida)
+def desmarcar_notificacao_lida(
+    notificacao_id: UUID,
+    sessao: SessaoOpcional = None,
+) -> dict:
+    return servico.desmarcar_notificacao_lida(
+        notificacao_id,
+        usuario_id=_usuario_id_da_sessao(sessao),
+    )
+
+
+@router.post("/notificacoes/{notificacao_id}/ocultar", response_model=EstadoNotificacaoSaida)
+def ocultar_notificacao(
+    notificacao_id: UUID,
+    sessao: SessaoOpcional = None,
+) -> dict:
+    return servico.ocultar_notificacao(
+        notificacao_id,
+        usuario_id=_usuario_id_da_sessao(sessao),
+    )
 
 
 @router.get("/admin/notificacoes", response_model=list[NotificacaoSaida])
@@ -82,3 +154,10 @@ async def anexar_upload(
         descricao=descricao,
         texto_alternativo=texto_alternativo,
     )
+
+
+def _usuario_id_da_sessao(sessao: dict | None) -> str | None:
+    if not sessao or sessao.get("sem_token") or sessao.get("via_api_key"):
+        return None
+    usuario_id = sessao.get("usuario", {}).get("id")
+    return str(usuario_id) if usuario_id else None

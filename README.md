@@ -100,6 +100,7 @@ A documentacao interativa fica em:
 - `GET /api/v1/custos/insumos`
 - `POST /api/v1/custos/insumos`
 - `PATCH /api/v1/custos/insumos/{insumo_id}`
+- `GET /api/v1/custos/produtos-com-receita`
 - `GET /api/v1/custos/produtos/{produto_id}/receitas`
 - `POST /api/v1/custos/produtos/{produto_id}/receitas`
 - `POST /api/v1/custos/produtos/{produto_id}/custos-adicionais`
@@ -112,6 +113,12 @@ A documentacao interativa fica em:
 - `PATCH /api/v1/custos/assistente/sessoes/{sessao_id}/rascunho`
 - `POST /api/v1/custos/assistente/sessoes/{sessao_id}/confirmar`
 - `POST /api/v1/custos/assistente/sessoes/{sessao_id}/descartar`
+- `GET /api/v1/notificacoes`
+- `GET /api/v1/notificacoes/nao-lidas/contagem`
+- `POST /api/v1/notificacoes/{notificacao_id}/lida`
+- `POST /api/v1/notificacoes/{notificacao_id}/ler`
+- `POST /api/v1/notificacoes/{notificacao_id}/nao-lida`
+- `POST /api/v1/notificacoes/{notificacao_id}/ocultar`
 
 Exemplos de uso ficam em `docs/API_USAGE.md`.
 

@@ -59,5 +59,23 @@ class NotificacaoSaida(ApiModel):
     criado_por_usuario_id: UUID | None = None
     publicado_em: datetime | None = None
     expira_em: datetime | None = None
+    lida: bool = False
+    lida_em: datetime | None = None
+    oculta: bool = False
+    oculta_em: datetime | None = None
     criado_em: datetime
     atualizado_em: datetime
+
+
+class EstadoNotificacaoSaida(ApiModel):
+    notificacao_id: UUID
+    lida: bool = False
+    lida_em: datetime | None = None
+    oculta: bool = False
+    oculta_em: datetime | None = None
+    persistida: bool = True
+
+
+class ContagemNotificacoesNaoLidasSaida(ApiModel):
+    total: int
+    persistida: bool = True

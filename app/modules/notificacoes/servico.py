@@ -14,23 +14,28 @@ from app.shared.db import first_or_none, to_db_payload
 from supabase import Client
 
 
-def listar_notificacoes_publicas(*, limite: int = 50) -> list[dict]:
-    agora = datetime.now(UTC).isoformat()
+def listar_notificacoes_publicas(
+    *,
+    limite: int = 50,
+    usuario_id: UUID | str | None = None,
+    incluir_lidas: bool = True,
+    incluir_ocultas: bool = False,
+) -> list[dict]:
     client = get_supabase_client()
-    linhas = (
-        client.table("notificacoes")
-        .select("*")
-        .eq("status", "publicada")
-        .eq("publico", "todos")
-        .lte("publicado_em", agora)
-        .or_(f"expira_em.is.null,expira_em.gte.{agora}")
-        .order("publicado_em", desc=True)
-        .order("criado_em", desc=True)
-        .limit(limite)
-        .execute()
-        .data
+    linhas = _consultar_notificacoes_publicas(
+        client,
+        limite=_limite_consulta_estado(limite, usuario_id),
     )
-    return _anexar_midias(client, linhas)
+    notificacoes = _anexar_estado(
+        client,
+        _anexar_midias(client, linhas),
+        usuario_id=usuario_id,
+    )
+    if not incluir_ocultas:
+        notificacoes = [notificacao for notificacao in notificacoes if not notificacao["oculta"]]
+    if not incluir_lidas:
+        notificacoes = [notificacao for notificacao in notificacoes if not notificacao["lida"]]
+    return notificacoes[:limite]
 
 
 def listar_notificacoes_admin(*, status: str | None = None, limite: int = 100) -> list[dict]:
@@ -41,7 +46,11 @@ def listar_notificacoes_admin(*, status: str | None = None, limite: int = 100) -
     return _anexar_midias(client, consulta.execute().data)
 
 
-def buscar_notificacao_publica(notificacao_id: UUID) -> dict:
+def buscar_notificacao_publica(
+    notificacao_id: UUID,
+    *,
+    usuario_id: UUID | str | None = None,
+) -> dict:
     notificacao = buscar_notificacao(notificacao_id)
     agora = datetime.now(UTC)
     publicado_em = _parse_datetime(notificacao.get("publicado_em"))
@@ -54,7 +63,7 @@ def buscar_notificacao_publica(notificacao_id: UUID) -> dict:
         or (expira_em and expira_em < agora)
     ):
         raise NotFoundError("Notificacao", str(notificacao_id))
-    return notificacao
+    return _anexar_estado(get_supabase_client(), [notificacao], usuario_id=usuario_id)[0]
 
 
 def buscar_notificacao(notificacao_id: UUID) -> dict:
@@ -168,6 +177,128 @@ async def anexar_upload(
     return buscar_notificacao(notificacao_id)
 
 
+def marcar_notificacao_lida(
+    notificacao_id: UUID,
+    *,
+    usuario_id: UUID | str | None,
+) -> dict:
+    buscar_notificacao_publica(notificacao_id)
+    if not usuario_id:
+        return _estado_sem_persistencia(notificacao_id, lida=True)
+
+    client = get_supabase_client()
+    try:
+        _substituir_linha_estado(
+            client,
+            tabela="notificacao_visualizacoes",
+            notificacao_id=notificacao_id,
+            usuario_id=usuario_id,
+            campo_data="visualizado_em",
+        )
+    except Exception as exc:
+        if _erro_tabela_ausente(exc):
+            return _estado_sem_persistencia(notificacao_id, lida=True)
+        raise
+    return _buscar_estado_notificacao(client, notificacao_id, usuario_id=usuario_id)
+
+
+def desmarcar_notificacao_lida(
+    notificacao_id: UUID,
+    *,
+    usuario_id: UUID | str | None,
+) -> dict:
+    buscar_notificacao_publica(notificacao_id)
+    if not usuario_id:
+        return _estado_sem_persistencia(notificacao_id, lida=False)
+
+    client = get_supabase_client()
+    try:
+        (
+            client.table("notificacao_visualizacoes")
+            .delete()
+            .eq("notificacao_id", str(notificacao_id))
+            .eq("usuario_id", str(usuario_id))
+            .execute()
+        )
+    except Exception as exc:
+        if _erro_tabela_ausente(exc):
+            return _estado_sem_persistencia(notificacao_id, lida=False)
+        raise
+    return _buscar_estado_notificacao(client, notificacao_id, usuario_id=usuario_id)
+
+
+def ocultar_notificacao(
+    notificacao_id: UUID,
+    *,
+    usuario_id: UUID | str | None,
+) -> dict:
+    buscar_notificacao_publica(notificacao_id)
+    if not usuario_id:
+        return _estado_sem_persistencia(notificacao_id, oculta=True)
+
+    client = get_supabase_client()
+    try:
+        _substituir_linha_estado(
+            client,
+            tabela="notificacao_ocultacoes",
+            notificacao_id=notificacao_id,
+            usuario_id=usuario_id,
+            campo_data="ocultado_em",
+        )
+    except Exception as exc:
+        if _erro_tabela_ausente(exc):
+            return _estado_sem_persistencia(notificacao_id, oculta=True)
+        raise
+    return _buscar_estado_notificacao(client, notificacao_id, usuario_id=usuario_id)
+
+
+def contar_notificacoes_nao_lidas(*, usuario_id: UUID | str | None) -> dict:
+    client = get_supabase_client()
+    linhas = _consultar_notificacoes_publicas(client, campos="id")
+    if not usuario_id:
+        return {"total": len(linhas), "persistida": False}
+
+    estados = _buscar_estados(
+        client,
+        [linha["id"] for linha in linhas],
+        usuario_id=usuario_id,
+    )
+    total = 0
+    for linha in linhas:
+        estado = estados.get(str(linha["id"]), _estado_padrao(linha["id"]))
+        if not estado["lida"] and not estado["oculta"]:
+            total += 1
+    return {"total": total, "persistida": True}
+
+
+def _consultar_notificacoes_publicas(
+    client: Client,
+    *,
+    limite: int | None = None,
+    campos: str = "*",
+) -> list[dict]:
+    agora = datetime.now(UTC).isoformat()
+    consulta = (
+        client.table("notificacoes")
+        .select(campos)
+        .eq("status", "publicada")
+        .eq("publico", "todos")
+        .lte("publicado_em", agora)
+        .or_(f"expira_em.is.null,expira_em.gte.{agora}")
+        .order("publicado_em", desc=True)
+        .order("criado_em", desc=True)
+    )
+    if limite:
+        consulta = consulta.limit(limite)
+    return consulta.execute().data
+
+
+def _limite_consulta_estado(limite: int, usuario_id: UUID | str | None) -> int:
+    if not usuario_id:
+        return limite
+    return min(max(limite * 3, limite), 300)
+
+
 def _anexar_midias(client: Client, notificacoes: list[dict]) -> list[dict]:
     if not notificacoes:
         return []
@@ -205,6 +336,136 @@ def _anexar_midias(client: Client, notificacoes: list[dict]) -> list[dict]:
     return notificacoes
 
 
+def _anexar_estado(
+    client: Client,
+    notificacoes: list[dict],
+    *,
+    usuario_id: UUID | str | None,
+) -> list[dict]:
+    if not notificacoes:
+        return []
+
+    estados = {}
+    if usuario_id:
+        estados = _buscar_estados(
+            client,
+            [notificacao["id"] for notificacao in notificacoes],
+            usuario_id=usuario_id,
+        )
+    for notificacao in notificacoes:
+        estado = estados.get(str(notificacao["id"]), _estado_padrao(notificacao["id"]))
+        notificacao["lida"] = estado["lida"]
+        notificacao["lida_em"] = estado["lida_em"]
+        notificacao["oculta"] = estado["oculta"]
+        notificacao["oculta_em"] = estado["oculta_em"]
+    return notificacoes
+
+
+def _buscar_estado_notificacao(
+    client: Client,
+    notificacao_id: UUID,
+    *,
+    usuario_id: UUID | str,
+) -> dict:
+    estados = _buscar_estados(client, [notificacao_id], usuario_id=usuario_id)
+    estado = estados.get(str(notificacao_id), _estado_padrao(notificacao_id))
+    estado["persistida"] = True
+    return estado
+
+
+def _buscar_estados(
+    client: Client,
+    notificacao_ids: list[UUID | str],
+    *,
+    usuario_id: UUID | str,
+) -> dict[str, dict]:
+    ids = [str(notificacao_id) for notificacao_id in notificacao_ids]
+    estados = {notificacao_id: _estado_padrao(notificacao_id) for notificacao_id in ids}
+    if not ids:
+        return estados
+
+    visualizacoes = _executar_lista_opcional(
+        client.table("notificacao_visualizacoes")
+        .select("notificacao_id,visualizado_em")
+        .eq("usuario_id", str(usuario_id))
+        .in_("notificacao_id", ids)
+    )
+    for linha in visualizacoes:
+        estado = estados.setdefault(
+            str(linha["notificacao_id"]),
+            _estado_padrao(linha["notificacao_id"]),
+        )
+        estado["lida"] = True
+        estado["lida_em"] = linha.get("visualizado_em")
+
+    ocultacoes = _executar_lista_opcional(
+        client.table("notificacao_ocultacoes")
+        .select("notificacao_id,ocultado_em")
+        .eq("usuario_id", str(usuario_id))
+        .in_("notificacao_id", ids)
+    )
+    for linha in ocultacoes:
+        estado = estados.setdefault(
+            str(linha["notificacao_id"]),
+            _estado_padrao(linha["notificacao_id"]),
+        )
+        estado["oculta"] = True
+        estado["oculta_em"] = linha.get("ocultado_em")
+    return estados
+
+
+def _substituir_linha_estado(
+    client: Client,
+    *,
+    tabela: str,
+    notificacao_id: UUID,
+    usuario_id: UUID | str,
+    campo_data: str,
+) -> None:
+    (
+        client.table(tabela)
+        .delete()
+        .eq("notificacao_id", str(notificacao_id))
+        .eq("usuario_id", str(usuario_id))
+        .execute()
+    )
+    (
+        client.table(tabela)
+        .insert(
+            {
+                "notificacao_id": str(notificacao_id),
+                "usuario_id": str(usuario_id),
+                campo_data: datetime.now(UTC).isoformat(),
+            }
+        )
+        .execute()
+    )
+
+
+def _estado_padrao(notificacao_id: UUID | str) -> dict:
+    return {
+        "notificacao_id": str(notificacao_id),
+        "lida": False,
+        "lida_em": None,
+        "oculta": False,
+        "oculta_em": None,
+        "persistida": True,
+    }
+
+
+def _estado_sem_persistencia(
+    notificacao_id: UUID,
+    *,
+    lida: bool = False,
+    oculta: bool = False,
+) -> dict:
+    estado = _estado_padrao(notificacao_id)
+    estado["lida"] = lida
+    estado["oculta"] = oculta
+    estado["persistida"] = False
+    return estado
+
+
 def _inferir_tipo_midia(tipo_conteudo: str | None) -> str:
     if not tipo_conteudo:
         return "arquivo"
@@ -221,3 +482,17 @@ def _parse_datetime(valor: str | None) -> datetime | None:
     if not valor:
         return None
     return datetime.fromisoformat(valor.replace("Z", "+00:00"))
+
+
+def _executar_lista_opcional(consulta) -> list[dict]:
+    try:
+        return consulta.execute().data
+    except Exception as exc:
+        if _erro_tabela_ausente(exc):
+            return []
+        raise
+
+
+def _erro_tabela_ausente(exc: Exception) -> bool:
+    mensagem = str(exc)
+    return "PGRST205" in mensagem and "Could not find the table" in mensagem

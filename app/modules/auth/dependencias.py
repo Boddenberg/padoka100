@@ -44,6 +44,17 @@ def obter_usuario_autenticado(
     return sessao["usuario"]
 
 
+def obter_sessao_opcional(
+    authorization: Annotated[str | None, Header()] = None,
+) -> dict | None:
+    if not authorization or not authorization.lower().startswith("bearer "):
+        return None
+
+    token = authorization.split(" ", 1)[1].strip()
+    usuario, sessao = servico.buscar_usuario_por_token(token)
+    return {"usuario": usuario, "sessao_id": sessao["id"], "via_api_key": False, "sem_token": False}
+
+
 def exigir_papel(*papeis: str):
     def dependencia(
         sessao: Annotated[dict, Depends(obter_sessao_autenticada)],

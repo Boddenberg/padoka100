@@ -251,3 +251,16 @@ class ListaComprasSaida(ApiModel):
     def ordenar_itens(self) -> "ListaComprasSaida":
         self.itens = sorted(self.itens, key=lambda item: item.nome.lower())
         return self
+
+
+class ProdutoComReceitaSaida(ApiModel):
+    produto_id: UUID
+    nome: str
+    slug: str | None = None
+    situacao: str
+    receita_id: UUID
+    receita_nome: str | None = None
+    rendimento: Decimal
+    unidade_rendimento: str
+    status: str
+    total_ingredientes: int = 0

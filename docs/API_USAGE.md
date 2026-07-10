@@ -570,6 +570,31 @@ Calcular custo:
 curl http://localhost:8000/api/v1/custos/produtos/PRODUTO_ID/calculo
 ```
 
+Listar produtos ativos com receita para montar lista de compras:
+
+```bash
+curl http://localhost:8000/api/v1/custos/produtos-com-receita
+```
+
+Resposta enxuta:
+
+```json
+[
+  {
+    "produto_id": "PRODUTO_ID",
+    "nome": "Pao frances",
+    "slug": "pao-frances",
+    "situacao": "ativo",
+    "receita_id": "RECEITA_ID",
+    "receita_nome": "Receita de Pao frances",
+    "rendimento": 100,
+    "unidade_rendimento": "unidade",
+    "status": "CONFIRMADO",
+    "total_ingredientes": 4
+  }
+]
+```
+
 ## 14. Custeio assistido
 
 O fluxo premium de custo deve usar as rotas de sessao do assistente. O front
@@ -647,7 +672,57 @@ como `origem: "ia"` e `gerado_por_ia: true` na versao de preco/custo do produto.
 
 Contrato detalhado para o front: `docs/CUSTEIO_ASSISTIDO_FRONT.md`.
 
-## 15. Ver historico
+## 15. Notificacoes
+
+As notificacoes publicas continuam acessiveis sem Bearer token. Quando o front
+manda `Authorization: Bearer ...`, a API devolve e persiste estado por usuario.
+Sem login, `persistida` volta `false` nas rotas de acao para o front usar
+fallback local.
+
+Listar:
+
+```bash
+curl "http://localhost:8000/api/v1/notificacoes?limite=50&incluir_lidas=true"
+```
+
+Campos extras na resposta:
+
+```json
+{
+  "id": "NOTIFICACAO_ID",
+  "titulo": "Aviso",
+  "lida": false,
+  "lida_em": null,
+  "oculta": false,
+  "oculta_em": null
+}
+```
+
+Marcar lida, desfazer e ocultar:
+
+```bash
+curl -X POST http://localhost:8000/api/v1/notificacoes/NOTIFICACAO_ID/lida
+curl -X POST http://localhost:8000/api/v1/notificacoes/NOTIFICACAO_ID/ler
+curl -X POST http://localhost:8000/api/v1/notificacoes/NOTIFICACAO_ID/nao-lida
+curl -X POST http://localhost:8000/api/v1/notificacoes/NOTIFICACAO_ID/ocultar
+```
+
+Contagem de nao lidas:
+
+```bash
+curl http://localhost:8000/api/v1/notificacoes/nao-lidas/contagem
+```
+
+Resposta:
+
+```json
+{
+  "total": 3,
+  "persistida": true
+}
+```
+
+## 16. Ver historico
 
 ```bash
 curl http://localhost:8000/api/v1/historico/linha-do-tempo?dia_de_venda_id=DIA_DE_VENDA_ID

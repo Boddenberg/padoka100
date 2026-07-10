@@ -19,6 +19,7 @@ from app.modules.custos.esquemas import (
     InsumoPrecoSaida,
     InsumoSaida,
     ListaComprasSaida,
+    ProdutoComReceitaSaida,
     ReceitaSaida,
     RequisicaoAtualizarInsumo,
     RequisicaoAtualizarPrecosPorCompra,
@@ -89,6 +90,11 @@ async def atualizar_precos_por_nota_arquivo(
         aplicar=aplicar,
         contexto=contexto,
     )
+
+
+@router.get("/produtos-com-receita", response_model=list[ProdutoComReceitaSaida])
+def listar_produtos_com_receita() -> list[dict]:
+    return servico.listar_produtos_com_receita()
 
 
 @router.get("/produtos/{produto_id}/receitas", response_model=list[ReceitaSaida])
