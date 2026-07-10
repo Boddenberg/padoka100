@@ -2,9 +2,8 @@ import base64
 import io
 import json
 import re
-import unicodedata
 from datetime import UTC, date, datetime
-from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
+from decimal import Decimal
 from uuid import UUID
 
 from fastapi import UploadFile
@@ -14,6 +13,9 @@ from app.core.errors import BadRequestError, ConflictError, MissingConfiguration
 from app.db.openai import get_openai_client
 from app.db.supabase import get_supabase_client
 from app.modules.custos import servico as servico_de_custos
+from app.modules.custos.assistant import ingredientes as assistant_ingredientes
+from app.modules.custos.assistant import rascunho as assistant_rascunho
+from app.modules.custos.assistant import valores as assistant_valores
 from app.modules.custos.assistente_esquemas import (
     RequisicaoAtualizarRascunhoCusteio,
     RequisicaoConfirmarSessaoCusteio,
@@ -28,68 +30,74 @@ from app.modules.custos.esquemas import (
     RequisicaoCriarReceita,
     RequisicaoIngredienteReceita,
 )
+from app.modules.custos.prompts.extracao_custeio import (
+    formato_json_extracao_custeio,
+    instrucoes_extracao_custeio,
+)
 from app.modules.midia.servico import enviar_midia_em_bytes
 from app.modules.produtos import servico as servico_de_produtos
 from app.modules.produtos.esquemas import RequisicaoCriarVersaoDePreco
 from app.shared.db import encode_value, first_or_none, to_db_payload
 from app.shared.linha_do_tempo import registrar_evento_na_linha_do_tempo
 
-STATUS_CUSTO_VALIDOS = {"CONFIRMADO", "ESTIMADO", "PENDENTE", "PRECISA_REVISAR"}
-STATUS_ORDEM = {
-    "CONFIRMADO": 0,
-    "ESTIMADO": 1,
-    "PENDENTE": 2,
-    "PRECISA_REVISAR": 3,
-}
-TIPOS_CUSTO_ADICIONAL = {"embalagem", "transporte", "indireto", "outro"}
-APLICACOES_CUSTO = {"por_receita", "por_unidade"}
 SESSOES_IMUTAVEIS = {"confirmado", "descartado"}
 FINALIDADES_ENTRADA = {"auto", "receita", "compras", "completo"}
-DESCRITORES_INGREDIENTE = {
-    "branca",
-    "brancas",
-    "branco",
-    "brancos",
-    "especial",
-    "especiais",
-    "extra",
-    "grande",
-    "grandes",
-    "iodada",
-    "iodado",
-    "ralado",
-    "ralada",
-    "refinada",
-    "refinado",
-    "picado",
-    "picada",
-    "fatiado",
-    "fatiada",
-    "moido",
-    "moida",
-    "triturado",
-    "triturada",
-    "tradicional",
-    "tradicionais",
-}
-STOPWORDS_INGREDIENTE = {
-    "a",
-    "as",
-    "com",
-    "da",
-    "das",
-    "de",
-    "do",
-    "dos",
-    "e",
-    "o",
-    "os",
-    "ou",
-    "para",
-    "sem",
-    "tipo",
-}
-INGREDIENTES_GENERICOS_PARA_MATCH = {"queijo"}
+
+# Compatibilidade: o nucleo puro do assistente vive em
+# app.modules.custos.assistant (valores, ingredientes, rascunho) e os prompts
+# em app.modules.custos.prompts. Aliases preservam os nomes locais usados
+# pelas funcoes de orquestracao que permanecem neste arquivo.
+STATUS_CUSTO_VALIDOS = assistant_ingredientes.STATUS_CUSTO_VALIDOS
+TIPOS_CUSTO_ADICIONAL = assistant_ingredientes.TIPOS_CUSTO_ADICIONAL
+APLICACOES_CUSTO = assistant_ingredientes.APLICACOES_CUSTO
+DESCRITORES_INGREDIENTE = assistant_ingredientes.DESCRITORES_INGREDIENTE
+STOPWORDS_INGREDIENTE = assistant_ingredientes.STOPWORDS_INGREDIENTE
+INGREDIENTES_GENERICOS_PARA_MATCH = assistant_ingredientes.INGREDIENTES_GENERICOS_PARA_MATCH
+
+_uuid_ou_none = assistant_valores.uuid_ou_none
+_uuid_str_ou_none = assistant_valores.uuid_str_ou_none
+_texto_ou_none = assistant_valores.texto_ou_none
+_normalizar_unidade_de_entrada = assistant_valores.normalizar_unidade_de_entrada
+_lista_ou_vazia = assistant_valores.lista_ou_vazia
+_lista_de_textos = assistant_valores.lista_de_textos
+_deduplicar_textos = assistant_valores.deduplicar_textos
+_decimal_ou_none = assistant_valores.decimal_ou_none
+_decimal_obrigatorio = assistant_valores.decimal_obrigatorio
+_decimal_str_ou_none = assistant_valores.decimal_str_ou_none
+_decimal_str_limpa = assistant_valores.decimal_str_limpa
+_float_ou_none = assistant_valores.float_ou_none
+_arredondar_moeda = assistant_valores.arredondar_moeda
+_arredondar_percentual = assistant_valores.arredondar_percentual
+_normalizar_chave = assistant_valores.normalizar_chave
+_normalizar_unidade_texto = assistant_valores.normalizar_unidade_texto
+
+_status_de_custo = assistant_ingredientes.status_de_custo
+_consolidar_status = assistant_ingredientes.consolidar_status
+_chave_ingrediente = assistant_ingredientes.chave_ingrediente
+_nomes_ingredientes_compativeis = assistant_ingredientes.nomes_ingredientes_compativeis
+_normalizar_nome_ingrediente = assistant_ingredientes.normalizar_nome_ingrediente
+_escolher_nome_ingrediente = assistant_ingredientes.escolher_nome_ingrediente
+_chave_custo_adicional = assistant_ingredientes.chave_custo_adicional
+_tipo_custo_adicional = assistant_ingredientes.tipo_custo_adicional
+_tem_dados_de_compra_completos = assistant_ingredientes.tem_dados_de_compra_completos
+_tem_algum_dado_de_compra = assistant_ingredientes.tem_algum_dado_de_compra
+_texto_indica_quantidade_alternativa = assistant_ingredientes.texto_indica_quantidade_alternativa
+_extrair_numeros_de_texto = assistant_ingredientes.extrair_numeros_de_texto
+_inferir_unidade_da_quantidade_ambigua = (
+    assistant_ingredientes.inferir_unidade_da_quantidade_ambigua
+)
+
+_normalizar_rascunho = assistant_rascunho.normalizar_rascunho
+_normalizar_ingrediente = assistant_rascunho.normalizar_ingrediente
+_normalizar_custo_adicional = assistant_rascunho.normalizar_custo_adicional
+_equivalencia_explicita_na_unidade = assistant_rascunho.equivalencia_explicita_na_unidade
+_mesclar_rascunhos = assistant_rascunho.mesclar_rascunhos
+_mesclar_dict_sem_nones = assistant_rascunho.mesclar_dict_sem_nones
+_mesclar_listas_por_chave = assistant_rascunho.mesclar_listas_por_chave
+_mesclar_ingredientes = assistant_rascunho.mesclar_ingredientes
+
+_instrucoes_extracao_custeio = instrucoes_extracao_custeio
+_formato_json_extracao_custeio = formato_json_extracao_custeio
 
 
 def criar_sessao(requisicao: RequisicaoCriarSessaoCusteio) -> dict:
@@ -625,313 +633,6 @@ def _montar_estado_da_sessao(rascunho: dict, *, produto_id: UUID | None) -> dict
     }
 
 
-def _normalizar_rascunho(
-    dados: dict | None,
-    *,
-    produto_id: UUID | str | None = None,
-    contexto: str | None = None,
-) -> dict:
-    dados = dados or {}
-    if not isinstance(dados, dict):
-        dados = {}
-    if "rascunho" in dados and isinstance(dados["rascunho"], dict):
-        dados = dados["rascunho"]
-
-    produto_dados = dados.get("produto") if isinstance(dados.get("produto"), dict) else {}
-    produto_resolvido = _uuid_str_ou_none(
-        produto_id
-        or dados.get("produto_id")
-        or dados.get("produtoId")
-        or produto_dados.get("id")
-    )
-    receita_dados = dados.get("receita") if isinstance(dados.get("receita"), dict) else {}
-    preparo_dados = dados.get("preparo") if isinstance(dados.get("preparo"), dict) else {}
-
-    rascunho = {
-        "produto_id": produto_resolvido,
-        "receita": {
-            "nome": _texto_ou_none(receita_dados.get("nome") or dados.get("nome_receita")),
-            "rendimento": _decimal_str_ou_none(
-                receita_dados.get("rendimento") or dados.get("rendimento")
-            ),
-            "unidade_rendimento": _texto_ou_none(
-                receita_dados.get("unidade_rendimento")
-                or receita_dados.get("unidadeRendimento")
-                or dados.get("unidade_rendimento")
-            )
-            or "unidade",
-            "status": _status_de_custo(receita_dados.get("status"), padrao="PENDENTE"),
-            "observacoes": _texto_ou_none(
-                receita_dados.get("observacoes") or dados.get("observacoes")
-            ),
-        },
-        "ingredientes": [
-            _normalizar_ingrediente(item)
-            for item in _lista_ou_vazia(dados.get("ingredientes"))
-        ],
-        "custos_adicionais": [
-            _normalizar_custo_adicional(item)
-            for item in _lista_ou_vazia(
-                dados.get("custos_adicionais") or dados.get("custosAdicionais")
-            )
-        ],
-        "preparo": {
-            "modo_preparo": _texto_ou_none(
-                preparo_dados.get("modo_preparo")
-                or preparo_dados.get("modoPreparo")
-                or dados.get("modo_preparo")
-            ),
-            "tempo_preparo_minutos": _decimal_str_ou_none(
-                preparo_dados.get("tempo_preparo_minutos")
-                or preparo_dados.get("tempoPreparoMinutos")
-            ),
-            "tempo_forno_minutos": _decimal_str_ou_none(
-                preparo_dados.get("tempo_forno_minutos")
-                or preparo_dados.get("tempoFornoMinutos")
-            ),
-            "temperatura_forno": _texto_ou_none(
-                preparo_dados.get("temperatura_forno") or preparo_dados.get("temperaturaForno")
-            ),
-            "observacoes": _texto_ou_none(preparo_dados.get("observacoes")),
-        },
-        "avisos": _deduplicar_textos(_lista_de_textos(dados.get("avisos"))),
-        "perguntas_sugeridas": _deduplicar_textos(
-            _lista_de_textos(dados.get("perguntas_sugeridas"))
-        ),
-        "fontes": _lista_ou_vazia(dados.get("fontes")),
-    }
-    if contexto:
-        rascunho["fontes"].append({"tipo": "contexto", "texto": contexto})
-    return rascunho
-
-
-def _normalizar_ingrediente(item: dict) -> dict:
-    quantidade_usada = (
-        item.get("quantidade_usada")
-        or item.get("quantidadeUsada")
-        or item.get("quantidade")
-    )
-    unidade_usada_original = (
-        item.get("unidade_usada") or item.get("unidadeUsada") or item.get("unidade")
-    )
-    unidade_compra_original = item.get("unidade_compra") or item.get("unidadeCompra")
-    unidade_usada = _normalizar_unidade_de_entrada(unidade_usada_original)
-    unidade_compra = _normalizar_unidade_de_entrada(unidade_compra_original)
-    normalizado = {
-        "insumo_id": _uuid_str_ou_none(item.get("insumo_id") or item.get("insumoId")),
-        "nome": _texto_ou_none(item.get("nome") or item.get("nome_insumo") or item.get("insumo")),
-        "categoria": _texto_ou_none(item.get("categoria")),
-        "quantidade_comprada": _decimal_str_ou_none(
-            item.get("quantidade_comprada") or item.get("quantidadeComprada")
-        ),
-        "unidade_compra": unidade_compra,
-        "preco_total": _decimal_str_ou_none(item.get("preco_total") or item.get("precoTotal")),
-        "quantidade_usada": _decimal_str_ou_none(quantidade_usada),
-        "unidade_usada": _texto_ou_none(unidade_usada),
-        "status": _status_de_custo(item.get("status"), padrao="PENDENTE"),
-        "observacoes": _texto_ou_none(item.get("observacoes")),
-        "confianca": _float_ou_none(item.get("confianca")),
-        "salvar_como_insumo": item.get("salvar_como_insumo", True),
-    }
-    _inferir_unidade_de_compra_pelo_nome(normalizado)
-    _evitar_equivalencia_duplicada(normalizado, "quantidade_usada", "unidade_usada")
-    _evitar_equivalencia_duplicada(normalizado, "quantidade_comprada", "unidade_compra")
-    _resolver_quantidade_ambigua_no_rascunho(
-        normalizado,
-        quantidade_original=quantidade_usada,
-        unidade_original=unidade_usada_original,
-    )
-    return normalizado
-
-
-def _resolver_quantidade_ambigua_no_rascunho(
-    item: dict,
-    *,
-    quantidade_original,
-    unidade_original,
-) -> None:
-    texto_original = " ".join(
-        str(valor).strip()
-        for valor in (quantidade_original, unidade_original)
-        if valor is not None and str(valor).strip()
-    )
-    if not _texto_indica_quantidade_alternativa(texto_original):
-        return
-    numeros = _extrair_numeros_de_texto(texto_original)
-    if len(numeros) < 2:
-        return
-    quantidade_escolhida = max(numeros)
-    item["quantidade_usada"] = _decimal_str_limpa(quantidade_escolhida)
-    item["unidade_usada"] = (
-        _inferir_unidade_da_quantidade_ambigua(texto_original, item)
-        or item.get("unidade_usada")
-    )
-    item["quantidade_usada_original"] = texto_original
-    item["quantidade_usada_ambigua"] = True
-    item["quantidade_usada_estimativa"] = _decimal_str_limpa(quantidade_escolhida)
-
-
-def _normalizar_custo_adicional(item: dict) -> dict:
-    tipo = _tipo_custo_adicional(item.get("tipo"))
-    aplicacao = item.get("aplicacao") or item.get("modo_aplicacao") or item.get("modoAplicacao")
-    if aplicacao not in APLICACOES_CUSTO:
-        aplicacao = "por_unidade" if tipo == "embalagem" else "por_receita"
-    return {
-        "tipo": tipo,
-        "nome": _texto_ou_none(item.get("nome")) or tipo,
-        "valor": _decimal_str_ou_none(item.get("valor")),
-        "aplicacao": aplicacao,
-        "status": _status_de_custo(item.get("status"), padrao="ESTIMADO"),
-        "observacoes": _texto_ou_none(item.get("observacoes")),
-        "confianca": _float_ou_none(item.get("confianca")),
-    }
-
-
-def _inferir_unidade_de_compra_pelo_nome(item: dict) -> None:
-    unidade_compra = _normalizar_unidade_texto(item.get("unidade_compra"))
-    if unidade_compra not in {"un", "und", "unidade", "unidades"}:
-        return
-    equivalencia = _equivalencia_explicita_na_unidade(item.get("nome"))
-    if not equivalencia:
-        return
-    item["unidade_compra"] = equivalencia["unidade_canonica"]
-
-
-def _evitar_equivalencia_duplicada(item: dict, quantidade_chave: str, unidade_chave: str) -> None:
-    quantidade = _decimal_ou_none(item.get(quantidade_chave))
-    equivalencia = _equivalencia_explicita_na_unidade(item.get(unidade_chave))
-    if quantidade is None or not equivalencia:
-        return
-    if quantidade == equivalencia["fator_base"]:
-        item[unidade_chave] = equivalencia["unidade_base"]
-
-
-def _equivalencia_explicita_na_unidade(valor: str | None) -> dict | None:
-    if not valor:
-        return None
-    unidade_normalizada = _normalizar_chave(valor)
-    if _texto_indica_quantidade_alternativa(unidade_normalizada):
-        return None
-    padroes = [
-        (r"(\d+(?:[,.]\d+)?)\s*(kg|quilo|quilos|kilograma|kilogramas)\b", "massa", "g", "1000"),
-        (r"(\d+(?:[,.]\d+)?)\s*(g|grama|gramas)\b", "massa", "g", "1"),
-        (r"(\d+(?:[,.]\d+)?)\s*(ml|mililitro|mililitros)\b", "volume", "ml", "1"),
-        (r"(\d+(?:[,.]\d+)?)\s*(l|lt|litro|litros)\b", "volume", "ml", "1000"),
-        (r"(\d+(?:[,.]\d+)?)\s*(un|und|unidade|unidades|ovo|ovos)\b", "unidade", "unidades", "1"),
-    ]
-    for padrao, tipo, unidade_base, multiplicador in padroes:
-        match = re.search(padrao, unidade_normalizada)
-        if not match:
-            continue
-        quantidade = Decimal(match.group(1).replace(",", "."))
-        fator_base = quantidade * Decimal(multiplicador)
-        return {
-            "tipo": tipo,
-            "fator_base": fator_base,
-            "unidade_base": unidade_base,
-            "unidade_canonica": f"{_decimal_str_limpa(quantidade)}{match.group(2)}",
-        }
-    return None
-
-
-def _decimal_str_limpa(valor: Decimal) -> str:
-    texto = format(valor.normalize(), "f")
-    return texto.rstrip("0").rstrip(".") if "." in texto else texto
-
-
-def _mesclar_rascunhos(atual: dict, novo: dict) -> dict:
-    atual = _normalizar_rascunho(atual, produto_id=atual.get("produto_id"))
-    novo = _normalizar_rascunho(novo, produto_id=novo.get("produto_id") or atual.get("produto_id"))
-    resultado = {
-        **atual,
-        "produto_id": novo.get("produto_id") or atual.get("produto_id"),
-        "receita": _mesclar_dict_sem_nones(atual["receita"], novo["receita"]),
-        "preparo": _mesclar_dict_sem_nones(atual["preparo"], novo["preparo"]),
-        "ingredientes": _mesclar_ingredientes(
-            atual["ingredientes"],
-            novo["ingredientes"],
-        ),
-        "custos_adicionais": _mesclar_listas_por_chave(
-            atual["custos_adicionais"],
-            novo["custos_adicionais"],
-            _chave_custo_adicional,
-        ),
-        "avisos": _deduplicar_textos(atual.get("avisos", []) + novo.get("avisos", [])),
-        "perguntas_sugeridas": _deduplicar_textos(
-            atual.get("perguntas_sugeridas", []) + novo.get("perguntas_sugeridas", [])
-        ),
-        "fontes": atual.get("fontes", []) + novo.get("fontes", []),
-    }
-    return resultado
-
-
-def _mesclar_dict_sem_nones(atual: dict, novo: dict) -> dict:
-    resultado = dict(atual)
-    for chave, valor in novo.items():
-        if valor is not None and valor != []:
-            resultado[chave] = valor
-    return resultado
-
-
-def _mesclar_listas_por_chave(atual: list[dict], nova: list[dict], chave_fn) -> list[dict]:
-    resultado = [dict(item) for item in atual]
-    posicoes = {chave_fn(item): indice for indice, item in enumerate(resultado) if chave_fn(item)}
-    for item in nova:
-        chave = chave_fn(item)
-        if chave and chave in posicoes:
-            indice = posicoes[chave]
-            resultado[indice] = _mesclar_dict_sem_nones(resultado[indice], item)
-        else:
-            if chave:
-                posicoes[chave] = len(resultado)
-            resultado.append(item)
-    return resultado
-
-
-def _mesclar_ingredientes(atual: list[dict], nova: list[dict]) -> list[dict]:
-    resultado = [dict(item) for item in atual]
-    for item_novo in nova:
-        indice = _encontrar_ingrediente_compativel(resultado, item_novo)
-        if indice is None:
-            resultado.append(item_novo)
-            continue
-        resultado[indice] = _mesclar_ingrediente(resultado[indice], item_novo)
-    return resultado
-
-
-def _encontrar_ingrediente_compativel(
-    ingredientes: list[dict],
-    item_novo: dict,
-) -> int | None:
-    novo_insumo_id = item_novo.get("insumo_id")
-    for indice, item_atual in enumerate(ingredientes):
-        if novo_insumo_id and item_atual.get("insumo_id") == novo_insumo_id:
-            return indice
-
-    for indice, item_atual in enumerate(ingredientes):
-        if _nomes_ingredientes_compativeis(item_atual.get("nome"), item_novo.get("nome")):
-            return indice
-    return None
-
-
-def _mesclar_ingrediente(atual: dict, novo: dict) -> dict:
-    resultado = _mesclar_dict_sem_nones(atual, novo)
-
-    novo_tem_dados_de_compra = _tem_algum_dado_de_compra(novo)
-    if novo_tem_dados_de_compra and (
-        atual.get("quantidade_usada") is not None or atual.get("unidade_usada") is not None
-    ):
-        resultado["nome"] = atual.get("nome") or novo.get("nome")
-    else:
-        resultado["nome"] = _escolher_nome_ingrediente(atual.get("nome"), novo.get("nome"))
-
-    if novo_tem_dados_de_compra:
-        for chave in ("quantidade_usada", "unidade_usada"):
-            if atual.get(chave) is not None and novo.get(chave) is not None:
-                resultado[chave] = atual[chave]
-    return resultado
-
-
 def _simular_custo(rascunho: dict, *, produto_id: UUID | str | None) -> dict:
     pendencias = []
     avisos = []
@@ -1270,16 +971,6 @@ def _ingrediente_tem_quantidade_ambigua(ingrediente: dict) -> bool:
     ) or _texto_indica_quantidade_alternativa(ingrediente.get("unidade_usada"))
 
 
-def _texto_indica_quantidade_alternativa(valor) -> bool:
-    if valor is None:
-        return False
-    texto = _normalizar_chave(str(valor))
-    return bool(
-        re.search(r"\b(?:ou|ate)\b\s*\d", texto)
-        or re.search(r"\d+(?:[,.]\d+)?\s*(?:ou|a|ate|-)\s*\d", texto)
-    )
-
-
 def _ingredientes_sem_dados_de_compra(ingredientes: list[dict]) -> list[str]:
     nomes = []
     for indice, ingrediente in enumerate(ingredientes, start=1):
@@ -1376,47 +1067,6 @@ def _resolver_quantidade_ambigua_para_estimativa(ingrediente: dict) -> dict | No
         "unidade": _inferir_unidade_da_quantidade_ambigua(texto_original, ingrediente),
         "texto_original": texto_original,
     }
-
-
-def _extrair_numeros_de_texto(texto: str) -> list[Decimal]:
-    numeros = []
-    for match in re.finditer(r"(\d+)\s*/\s*(\d+)", texto):
-        denominador = Decimal(match.group(2))
-        if denominador:
-            numeros.append(Decimal(match.group(1)) / denominador)
-    numeros.extend(
-        Decimal(match.group(1).replace(",", "."))
-        for match in re.finditer(r"(\d+(?:[,.]\d+)?)", texto)
-    )
-    return numeros
-
-
-def _inferir_unidade_da_quantidade_ambigua(texto: str, ingrediente: dict) -> str | None:
-    texto_normalizado = _normalizar_chave(texto)
-    for unidade in (
-        "ovos",
-        "ovo",
-        "unidades",
-        "unidade",
-        "gramas",
-        "g",
-        "kg",
-        "ml",
-        "l",
-        "copos",
-        "copo",
-        "xicaras",
-        "xicara",
-        "colheres de sopa",
-        "colher de sopa",
-        "colheres de cha",
-        "colher de cha",
-    ):
-        if unidade in texto_normalizado:
-            return unidade
-    if "ovo" in _normalizar_nome_ingrediente(ingrediente.get("nome") or ""):
-        return "ovos"
-    return ingrediente.get("unidade_usada")
 
 
 def _unidade_usada_para_calculo(
@@ -1881,177 +1531,6 @@ def _extrair_com_fallback_texto(
     }
 
 
-def _instrucoes_extracao_custeio() -> str:
-    return (
-        "Voce e um assistente de custeio para uma pequena padaria familiar. "
-        "Transforme texto, audio transcrito, formulario ou imagem de nota/print em um rascunho "
-        "estruturado de custo. Nunca invente preco, quantidade, unidade, rendimento, produto ou "
-        "ingrediente. Quando algo nao estiver claro, deixe null, marque status PRECISA_REVISAR "
-        "ou PENDENTE e gere perguntas_sugeridas. Use somente produto_id presente na sessao ou "
-        "um produto existente no catalogo enviado. Diferencie quantidade comprada da quantidade "
-        "usada na receita. O backend converte medidas como ml, l, g, kg, copo, xicara, "
-        "colher de sopa, colher de cha, prato cheio com equivalencia em gramas, ovo e "
-        "cartela de ovos. Se a entrada trouxer medida caseira, mantenha a unidade falada "
-        "pelo usuario para que a tela mostre revisao; se houver equivalencia explicita, "
-        "preserve a equivalencia na unidade, como 'prato cheio (350 g)' ou "
-        "'cartela de 30 ovos'. Respeite a finalidade recebida no input: com finalidade "
-        "'receita', preencha apenas receita, preparo, quantidade_usada e unidade_usada; "
-        "em imagem de receita, medidas como '250 ml de leite' ou '1/2 copo de oleo' "
-        "sao sempre quantidade_usada/unidade_usada, nao quantidade_comprada/unidade_compra; "
-        "deixe quantidade_comprada, unidade_compra e preco_total como null, mesmo que a "
-        "receita tenha medidas, e nao gere perguntas sobre preco, nota ou compra nessa etapa. "
-        "Quando faltarem dados de varios ingredientes, agrupe em uma unica pergunta objetiva. "
-        "Com finalidade 'compras', preencha quantidade_comprada, "
-        "unidade_compra e preco_total; deixe quantidade_usada, unidade_usada, preparo e "
-        "rendimento como null, salvo se o usuario trouxer isso explicitamente junto. "
-        "Ao ler nota/cupom, compare com o rascunho atual e use o nome do ingrediente "
-        "da receita quando for equivalente: 'ovos grandes brancos' deve atualizar 'ovos', "
-        "'sal iodado/refinado' deve atualizar 'sal' e 'queijo mussarela ralado' pode "
-        "atualizar 'queijo meia cura e/ou mussarela ralado'. Nao crie outro ingrediente "
-        "so porque a nota tem marca, tipo, cor, tamanho ou descricao comercial. "
-        "Com finalidade 'completo', aceite receita e compras na mesma entrada, mas nunca "
-        "copie quantidade usada para quantidade comprada por deducao. Para embalagem normalmente "
-        "use aplicacao por_unidade; para gas, "
-        "energia e transporte use por_receita quando o usuario informar valor do lote/receita. "
-        "Status deve ser CONFIRMADO quando o usuario informou explicitamente, ESTIMADO quando "
-        "for uma aproximacao declarada, PENDENTE quando faltar dado e PRECISA_REVISAR quando "
-        "a leitura estiver incerta. Retorne somente JSON valido no schema solicitado."
-    )
-
-
-def _formato_json_extracao_custeio() -> dict:
-    item_nullable_string = {"type": ["string", "null"]}
-    item_nullable_number = {"type": ["number", "null"]}
-    return {
-        "type": "json_schema",
-        "name": "extracao_custeio_padoka",
-        "schema": {
-            "type": "object",
-            "additionalProperties": False,
-            "required": [
-                "rascunho",
-                "perguntas_sugeridas",
-                "avisos",
-                "confianca",
-            ],
-            "properties": {
-                "rascunho": {
-                    "type": "object",
-                    "additionalProperties": False,
-                    "required": [
-                        "produto_id",
-                        "receita",
-                        "ingredientes",
-                        "custos_adicionais",
-                        "preparo",
-                    ],
-                    "properties": {
-                        "produto_id": item_nullable_string,
-                        "receita": {
-                            "type": "object",
-                            "additionalProperties": False,
-                            "required": [
-                                "nome",
-                                "rendimento",
-                                "unidade_rendimento",
-                                "status",
-                                "observacoes",
-                            ],
-                            "properties": {
-                                "nome": item_nullable_string,
-                                "rendimento": item_nullable_number,
-                                "unidade_rendimento": item_nullable_string,
-                                "status": {"type": "string"},
-                                "observacoes": item_nullable_string,
-                            },
-                        },
-                        "ingredientes": {
-                            "type": "array",
-                            "items": {
-                                "type": "object",
-                                "additionalProperties": False,
-                                "required": [
-                                    "insumo_id",
-                                    "nome",
-                                    "categoria",
-                                    "quantidade_comprada",
-                                    "unidade_compra",
-                                    "preco_total",
-                                    "quantidade_usada",
-                                    "unidade_usada",
-                                    "status",
-                                    "observacoes",
-                                    "confianca",
-                                ],
-                                "properties": {
-                                    "insumo_id": item_nullable_string,
-                                    "nome": item_nullable_string,
-                                    "categoria": item_nullable_string,
-                                    "quantidade_comprada": item_nullable_number,
-                                    "unidade_compra": item_nullable_string,
-                                    "preco_total": item_nullable_number,
-                                    "quantidade_usada": item_nullable_number,
-                                    "unidade_usada": item_nullable_string,
-                                    "status": {"type": "string"},
-                                    "observacoes": item_nullable_string,
-                                    "confianca": item_nullable_number,
-                                },
-                            },
-                        },
-                        "custos_adicionais": {
-                            "type": "array",
-                            "items": {
-                                "type": "object",
-                                "additionalProperties": False,
-                                "required": [
-                                    "tipo",
-                                    "nome",
-                                    "valor",
-                                    "aplicacao",
-                                    "status",
-                                    "observacoes",
-                                    "confianca",
-                                ],
-                                "properties": {
-                                    "tipo": {"type": "string"},
-                                    "nome": item_nullable_string,
-                                    "valor": item_nullable_number,
-                                    "aplicacao": {"type": "string"},
-                                    "status": {"type": "string"},
-                                    "observacoes": item_nullable_string,
-                                    "confianca": item_nullable_number,
-                                },
-                            },
-                        },
-                        "preparo": {
-                            "type": "object",
-                            "additionalProperties": False,
-                            "required": [
-                                "modo_preparo",
-                                "tempo_preparo_minutos",
-                                "tempo_forno_minutos",
-                                "temperatura_forno",
-                                "observacoes",
-                            ],
-                            "properties": {
-                                "modo_preparo": item_nullable_string,
-                                "tempo_preparo_minutos": item_nullable_number,
-                                "tempo_forno_minutos": item_nullable_number,
-                                "temperatura_forno": item_nullable_string,
-                                "observacoes": item_nullable_string,
-                            },
-                        },
-                    },
-                },
-                "perguntas_sugeridas": {"type": "array", "items": {"type": "string"}},
-                "avisos": {"type": "array", "items": {"type": "string"}},
-                "confianca": {"type": "number", "minimum": 0, "maximum": 1},
-            },
-        },
-        "strict": True,
-    }
-
-
 def _catalogo_de_produtos_para_ia() -> list[dict]:
     return [
         {
@@ -2456,11 +1935,6 @@ def _observacao_do_custo_adicional(custo: dict) -> str | None:
     return " ".join(partes) or None
 
 
-def _tipo_custo_adicional(valor) -> str:
-    valor_normalizado = str(valor or "outro").strip().lower()
-    return valor_normalizado if valor_normalizado in TIPOS_CUSTO_ADICIONAL else "outro"
-
-
 def _validar_unidades_do_ingrediente_para_confirmacao(item: dict) -> None:
     unidade_usada = item.get("unidade_usada")
     if not servico_de_custos.unidade_suportada(unidade_usada):
@@ -2488,199 +1962,9 @@ def _buscar_insumo_existente_para_ingrediente(item: dict) -> dict | None:
     return servico_de_custos.buscar_insumo_compativel_por_nome(nome)
 
 
-def _tem_dados_de_compra_completos(item: dict) -> bool:
-    return (
-        _decimal_ou_none(item.get("quantidade_comprada")) is not None
-        and bool(item.get("unidade_compra"))
-        and _decimal_ou_none(item.get("preco_total")) is not None
-    )
-
-
-def _tem_algum_dado_de_compra(item: dict) -> bool:
-    return any(
-        item.get(chave) is not None
-        for chave in ("quantidade_comprada", "unidade_compra", "preco_total")
-    )
-
-
 def _descrever_conversao_aproximada(unidade: str | None) -> str | None:
     if not unidade:
         return None
     return servico_de_custos.descrever_unidade_aproximada(unidade)
 
 
-def _status_de_custo(valor, *, padrao: str = "PENDENTE") -> str:
-    status = str(valor or padrao).strip().upper()
-    return status if status in STATUS_CUSTO_VALIDOS else padrao
-
-
-def _consolidar_status(statuses: list[str]) -> str:
-    if not statuses:
-        return "PENDENTE"
-    return max(statuses, key=lambda status: STATUS_ORDEM.get(status, 0))
-
-
-def _chave_ingrediente(item: dict) -> str:
-    if item.get("insumo_id"):
-        return f"id:{item['insumo_id']}"
-    return f"nome:{_normalizar_chave(item.get('nome') or '')}"
-
-
-def _nomes_ingredientes_compativeis(nome_a: str | None, nome_b: str | None) -> bool:
-    if not nome_a or not nome_b:
-        return False
-    normalizado_a = _normalizar_nome_ingrediente(nome_a)
-    normalizado_b = _normalizar_nome_ingrediente(nome_b)
-    if not normalizado_a or not normalizado_b:
-        return False
-    if normalizado_a == normalizado_b:
-        return True
-
-    tokens_a = set(normalizado_a.split())
-    tokens_b = set(normalizado_b.split())
-    tokens_menores = tokens_a if len(tokens_a) <= len(tokens_b) else tokens_b
-    tokens_maiores = tokens_b if len(tokens_a) <= len(tokens_b) else tokens_a
-    if tokens_menores and tokens_menores <= tokens_maiores:
-        return bool(tokens_menores - INGREDIENTES_GENERICOS_PARA_MATCH)
-
-    if len(tokens_a) < 2 and len(tokens_b) < 2:
-        return False
-    comuns = tokens_a & tokens_b
-    if not comuns:
-        return False
-    cobertura_menor = len(comuns) / min(len(tokens_a), len(tokens_b))
-    cobertura_maior = len(comuns) / max(len(tokens_a), len(tokens_b))
-    return cobertura_menor >= 0.75 and cobertura_maior >= 0.45
-
-
-def _normalizar_nome_ingrediente(nome: str) -> str:
-    texto = _normalizar_chave(nome)
-    substituicoes = {
-        "mucarela": "mussarela",
-        "mozarela": "mussarela",
-        "mozzarella": "mussarela",
-        "ovos": "ovo",
-        "queijos": "queijo",
-    }
-    tokens = []
-    for token in texto.split():
-        token = substituicoes.get(token, token)
-        if token in STOPWORDS_INGREDIENTE or token in DESCRITORES_INGREDIENTE:
-            continue
-        tokens.append(token)
-    return " ".join(tokens)
-
-
-def _escolher_nome_ingrediente(nome_atual: str | None, nome_novo: str | None) -> str | None:
-    if not nome_atual:
-        return nome_novo
-    if not nome_novo:
-        return nome_atual
-    tokens_atual = set(_normalizar_nome_ingrediente(nome_atual).split())
-    tokens_novo = set(_normalizar_nome_ingrediente(nome_novo).split())
-    if len(tokens_novo) > len(tokens_atual):
-        return nome_novo
-    return nome_atual
-
-
-def _chave_custo_adicional(item: dict) -> str:
-    return f"{item.get('tipo') or 'outro'}:{_normalizar_chave(item.get('nome') or '')}"
-
-
-def _uuid_ou_none(valor) -> UUID | None:
-    if not valor:
-        return None
-    try:
-        return valor if isinstance(valor, UUID) else UUID(str(valor))
-    except (TypeError, ValueError):
-        return None
-
-
-def _uuid_str_ou_none(valor) -> str | None:
-    uuid_valor = _uuid_ou_none(valor)
-    return str(uuid_valor) if uuid_valor else None
-
-
-def _texto_ou_none(valor) -> str | None:
-    if valor is None:
-        return None
-    texto = str(valor).strip()
-    return texto or None
-
-
-def _normalizar_unidade_de_entrada(valor) -> str | None:
-    texto = _texto_ou_none(valor)
-    return servico_de_custos.normalizar_unidade(texto) if texto else None
-
-
-def _lista_ou_vazia(valor) -> list:
-    return valor if isinstance(valor, list) else []
-
-
-def _lista_de_textos(valor) -> list[str]:
-    if not isinstance(valor, list):
-        return []
-    return [str(item).strip() for item in valor if str(item).strip()]
-
-
-def _deduplicar_textos(valores: list[str]) -> list[str]:
-    vistos = set()
-    resultado = []
-    for valor in valores:
-        texto = str(valor).strip()
-        chave = _normalizar_chave(texto)
-        if texto and chave not in vistos:
-            vistos.add(chave)
-            resultado.append(texto)
-    return resultado
-
-
-def _decimal_ou_none(valor) -> Decimal | None:
-    if valor is None or valor == "":
-        return None
-    try:
-        return Decimal(str(valor).replace(",", "."))
-    except (InvalidOperation, ValueError):
-        return None
-
-
-def _decimal_obrigatorio(valor, campo: str) -> Decimal:
-    numero = _decimal_ou_none(valor)
-    if numero is None or numero <= 0:
-        raise BadRequestError(f"Campo numerico obrigatorio invalido: {campo}.")
-    return numero
-
-
-def _decimal_str_ou_none(valor) -> str | None:
-    numero = _decimal_ou_none(valor)
-    return str(numero) if numero is not None else None
-
-
-def _float_ou_none(valor) -> float | None:
-    if valor is None:
-        return None
-    try:
-        numero = float(valor)
-    except (TypeError, ValueError):
-        return None
-    return max(0, min(1, numero))
-
-
-def _arredondar_moeda(valor: Decimal) -> Decimal:
-    return Decimal(str(valor)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
-
-
-def _arredondar_percentual(valor: Decimal) -> Decimal:
-    return Decimal(str(valor)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
-
-
-def _normalizar_chave(valor: str) -> str:
-    sem_acento = unicodedata.normalize("NFKD", valor)
-    ascii_texto = sem_acento.encode("ascii", "ignore").decode("ascii")
-    return re.sub(r"[^a-z0-9]+", " ", ascii_texto.lower()).strip()
-
-
-def _normalizar_unidade_texto(valor: str | None) -> str | None:
-    if not valor:
-        return None
-    return _normalizar_chave(valor)
