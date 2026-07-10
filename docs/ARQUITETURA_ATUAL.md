@@ -15,8 +15,13 @@ reestruturacao. Ele complementa o [PLANO_REARQUITETURA_MODERNA.md](PLANO_REARQUI
 | consolidacao de relatorios | `modules/relatorios/domain/agregacao.py` |
 | comando de IA sem OpenAI (fallback) | `modules/ia/domain/fallback.py` |
 | normalizacao de texto da IA | `modules/ia/domain/texto.py` |
+| analise local de periodo (sem OpenAI) | `modules/ia/domain/analise.py` |
 | conversao de unidade / custo | `modules/custos/domain/unidades.py` |
-| matching de ingrediente | `modules/custos/domain/ingredientes.py` |
+| matching de ingrediente (insumos) | `modules/custos/domain/ingredientes.py` |
+| rascunho do assistente de custeio | `modules/custos/assistant/rascunho.py` |
+| coercoes de valores vindos da IA | `modules/custos/assistant/valores.py` |
+| regras de ingrediente do assistente | `modules/custos/assistant/ingredientes.py` |
+| prompt/schema de extracao de custeio | `modules/custos/prompts/extracao_custeio.py` |
 | cliente Supabase / OpenAI | `infra/supabase/client.py`, `infra/openai/client.py` |
 | checagem de API key | `core/security.py` |
 
@@ -54,10 +59,10 @@ de `*.servico` entre modulos (preferir `public.py`).
 | vendas | ✅ clean | use_cases + domain + adapters |
 | dias_de_venda | ✅ refatorado | domain/sobras, domain/regras_dia, use_cases (iniciar/corrigir) |
 | relatorios | ✅ refatorado | domain/agregacao (consolidacao pura) |
-| ia | 🟡 parcial | domain (acoes/vocabulario/texto/fallback) extraido; servico ainda orquestra OpenAI/confirmacao/execucao |
+| ia | 🟡 parcial | domain (acoes/vocabulario/texto/fallback/analise) extraido; servico ainda orquestra OpenAI/confirmacao/execucao |
 | custos | 🟡 parcial | domain (unidades/ingredientes/receita) extraido; servico ainda faz CRUD/compras/lista |
-| custos.assistente | 🔴 pendente | `assistente_servico.py` (~2,7k linhas) ainda monolitico |
-| admin.seed | 🔴 pendente | geracao fake acoplada a persistencia |
+| custos.assistente | 🟡 parcial | nucleo puro em `assistant/` (valores/ingredientes/rascunho) + prompts extraidos; servico (~2k linhas) ainda orquestra sessao/simulacao/confirmacao |
+| admin.seed | 🟡 parcial | lote decomposto em passos por dia (rng estavel); persistencia ainda no mesmo arquivo |
 | notificacoes | 🟡 parcial | funciona; falta separar dominio/repositorio e enum de status |
 | auth, locais, midia, historico, rag | ⚙️ estaveis | menores; padrao pode ser aplicado depois |
 
@@ -81,20 +86,20 @@ python -m compileall -q app      # smoke de compilacao
 ```
 
 Os testes cobrem o **dominio puro** extraido (preco, disponibilidade, sobras,
-agregacao de relatorios, fallback/normalizacao da IA, unidades e matching de
-custos) e a checagem de API key. Nao ha testes de integracao com Supabase/OpenAI.
+agregacao de relatorios, fallback/normalizacao/analise da IA, unidades e
+matching de custos, valores/ingredientes/rascunho do assistente) e a checagem
+de API key. Nao ha testes de integracao com Supabase/OpenAI.
 
 ## Proximos passos recomendados
 
-1. Fatiar `custos/assistente_servico.py` em `assistant/` (session, draft,
-   extraction, questions, simulation, confirmation) — maior item restante.
-2. Terminar `ia`: extrair geracao de analise, montagem de confirmacao e execucao
-   para `use_cases/` + `domain/`; tirar prompts/JSON de extracao do Python.
+1. Terminar o assistente de custeio: extrair perguntas/pendencias, simulacao e
+   confirmacao de `assistente_servico.py` (exigem injetar a busca de insumo,
+   hoje acoplada ao Supabase).
+2. Terminar `ia`: extrair montagem de confirmacao e `_executar_operacao_confirmada`
+   para `use_cases/`; a execucao deve chamar os use cases reais de venda/dia.
 3. Terminar `custos`: mover CRUD/compras/lista para use_cases + repositorio.
-4. `admin/seed`: separar factories deterministicas da persistencia; restringir a
-   ambiente nao-producao.
-5. Dedup final: migrar as copias de `_executar_lista_opcional`/`_erro_tabela_ausente`
-   (ia, custos, notificacoes) para `infra/supabase/result.py`.
-6. Seguranca (com cuidado, muda contrato): dependencias `Publico/UsuarioAtual/Admin`
+4. `admin/seed`: separar persistencia da geracao; restringir a ambiente
+   nao-producao; teste de determinismo do lote (mesma seed => mesmas contagens).
+5. Seguranca (com cuidado, muda contrato): dependencias `Publico/UsuarioAtual/Admin`
    e protecao explicita de rotas sensiveis.
-7. Cobertura de testes para os fluxos criticos restantes conforme cada fatia sair.
+6. Cobertura de testes para os fluxos criticos restantes conforme cada fatia sair.
