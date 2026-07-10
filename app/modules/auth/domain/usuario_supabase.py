@@ -20,6 +20,7 @@ def montar_dados_usuario_supabase(usuario_supabase: dict, *, primeiro_usuario: b
             "foto_url": metadata.get("avatar_url") or metadata.get("picture"),
             "telefone": metadata.get("phone") or usuario_supabase.get("phone"),
             "papel": "dono" if primeiro_usuario else "usuario",
+            "plano": "basico",
             "situacao": "ativo",
         }
     )

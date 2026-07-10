@@ -3,24 +3,25 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query
 
-from app.modules.admin.dependencias import exigir_admin_real
+from app.modules.auth.dependencias import exigir_capacidade
 from app.modules.rag import servico
 from app.modules.rag.esquemas import DocumentoRagSaida, RequisicaoCriarDocumentoRag
 
 router = APIRouter(prefix="/admin/rag", tags=["rag"])
+RagGerenciar = Annotated[dict, Depends(exigir_capacidade("rag.gerenciar"))]
 
 
 @router.post("/documentos", response_model=DocumentoRagSaida, status_code=201)
 def criar_documento(
     requisicao: RequisicaoCriarDocumentoRag,
-    usuario: Annotated[dict, Depends(exigir_admin_real)],
+    usuario: RagGerenciar,
 ) -> dict:
     return servico.criar_documento(requisicao, usuario)
 
 
 @router.get("/documentos", response_model=list[DocumentoRagSaida])
 def listar_documentos(
-    _: Annotated[dict, Depends(exigir_admin_real)],
+    _: RagGerenciar,
     status: Annotated[
         str | None,
         Query(pattern="^(pendente|indexado|arquivado)$"),
@@ -34,6 +35,6 @@ def listar_documentos(
 @router.get("/documentos/{documento_id}", response_model=DocumentoRagSaida)
 def buscar_documento(
     documento_id: UUID,
-    _: Annotated[dict, Depends(exigir_admin_real)],
+    _: RagGerenciar,
 ) -> dict:
     return servico.buscar_documento(documento_id)

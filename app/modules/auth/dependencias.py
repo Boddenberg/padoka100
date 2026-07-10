@@ -6,6 +6,7 @@ from fastapi import Depends, Header
 from app.core.config import get_settings
 from app.core.errors import AppError
 from app.modules.auth import servico
+from app.modules.auth.domain import capacidades
 
 
 def obter_sessao_autenticada(
@@ -66,6 +67,35 @@ def exigir_papel(*papeis: str):
                 code="forbidden",
                 message="Usuario nao tem permissao para esta acao.",
                 details={"papeis_necessarios": list(papeis), "papel_atual": usuario.get("papel")},
+            )
+        return usuario
+
+    return dependencia
+
+
+def exigir_capacidade(capacidade: str):
+    def dependencia(
+        sessao: Annotated[dict, Depends(obter_sessao_autenticada)],
+    ) -> dict:
+        usuario = sessao["usuario"]
+        if sessao.get("via_api_key"):
+            return usuario
+        if sessao.get("sem_token"):
+            raise AppError(
+                status_code=401,
+                code="unauthorized",
+                message="Informe uma sessao autenticada para acessar esta feature.",
+                details={"capacidade_necessaria": capacidade},
+            )
+        if not capacidades.usuario_tem_capacidade(usuario, capacidade):
+            raise AppError(
+                status_code=403,
+                code="feature_not_available",
+                message="Seu plano nao libera esta feature.",
+                details={
+                    "capacidade_necessaria": capacidade,
+                    "plano_atual": usuario.get("plano", "basico"),
+                },
             )
         return usuario
 

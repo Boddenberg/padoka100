@@ -7,10 +7,12 @@ from app.core.errors import AppError, ConflictError, NotFoundError
 from app.db.supabase import get_supabase_client
 from app.infra.supabase.result import coluna_ausente, tabela_ausente
 from app.modules.auth.adapters import supabase_auth
+from app.modules.auth.domain.capacidades import capacidades_do_usuario
 from app.modules.auth.domain.usuario_supabase import montar_dados_usuario_supabase
 from app.modules.auth.esquemas import (
     RequisicaoAtualizarPapel,
     RequisicaoAtualizarPerfil,
+    RequisicaoAtualizarPlano,
     RequisicaoLogin,
     RequisicaoRegistrarUsuario,
     RequisicaoTrocarSenha,
@@ -49,6 +51,7 @@ def registrar_usuario(requisicao: RequisicaoRegistrarUsuario) -> dict:
                     "data_nascimento": requisicao.data_nascimento,
                     "telefone": requisicao.telefone,
                     "papel": "dono" if primeiro_usuario else "usuario",
+                    "plano": "basico",
                     "situacao": "ativo",
                 }
             )
@@ -325,6 +328,19 @@ def atualizar_papel_usuario(usuario_id: UUID, requisicao: RequisicaoAtualizarPap
     return _usuario_publico(usuario)
 
 
+def atualizar_plano_usuario(usuario_id: UUID, requisicao: RequisicaoAtualizarPlano) -> dict:
+    client = get_supabase_client()
+    buscar_linha_usuario(usuario_id)
+    usuario = (
+        client.table("usuarios")
+        .update(to_db_payload({"plano": requisicao.plano}))
+        .eq("id", str(usuario_id))
+        .execute()
+        .data[0]
+    )
+    return _usuario_publico(usuario)
+
+
 def buscar_linha_usuario(usuario_id: UUID | str) -> dict:
     client = get_supabase_client()
     try:
@@ -396,7 +412,10 @@ def _contar_usuarios(client) -> int:
 
 
 def _usuario_publico(usuario: dict) -> dict:
-    return {key: value for key, value in usuario.items() if key != "senha_hash"}
+    publico = {key: value for key, value in usuario.items() if key != "senha_hash"}
+    publico["plano"] = publico.get("plano") or "basico"
+    publico["capacidades"] = sorted(capacidades_do_usuario(publico))
+    return publico
 
 
 # Helpers centralizados em infra; aliases preservam os nomes locais.

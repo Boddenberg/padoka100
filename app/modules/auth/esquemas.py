@@ -6,6 +6,7 @@ from pydantic import Field
 from app.shared.esquemas import ApiModel
 
 PAPEIS_VALIDOS = "^(usuario|administrador|dono)$"
+PLANOS_VALIDOS = "^(basico|analitico|ia|admin)$"
 EMAIL_PATTERN = r"^[^@\s]+@[^@\s]+\.[^@\s]+$"
 
 
@@ -17,6 +18,8 @@ class UsuarioSaida(ApiModel):
     data_nascimento: date | None = None
     telefone: str | None = None
     papel: str
+    plano: str = Field(default="basico", pattern=PLANOS_VALIDOS)
+    capacidades: list[str] = Field(default_factory=list)
     situacao: str
     criado_em: datetime
     atualizado_em: datetime
@@ -58,6 +61,10 @@ class RequisicaoTrocarSenha(ApiModel):
 
 class RequisicaoAtualizarPapel(ApiModel):
     papel: str = Field(pattern=PAPEIS_VALIDOS)
+
+
+class RequisicaoAtualizarPlano(ApiModel):
+    plano: str = Field(pattern=PLANOS_VALIDOS)
 
 
 class SessaoAutenticada(ApiModel):

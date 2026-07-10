@@ -9,6 +9,7 @@ from app.modules.auth.dependencias import obter_sessao_autenticada
 from app.modules.auth.esquemas import (
     RequisicaoAtualizarPapel,
     RequisicaoAtualizarPerfil,
+    RequisicaoAtualizarPlano,
     RequisicaoLogin,
     RequisicaoRegistrarUsuario,
     RequisicaoTrocarSenha,
@@ -58,6 +59,15 @@ def atualizar_papel_usuario(
     _: AdminReal,
 ) -> dict:
     return servico.atualizar_papel_usuario(usuario_id, requisicao)
+
+
+@router.patch("/auth/usuarios/{usuario_id}/plano", response_model=UsuarioSaida)
+def atualizar_plano_usuario(
+    usuario_id: UUID,
+    requisicao: RequisicaoAtualizarPlano,
+    _: AdminReal,
+) -> dict:
+    return servico.atualizar_plano_usuario(usuario_id, requisicao)
 
 
 @router.get("/perfil/me", response_model=UsuarioSaida)
