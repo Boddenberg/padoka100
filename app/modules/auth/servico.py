@@ -5,6 +5,7 @@ from fastapi import UploadFile
 
 from app.core.errors import AppError, ConflictError, NotFoundError
 from app.db.supabase import get_supabase_client
+from app.infra.supabase.result import tabela_ausente
 from app.modules.auth.esquemas import (
     RequisicaoAtualizarPapel,
     RequisicaoAtualizarPerfil,
@@ -317,6 +318,5 @@ def _usuario_publico(usuario: dict) -> dict:
     return {key: value for key, value in usuario.items() if key != "senha_hash"}
 
 
-def _erro_tabela_ausente(exc: Exception) -> bool:
-    mensagem = str(exc)
-    return "PGRST205" in mensagem and "Could not find the table" in mensagem
+# Helper centralizado em infra; alias preserva o nome local.
+_erro_tabela_ausente = tabela_ausente

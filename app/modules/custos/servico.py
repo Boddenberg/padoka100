@@ -10,6 +10,7 @@ from app.core.config import get_settings
 from app.core.errors import BadRequestError, MissingConfigurationError, NotFoundError
 from app.db.openai import get_openai_client
 from app.db.supabase import get_supabase_client
+from app.infra.supabase.result import executar_lista_opcional, tabela_ausente
 from app.modules.custos.domain import (
     ingredientes as _ingredientes,
 )
@@ -1145,15 +1146,6 @@ def _listar_custos_adicionais(produto_id: UUID, receita_id: UUID | str | None) -
     return _executar_lista_opcional(consulta.order("criado_em"))
 
 
-def _executar_lista_opcional(consulta) -> list[dict]:
-    try:
-        return consulta.execute().data
-    except Exception as exc:
-        if _erro_tabela_ausente(exc):
-            return []
-        raise
-
-
-def _erro_tabela_ausente(exc: Exception) -> bool:
-    mensagem = str(exc)
-    return "PGRST205" in mensagem and "Could not find the table" in mensagem
+# Helpers centralizados em infra; aliases preservam os nomes locais.
+_executar_lista_opcional = executar_lista_opcional
+_erro_tabela_ausente = tabela_ausente

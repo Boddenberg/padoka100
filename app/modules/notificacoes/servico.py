@@ -5,6 +5,7 @@ from fastapi import UploadFile
 
 from app.core.errors import NotFoundError
 from app.db.supabase import get_supabase_client
+from app.infra.supabase.result import executar_lista_opcional, tabela_ausente
 from app.modules.midia import servico as servico_de_midia
 from app.modules.notificacoes.esquemas import (
     RequisicaoAtualizarNotificacao,
@@ -527,15 +528,6 @@ def _parse_datetime(valor: str | None) -> datetime | None:
     return datetime.fromisoformat(valor.replace("Z", "+00:00"))
 
 
-def _executar_lista_opcional(consulta) -> list[dict]:
-    try:
-        return consulta.execute().data
-    except Exception as exc:
-        if _erro_tabela_ausente(exc):
-            return []
-        raise
-
-
-def _erro_tabela_ausente(exc: Exception) -> bool:
-    mensagem = str(exc)
-    return "PGRST205" in mensagem and "Could not find the table" in mensagem
+# Helpers centralizados em infra; aliases preservam os nomes locais.
+_executar_lista_opcional = executar_lista_opcional
+_erro_tabela_ausente = tabela_ausente

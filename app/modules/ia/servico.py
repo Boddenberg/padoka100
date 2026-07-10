@@ -11,6 +11,7 @@ from app.core.config import get_settings
 from app.core.errors import AppError, BadRequestError, MissingConfigurationError, NotFoundError
 from app.db.openai import get_openai_client
 from app.db.supabase import get_supabase_client
+from app.infra.supabase.result import executar_lista_opcional, tabela_ausente
 from app.modules.dias_de_venda import servico as servico_de_dias_de_venda
 from app.modules.dias_de_venda.esquemas import (
     RequisicaoCriarDiaDeVenda,
@@ -355,18 +356,9 @@ def _agrupar_linhas_por_chave(linhas: list[dict], chave: str) -> dict[str, list[
     return grupos
 
 
-def _executar_lista_opcional_ia(consulta) -> list[dict]:
-    try:
-        return consulta.execute().data
-    except Exception as exc:
-        if _erro_tabela_ausente_ia(exc):
-            return []
-        raise
-
-
-def _erro_tabela_ausente_ia(exc: Exception) -> bool:
-    mensagem = str(exc)
-    return "PGRST205" in mensagem and "Could not find the table" in mensagem
+# Helpers centralizados em infra; aliases preservam os nomes locais.
+_executar_lista_opcional_ia = executar_lista_opcional
+_erro_tabela_ausente_ia = tabela_ausente
 
 
 def _montar_periodo_estruturado(data_inicio: date, data_fim: date) -> dict:
