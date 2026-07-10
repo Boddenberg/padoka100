@@ -63,6 +63,69 @@ UNIDADES_BASE = {
     "unidades": ("unidade", Decimal("1")),
     "ovo": ("unidade", Decimal("1")),
     "ovos": ("unidade", Decimal("1")),
+    "barra": ("unidade", Decimal("1")),
+    "barras": ("unidade", Decimal("1")),
+    "bisnaga": ("unidade", Decimal("1")),
+    "bisnagas": ("unidade", Decimal("1")),
+    "caixa": ("unidade", Decimal("1")),
+    "caixas": ("unidade", Decimal("1")),
+    "caixinha": ("unidade", Decimal("1")),
+    "caixinhas": ("unidade", Decimal("1")),
+    "cx": ("unidade", Decimal("1")),
+    "dente": ("unidade", Decimal("1")),
+    "dentes": ("unidade", Decimal("1")),
+    "emb": ("unidade", Decimal("1")),
+    "embalagem": ("unidade", Decimal("1")),
+    "embalagens": ("unidade", Decimal("1")),
+    "fatia": ("unidade", Decimal("1")),
+    "fatias": ("unidade", Decimal("1")),
+    "folha": ("unidade", Decimal("1")),
+    "folhas": ("unidade", Decimal("1")),
+    "frasco": ("unidade", Decimal("1")),
+    "frascos": ("unidade", Decimal("1")),
+    "frasquinho": ("unidade", Decimal("1")),
+    "frasquinhos": ("unidade", Decimal("1")),
+    "garrafa": ("unidade", Decimal("1")),
+    "garrafas": ("unidade", Decimal("1")),
+    "garrafinha": ("unidade", Decimal("1")),
+    "garrafinhas": ("unidade", Decimal("1")),
+    "lata": ("unidade", Decimal("1")),
+    "latas": ("unidade", Decimal("1")),
+    "latinha": ("unidade", Decimal("1")),
+    "latinhas": ("unidade", Decimal("1")),
+    "maco": ("unidade", Decimal("1")),
+    "macos": ("unidade", Decimal("1")),
+    "pacote": ("unidade", Decimal("1")),
+    "pacotes": ("unidade", Decimal("1")),
+    "pacotinho": ("unidade", Decimal("1")),
+    "pacotinhos": ("unidade", Decimal("1")),
+    "pitada": ("unidade", Decimal("1")),
+    "pitadas": ("unidade", Decimal("1")),
+    "porcao": ("unidade", Decimal("1")),
+    "porcoes": ("unidade", Decimal("1")),
+    "pct": ("unidade", Decimal("1")),
+    "pcts": ("unidade", Decimal("1")),
+    "pcte": ("unidade", Decimal("1")),
+    "pote": ("unidade", Decimal("1")),
+    "potes": ("unidade", Decimal("1")),
+    "potinho": ("unidade", Decimal("1")),
+    "potinhos": ("unidade", Decimal("1")),
+    "punhado": ("unidade", Decimal("1")),
+    "punhados": ("unidade", Decimal("1")),
+    "ramo": ("unidade", Decimal("1")),
+    "ramos": ("unidade", Decimal("1")),
+    "rolo": ("unidade", Decimal("1")),
+    "rolos": ("unidade", Decimal("1")),
+    "sache": ("unidade", Decimal("1")),
+    "saches": ("unidade", Decimal("1")),
+    "saco": ("unidade", Decimal("1")),
+    "sacos": ("unidade", Decimal("1")),
+    "saquinho": ("unidade", Decimal("1")),
+    "saquinhos": ("unidade", Decimal("1")),
+    "tablete": ("unidade", Decimal("1")),
+    "tabletes": ("unidade", Decimal("1")),
+    "vidro": ("unidade", Decimal("1")),
+    "vidros": ("unidade", Decimal("1")),
     "duzia": ("unidade", Decimal("12")),
     "duzias": ("unidade", Decimal("12")),
     "cartela": ("unidade", Decimal("30")),
@@ -108,6 +171,28 @@ PADROES_UNIDADES_COM_RUIDO = (
     (r"\bcartelas?(?:\s+de\s+ovos)?\b", "cartela"),
     (r"\bbandejas?(?:\s+de\s+ovos)?\b", "bandeja de ovos"),
     (r"\bduzias?\b", "duzia"),
+    (r"\b(?:pacote|pacotes|pacotinho|pacotinhos|pct|pcts|pcte)\b", "pacote"),
+    (r"\b(?:saco|sacos|saquinho|saquinhos)\b", "saco"),
+    (r"\b(?:sache|saches)\b", "sache"),
+    (r"\b(?:caixa|caixas|caixinha|caixinhas|cx)\b", "caixa"),
+    (r"\b(?:emb|embalagem|embalagens)\b", "embalagem"),
+    (r"\b(?:frasco|frascos|frasquinho|frasquinhos)\b", "frasco"),
+    (r"\b(?:garrafa|garrafas|garrafinha|garrafinhas)\b", "garrafa"),
+    (r"\b(?:lata|latas|latinha|latinhas)\b", "lata"),
+    (r"\b(?:pote|potes|potinho|potinhos)\b", "pote"),
+    (r"\b(?:barra|barras)\b", "barra"),
+    (r"\b(?:tablete|tabletes)\b", "tablete"),
+    (r"\b(?:bisnaga|bisnagas)\b", "bisnaga"),
+    (r"\b(?:vidro|vidros)\b", "vidro"),
+    (r"\b(?:rolo|rolos)\b", "rolo"),
+    (r"\b(?:fatia|fatias)\b", "fatia"),
+    (r"\b(?:maco|macos)\b", "maco"),
+    (r"\b(?:ramo|ramos)\b", "ramo"),
+    (r"\b(?:folha|folhas)\b", "folha"),
+    (r"\b(?:dente|dentes)\b", "dente"),
+    (r"\b(?:pitada|pitadas)\b", "pitada"),
+    (r"\b(?:punhado|punhados)\b", "punhado"),
+    (r"\b(?:porcao|porcoes)\b", "porcao"),
     (r"\b(?:un|und|unidades?|ovos?)\b", "unidade"),
     (r"\b(?:kg|quilo|quilos|kilograma|kilogramas)\b", "kg"),
     (r"\b(?:g|grama|gramas)\b", "g"),
@@ -1285,9 +1370,36 @@ def _normalizar_unidade(unidade: str) -> str:
     texto = unicodedata.normalize("NFKD", str(unidade).strip().lower())
     texto = texto.encode("ascii", "ignore").decode("ascii")
     unidade_normalizada = re.sub(r"[^a-z0-9]+", " ", texto).strip()
-    if _resolver_unidade_com_equivalencia_informada(unidade_normalizada):
-        return unidade_normalizada
+    unidade_com_equivalencia = _normalizar_unidade_com_equivalencia_informada(
+        unidade_normalizada
+    )
+    if unidade_com_equivalencia:
+        return unidade_com_equivalencia
     return _extrair_unidade_de_texto_com_ruido(unidade_normalizada) or unidade_normalizada
+
+
+def _normalizar_unidade_com_equivalencia_informada(unidade_normalizada: str) -> str | None:
+    if _unidade_indica_quantidade_alternativa(unidade_normalizada):
+        return None
+    padroes = (
+        (r"(\d+(?:[,.]\d+)?)\s*(kg|quilo|quilos|kilograma|kilogramas)\b", "kg"),
+        (r"(\d+(?:[,.]\d+)?)\s*(g|grama|gramas)\b", "g"),
+        (r"(\d+(?:[,.]\d+)?)\s*(ml|mililitro|mililitros)\b", "ml"),
+        (r"(\d+(?:[,.]\d+)?)\s*(l|lt|litro|litros)\b", "l"),
+        (r"(\d+(?:[,.]\d+)?)\s*(un|und|unidade|unidades)\b", "unidade"),
+        (r"(\d+(?:[,.]\d+)?)\s*(ovo|ovos)\b", "ovos"),
+    )
+    for padrao, unidade in padroes:
+        match = re.search(padrao, unidade_normalizada)
+        if match:
+            quantidade = Decimal(match.group(1).replace(",", "."))
+            return f"{_decimal_unidade_str(quantidade)}{unidade}"
+    return None
+
+
+def _decimal_unidade_str(valor: Decimal) -> str:
+    texto = format(valor.normalize(), "f")
+    return texto.rstrip("0").rstrip(".") if "." in texto else texto
 
 
 def _extrair_unidade_de_texto_com_ruido(texto: str) -> str | None:

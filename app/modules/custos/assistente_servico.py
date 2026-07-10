@@ -1504,15 +1504,22 @@ def _unidade_generica_de_embalagem(unidade: str | None) -> bool:
         tokens
         & {
             "caixa",
+            "caixinha",
             "embalagem",
             "frasco",
+            "frasquinho",
             "garrafa",
+            "garrafinha",
             "lata",
+            "latinha",
             "pacote",
+            "pacotinho",
             "pct",
             "pote",
+            "potinho",
             "sache",
             "saco",
+            "saquinho",
         }
     )
 
