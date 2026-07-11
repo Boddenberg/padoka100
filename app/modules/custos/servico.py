@@ -68,15 +68,22 @@ _listar_pendencias = _receita.listar_pendencias
 _consolidar_status = consolidar_status
 
 
-def listar_insumos() -> list[dict]:
+def listar_insumos(*, usuario_id: UUID | str | None = None) -> list[dict]:
     client = get_supabase_client()
-    insumos = _executar_lista_opcional(client.table("insumos").select("*").order("nome"))
+    consulta = client.table("insumos").select("*")
+    if usuario_id:
+        consulta = consulta.eq("usuario_id", str(usuario_id))
+    insumos = _executar_lista_opcional(consulta.order("nome"))
     return [_anexar_preco_atual(insumo) for insumo in insumos]
 
 
-def criar_insumo(requisicao: RequisicaoCriarInsumo) -> dict:
+def criar_insumo(
+    requisicao: RequisicaoCriarInsumo,
+    *,
+    usuario_id: UUID | str | None = None,
+) -> dict:
     client = get_supabase_client()
-    existente = buscar_insumo_compativel_por_nome(requisicao.nome)
+    existente = buscar_insumo_compativel_por_nome(requisicao.nome, usuario_id=usuario_id)
     if existente:
         if requisicao.categoria and requisicao.categoria != existente.get("categoria"):
             client.table("insumos").update({"categoria": requisicao.categoria}).eq(
@@ -96,6 +103,7 @@ def criar_insumo(requisicao: RequisicaoCriarInsumo) -> dict:
                 observacoes=requisicao.observacoes,
                 status=requisicao.status,
             ),
+            usuario_id=usuario_id,
         )["insumo"]
 
     custo_por_unidade = _calcular_custo_por_unidade(
@@ -118,6 +126,7 @@ def criar_insumo(requisicao: RequisicaoCriarInsumo) -> dict:
                     "unidade_compra": _normalizar_unidade(requisicao.unidade_compra),
                     "custo_por_unidade": custo_por_unidade,
                     "ultima_compra_em": requisicao.vigente_desde,
+                    "usuario_id": usuario_id,
                 }
             )
         )
@@ -136,12 +145,17 @@ def criar_insumo(requisicao: RequisicaoCriarInsumo) -> dict:
         fonte=requisicao.fonte,
         observacoes=requisicao.observacoes,
     )
-    return buscar_insumo(UUID(insumo["id"]))
+    return buscar_insumo(UUID(insumo["id"]), usuario_id=usuario_id)
 
 
-def atualizar_insumo(insumo_id: UUID, requisicao: RequisicaoAtualizarInsumo) -> dict:
+def atualizar_insumo(
+    insumo_id: UUID,
+    requisicao: RequisicaoAtualizarInsumo,
+    *,
+    usuario_id: UUID | str | None = None,
+) -> dict:
     client = get_supabase_client()
-    insumo = buscar_insumo(insumo_id)
+    insumo = buscar_insumo(insumo_id, usuario_id=usuario_id)
     dados = requisicao.model_dump(exclude_unset=True)
     if not dados:
         return insumo
@@ -184,9 +198,11 @@ def atualizar_insumo(insumo_id: UUID, requisicao: RequisicaoAtualizarInsumo) -> 
 def registrar_preco_insumo(
     insumo_id: UUID,
     requisicao: RequisicaoRegistrarPrecoInsumo,
+    *,
+    usuario_id: UUID | str | None = None,
 ) -> dict:
     client = get_supabase_client()
-    insumo = buscar_insumo(insumo_id)
+    insumo = buscar_insumo(insumo_id, usuario_id=usuario_id)
     custo_por_unidade = _calcular_custo_por_unidade(
         requisicao.preco_total,
         requisicao.quantidade_comprada,
@@ -226,8 +242,8 @@ def registrar_preco_insumo(
     return {"insumo": _anexar_preco_atual(insumo_atualizado), "preco": preco}
 
 
-def listar_precos_insumo(insumo_id: UUID) -> list[dict]:
-    buscar_insumo(insumo_id)
+def listar_precos_insumo(insumo_id: UUID, *, usuario_id: UUID | str | None = None) -> list[dict]:
+    buscar_insumo(insumo_id, usuario_id=usuario_id)
     client = get_supabase_client()
     return _executar_lista_opcional(
         client.table("insumos_precos")
@@ -238,22 +254,28 @@ def listar_precos_insumo(insumo_id: UUID) -> list[dict]:
     )
 
 
-def buscar_insumo(insumo_id: UUID | str) -> dict:
+def buscar_insumo(insumo_id: UUID | str, *, usuario_id: UUID | str | None = None) -> dict:
     client = get_supabase_client()
-    insumo = first_or_none(
-        _executar_lista_opcional(
-            client.table("insumos").select("*").eq("id", str(insumo_id)).limit(1)
-        )
-    )
+    consulta = client.table("insumos").select("*").eq("id", str(insumo_id))
+    if usuario_id:
+        consulta = consulta.eq("usuario_id", str(usuario_id))
+    insumo = first_or_none(_executar_lista_opcional(consulta.limit(1)))
     if not insumo:
         raise NotFoundError("Insumo", str(insumo_id))
     return _anexar_preco_atual(insumo)
 
 
-def buscar_insumo_compativel_por_nome(nome: str | None) -> dict | None:
+def buscar_insumo_compativel_por_nome(
+    nome: str | None,
+    *,
+    usuario_id: UUID | str | None = None,
+) -> dict | None:
     if not nome:
         return None
-    insumos = _executar_lista_opcional(get_supabase_client().table("insumos").select("*"))
+    consulta = get_supabase_client().table("insumos").select("*")
+    if usuario_id:
+        consulta = consulta.eq("usuario_id", str(usuario_id))
+    insumos = _executar_lista_opcional(consulta)
     nome_normalizado = normalizar_nome_insumo(nome)
     for insumo in insumos:
         normalizado_insumo = insumo.get("nome_normalizado") or normalizar_nome_insumo(
@@ -275,9 +297,14 @@ def normalizar_unidade(unidade: str | None) -> str | None:
     return _normalizar_unidade(unidade)
 
 
-def criar_receita(produto_id: UUID, requisicao: RequisicaoCriarReceita) -> dict:
+def criar_receita(
+    produto_id: UUID,
+    requisicao: RequisicaoCriarReceita,
+    *,
+    usuario_id: UUID | str | None = None,
+) -> dict:
     client = get_supabase_client()
-    produto = servico_de_produtos.buscar_produto(produto_id)
+    produto = servico_de_produtos.buscar_produto(produto_id, usuario_id=usuario_id)
     receita = (
         client.table("receitas_produto")
         .insert(
@@ -289,6 +316,7 @@ def criar_receita(produto_id: UUID, requisicao: RequisicaoCriarReceita) -> dict:
                     "unidade_rendimento": requisicao.unidade_rendimento,
                     "status": requisicao.status,
                     "observacoes": requisicao.observacoes,
+                    "usuario_id": usuario_id,
                 }
             )
         )
@@ -297,15 +325,19 @@ def criar_receita(produto_id: UUID, requisicao: RequisicaoCriarReceita) -> dict:
     )
     if requisicao.ingredientes:
         linhas = [
-            _montar_linha_ingrediente(receita["id"], ingrediente)
+            _montar_linha_ingrediente(receita["id"], ingrediente, usuario_id=usuario_id)
             for ingrediente in requisicao.ingredientes
         ]
         client.table("ingredientes_receita").insert(linhas).execute()
-    return buscar_receita(receita["id"])
+    return buscar_receita(receita["id"], usuario_id=usuario_id)
 
 
-def listar_receitas_do_produto(produto_id: UUID) -> list[dict]:
-    servico_de_produtos.buscar_produto(produto_id)
+def listar_receitas_do_produto(
+    produto_id: UUID,
+    *,
+    usuario_id: UUID | str | None = None,
+) -> list[dict]:
+    servico_de_produtos.buscar_produto(produto_id, usuario_id=usuario_id)
     client = get_supabase_client()
     receitas = (
         _executar_lista_opcional(
@@ -318,17 +350,16 @@ def listar_receitas_do_produto(produto_id: UUID) -> list[dict]:
     return [_anexar_ingredientes(receita) for receita in receitas]
 
 
-def listar_produtos_com_receita() -> list[dict]:
+def listar_produtos_com_receita(*, usuario_id: UUID | str | None = None) -> list[dict]:
     client = get_supabase_client()
-    produtos = (
+    consulta = (
         client.table("produtos")
         .select("id,nome,slug,situacao,ordem_exibicao")
         .eq("situacao", "ativo")
-        .order("ordem_exibicao")
-        .order("nome")
-        .execute()
-        .data
     )
+    if usuario_id:
+        consulta = consulta.eq("usuario_id", str(usuario_id))
+    produtos = consulta.order("ordem_exibicao").order("nome").execute().data
     if not produtos:
         return []
 
@@ -369,16 +400,12 @@ def listar_produtos_com_receita() -> list[dict]:
     return saida
 
 
-def buscar_receita(receita_id: UUID | str) -> dict:
+def buscar_receita(receita_id: UUID | str, *, usuario_id: UUID | str | None = None) -> dict:
     client = get_supabase_client()
-    receita = first_or_none(
-        _executar_lista_opcional(
-            client.table("receitas_produto")
-            .select("*")
-            .eq("id", str(receita_id))
-            .limit(1)
-        )
-    )
+    consulta = client.table("receitas_produto").select("*").eq("id", str(receita_id))
+    if usuario_id:
+        consulta = consulta.eq("usuario_id", str(usuario_id))
+    receita = first_or_none(_executar_lista_opcional(consulta.limit(1)))
     if not receita:
         raise NotFoundError("Receita", str(receita_id))
     return _anexar_ingredientes(receita)
@@ -387,11 +414,13 @@ def buscar_receita(receita_id: UUID | str) -> dict:
 def criar_custo_adicional(
     produto_id: UUID,
     requisicao: RequisicaoCriarCustoAdicional,
+    *,
+    usuario_id: UUID | str | None = None,
 ) -> dict:
     client = get_supabase_client()
-    servico_de_produtos.buscar_produto(produto_id)
+    servico_de_produtos.buscar_produto(produto_id, usuario_id=usuario_id)
     if requisicao.receita_id:
-        receita = buscar_receita(requisicao.receita_id)
+        receita = buscar_receita(requisicao.receita_id, usuario_id=usuario_id)
         if receita["produto_id"] != str(produto_id):
             raise BadRequestError("A receita informada nao pertence ao produto.")
     return (
@@ -406,10 +435,12 @@ def calcular_custo_do_produto(
     produto_id: UUID,
     receita_id: UUID | None = None,
     data_referencia: date | None = None,
+    *,
+    usuario_id: UUID | str | None = None,
 ) -> dict:
     data_calculo = data_referencia or date.today()
-    produto = servico_de_produtos.buscar_produto(produto_id)
-    receita = _resolver_receita(produto_id, receita_id)
+    produto = servico_de_produtos.buscar_produto(produto_id, usuario_id=usuario_id)
+    receita = _resolver_receita(produto_id, receita_id, usuario_id=usuario_id)
     if not receita:
         return {
             "produto_id": str(produto_id),
@@ -465,14 +496,18 @@ def calcular_custo_do_produto(
     }
 
 
-def atualizar_precos_por_compra(requisicao: RequisicaoAtualizarPrecosPorCompra) -> dict:
+def atualizar_precos_por_compra(
+    requisicao: RequisicaoAtualizarPrecosPorCompra,
+    *,
+    usuario_id: UUID | str | None = None,
+) -> dict:
     resultados = []
     criados = 0
     atualizados = 0
     ignorados = 0
 
     for item in requisicao.itens:
-        resultado = _processar_item_atualizacao_preco(item, requisicao)
+        resultado = _processar_item_atualizacao_preco(item, requisicao, usuario_id=usuario_id)
         resultados.append(resultado)
         if resultado["acao"] == "criado":
             criados += 1
@@ -500,6 +535,7 @@ async def atualizar_precos_por_nota_arquivo(
     fonte: str | None = None,
     aplicar: bool = True,
     contexto: str | None = None,
+    usuario_id: UUID | str | None = None,
 ) -> dict:
     conteudo = await file.read()
     if not conteudo:
@@ -517,7 +553,7 @@ async def atualizar_precos_por_nota_arquivo(
         fonte=fonte or file.filename,
         aplicar=aplicar,
     )
-    resposta = atualizar_precos_por_compra(requisicao)
+    resposta = atualizar_precos_por_compra(requisicao, usuario_id=usuario_id)
     resposta["arquivo"] = {
         "nome": file.filename,
         "tipo_conteudo": file.content_type,
@@ -526,7 +562,11 @@ async def atualizar_precos_por_nota_arquivo(
     return resposta
 
 
-def gerar_lista_compras(requisicao: RequisicaoGerarListaCompras) -> dict:
+def gerar_lista_compras(
+    requisicao: RequisicaoGerarListaCompras,
+    *,
+    usuario_id: UUID | str | None = None,
+) -> dict:
     grupos: dict[str, dict] = {}
     pendencias: list[str] = []
     multiplicador_margem = Decimal("1") + (
@@ -534,8 +574,8 @@ def gerar_lista_compras(requisicao: RequisicaoGerarListaCompras) -> dict:
     )
 
     for item in requisicao.itens:
-        produto = servico_de_produtos.buscar_produto(item.produto_id)
-        receita = _resolver_receita(item.produto_id, item.receita_id)
+        produto = servico_de_produtos.buscar_produto(item.produto_id, usuario_id=usuario_id)
+        receita = _resolver_receita(item.produto_id, item.receita_id, usuario_id=usuario_id)
         if not receita:
             pendencias.append(f"Produto {produto['nome']} nao tem receita cadastrada.")
             continue
@@ -551,6 +591,7 @@ def gerar_lista_compras(requisicao: RequisicaoGerarListaCompras) -> dict:
                 quantidade_produto=Decimal(str(item.quantidade)),
                 fator_receita=fator_receita,
                 data_referencia=requisicao.data_referencia,
+                usuario_id=usuario_id,
             )
 
     itens_saida = [
@@ -569,33 +610,29 @@ def gerar_lista_compras(requisicao: RequisicaoGerarListaCompras) -> dict:
         "criado_em": None,
     }
     if requisicao.salvar:
-        lista = _salvar_lista_compras(resposta, requisicao)
+        lista = _salvar_lista_compras(resposta, requisicao, usuario_id=usuario_id)
         resposta["id"] = lista["id"]
         resposta["criado_em"] = lista["criado_em"]
     return resposta
 
 
-def listar_listas_compras(*, limite: int = 50) -> list[dict]:
-    listas = _executar_lista_opcional(
-        get_supabase_client()
-        .table("listas_compras")
-        .select("*")
-        .order("criado_em", desc=True)
-        .limit(limite)
-    )
+def listar_listas_compras(
+    *,
+    limite: int = 50,
+    usuario_id: UUID | str | None = None,
+) -> list[dict]:
+    consulta = get_supabase_client().table("listas_compras").select("*")
+    if usuario_id:
+        consulta = consulta.eq("usuario_id", str(usuario_id))
+    listas = _executar_lista_opcional(consulta.order("criado_em", desc=True).limit(limite))
     return [_lista_compras_da_linha(linha) for linha in listas]
 
 
-def buscar_lista_compras(lista_id: UUID) -> dict:
-    linha = first_or_none(
-        _executar_lista_opcional(
-            get_supabase_client()
-            .table("listas_compras")
-            .select("*")
-            .eq("id", str(lista_id))
-            .limit(1)
-        )
-    )
+def buscar_lista_compras(lista_id: UUID, *, usuario_id: UUID | str | None = None) -> dict:
+    consulta = get_supabase_client().table("listas_compras").select("*").eq("id", str(lista_id))
+    if usuario_id:
+        consulta = consulta.eq("usuario_id", str(usuario_id))
+    linha = first_or_none(_executar_lista_opcional(consulta.limit(1)))
     if not linha:
         raise NotFoundError("Lista de compras", str(lista_id))
     return _lista_compras_da_linha(linha)
@@ -604,6 +641,8 @@ def buscar_lista_compras(lista_id: UUID) -> dict:
 def _processar_item_atualizacao_preco(
     item: ItemAtualizacaoPrecoCompra,
     requisicao: RequisicaoAtualizarPrecosPorCompra,
+    *,
+    usuario_id: UUID | str | None = None,
 ) -> dict:
     if (
         item.quantidade_comprada is None
@@ -620,9 +659,9 @@ def _processar_item_atualizacao_preco(
         }
 
     insumo = (
-        buscar_insumo(item.insumo_id)
+        buscar_insumo(item.insumo_id, usuario_id=usuario_id)
         if item.insumo_id
-        else buscar_insumo_compativel_por_nome(item.nome)
+        else buscar_insumo_compativel_por_nome(item.nome, usuario_id=usuario_id)
     )
     if not requisicao.aplicar:
         return {
@@ -651,7 +690,11 @@ def _processar_item_atualizacao_preco(
                 "id",
                 insumo["id"],
             ).execute()
-        atualizado = registrar_preco_insumo(UUID(insumo["id"]), preco_requisicao)
+        atualizado = registrar_preco_insumo(
+            UUID(insumo["id"]),
+            preco_requisicao,
+            usuario_id=usuario_id,
+        )
         return {
             "nome_informado": item.nome,
             "acao": "atualizado",
@@ -673,7 +716,8 @@ def _processar_item_atualizacao_preco(
             vigente_desde=requisicao.vigente_desde,
             fornecedor=item.fornecedor or requisicao.fornecedor,
             fonte=requisicao.fonte,
-        )
+        ),
+        usuario_id=usuario_id,
     )
     preco = buscar_preco_vigente_insumo(criado["id"], requisicao.vigente_desde, obrigatorio=False)
     return {
@@ -819,6 +863,7 @@ def _acumular_ingrediente_na_lista(
     quantidade_produto: Decimal,
     fator_receita: Decimal,
     data_referencia: date,
+    usuario_id: UUID | str | None = None,
 ) -> None:
     try:
         tipo_unidade, fator_unidade = _resolver_unidade(ingrediente["unidade"])
@@ -829,7 +874,11 @@ def _acumular_ingrediente_na_lista(
     quantidade_base = (
         Decimal(str(ingrediente["quantidade_usada"])) * fator_unidade * fator_receita
     )
-    insumo = buscar_insumo(ingrediente["insumo_id"]) if ingrediente.get("insumo_id") else None
+    insumo = (
+        buscar_insumo(ingrediente["insumo_id"], usuario_id=usuario_id)
+        if ingrediente.get("insumo_id")
+        else None
+    )
     chave = (
         f"insumo:{insumo['id']}"
         if insumo
@@ -905,7 +954,12 @@ def _somar_total_estimado_lista(itens: list[dict]) -> Decimal | None:
     return _arredondar_moeda(sum((Decimal(str(valor)) for valor in valores), Decimal("0")))
 
 
-def _salvar_lista_compras(resposta: dict, requisicao: RequisicaoGerarListaCompras) -> dict:
+def _salvar_lista_compras(
+    resposta: dict,
+    requisicao: RequisicaoGerarListaCompras,
+    *,
+    usuario_id: UUID | str | None = None,
+) -> dict:
     return (
         get_supabase_client()
         .table("listas_compras")
@@ -919,6 +973,7 @@ def _salvar_lista_compras(resposta: dict, requisicao: RequisicaoGerarListaCompra
                     "itens": resposta["itens"],
                     "total_estimado": resposta["total_estimado"],
                     "pendencias": resposta["pendencias"],
+                    "usuario_id": usuario_id,
                 }
             )
         )
@@ -940,10 +995,19 @@ def _lista_compras_da_linha(linha: dict) -> dict:
     }
 
 
-def _montar_linha_ingrediente(receita_id: UUID | str, ingrediente) -> dict:
-    insumo = buscar_insumo(ingrediente.insumo_id) if ingrediente.insumo_id else None
+def _montar_linha_ingrediente(
+    receita_id: UUID | str,
+    ingrediente,
+    *,
+    usuario_id: UUID | str | None = None,
+) -> dict:
+    insumo = (
+        buscar_insumo(ingrediente.insumo_id, usuario_id=usuario_id)
+        if ingrediente.insumo_id
+        else None
+    )
     if not insumo:
-        insumo = buscar_insumo_compativel_por_nome(ingrediente.nome)
+        insumo = buscar_insumo_compativel_por_nome(ingrediente.nome, usuario_id=usuario_id)
     custo_unitario = None
     custo_total = None
     nome = ingrediente.nome
@@ -1102,13 +1166,18 @@ def _dados_de_preco_foram_informados(requisicao: RequisicaoAtualizarInsumo) -> b
     )
 
 
-def _resolver_receita(produto_id: UUID, receita_id: UUID | None) -> dict | None:
+def _resolver_receita(
+    produto_id: UUID,
+    receita_id: UUID | None,
+    *,
+    usuario_id: UUID | str | None = None,
+) -> dict | None:
     if receita_id:
-        receita = buscar_receita(receita_id)
+        receita = buscar_receita(receita_id, usuario_id=usuario_id)
         if receita["produto_id"] != str(produto_id):
             raise BadRequestError("A receita informada nao pertence ao produto.")
         return receita
-    receitas = listar_receitas_do_produto(produto_id)
+    receitas = listar_receitas_do_produto(produto_id, usuario_id=usuario_id)
     return receitas[0] if receitas else None
 
 

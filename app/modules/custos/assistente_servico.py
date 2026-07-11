@@ -100,7 +100,11 @@ _instrucoes_extracao_custeio = instrucoes_extracao_custeio
 _formato_json_extracao_custeio = formato_json_extracao_custeio
 
 
-def criar_sessao(requisicao: RequisicaoCriarSessaoCusteio) -> dict:
+def criar_sessao(
+    requisicao: RequisicaoCriarSessaoCusteio,
+    *,
+    usuario_id: UUID | str | None = None,
+) -> dict:
     rascunho = _normalizar_rascunho(
         requisicao.rascunho_inicial,
         produto_id=requisicao.produto_id,
@@ -108,10 +112,10 @@ def criar_sessao(requisicao: RequisicaoCriarSessaoCusteio) -> dict:
     )
     produto_id = requisicao.produto_id or _uuid_ou_none(rascunho.get("produto_id"))
     if produto_id:
-        servico_de_produtos.buscar_produto(produto_id)
+        servico_de_produtos.buscar_produto(produto_id, usuario_id=usuario_id)
         rascunho["produto_id"] = str(produto_id)
 
-    estado = _montar_estado_da_sessao(rascunho, produto_id=produto_id)
+    estado = _montar_estado_da_sessao(rascunho, produto_id=produto_id, usuario_id=usuario_id)
 
     sessao = (
         get_supabase_client()
@@ -127,6 +131,7 @@ def criar_sessao(requisicao: RequisicaoCriarSessaoCusteio) -> dict:
                     "avisos": estado["avisos"],
                     "confianca_geral": estado["confianca_geral"],
                     "custo_simulado": estado["custo_simulado"],
+                    "usuario_id": usuario_id,
                 }
             )
         )
@@ -136,16 +141,18 @@ def criar_sessao(requisicao: RequisicaoCriarSessaoCusteio) -> dict:
     return _montar_sessao_saida(sessao, entradas=[])
 
 
-def buscar_sessao(sessao_id: UUID) -> dict:
-    sessao = _buscar_sessao_bruta(sessao_id)
+def buscar_sessao(sessao_id: UUID, *, usuario_id: UUID | str | None = None) -> dict:
+    sessao = _buscar_sessao_bruta(sessao_id, usuario_id=usuario_id)
     return _montar_sessao_saida(sessao)
 
 
 def adicionar_entrada_texto(
     sessao_id: UUID,
     requisicao: RequisicaoEntradaTextoCusteio,
+    *,
+    usuario_id: UUID | str | None = None,
 ) -> dict:
-    sessao = _buscar_sessao_bruta(sessao_id)
+    sessao = _buscar_sessao_bruta(sessao_id, usuario_id=usuario_id)
     _garantir_sessao_mutavel(sessao)
     finalidade = _resolver_finalidade_entrada(
         sessao,
@@ -172,8 +179,10 @@ def adicionar_entrada_texto(
 def adicionar_entrada_formulario(
     sessao_id: UUID,
     requisicao: RequisicaoEntradaFormularioCusteio,
+    *,
+    usuario_id: UUID | str | None = None,
 ) -> dict:
-    sessao = _buscar_sessao_bruta(sessao_id)
+    sessao = _buscar_sessao_bruta(sessao_id, usuario_id=usuario_id)
     _garantir_sessao_mutavel(sessao)
     finalidade = _resolver_finalidade_entrada(
         sessao,
@@ -212,12 +221,13 @@ async def adicionar_entrada_arquivo(
     contexto: str | None = None,
     finalidade: str = "auto",
     permitir_fallback: bool = True,
+    usuario_id: UUID | str | None = None,
 ) -> dict:
     tipo = tipo.strip().lower()
     if tipo not in {"audio", "imagem"}:
         raise BadRequestError("Tipo de arquivo invalido para custeio.", {"tipo": tipo})
 
-    sessao = _buscar_sessao_bruta(sessao_id)
+    sessao = _buscar_sessao_bruta(sessao_id, usuario_id=usuario_id)
     _garantir_sessao_mutavel(sessao)
     finalidade_resolvida = _resolver_finalidade_entrada(
         sessao,
@@ -235,6 +245,7 @@ async def adicionar_entrada_arquivo(
         nome_arquivo=file.filename,
         tipo_conteudo=file.content_type,
         descricao=f"Entrada de {tipo} para assistente de custeio",
+        usuario_id=usuario_id,
     )
 
     if tipo == "audio":
@@ -278,13 +289,15 @@ async def adicionar_entrada_arquivo(
 def atualizar_rascunho(
     sessao_id: UUID,
     requisicao: RequisicaoAtualizarRascunhoCusteio,
+    *,
+    usuario_id: UUID | str | None = None,
 ) -> dict:
-    sessao = _buscar_sessao_bruta(sessao_id)
+    sessao = _buscar_sessao_bruta(sessao_id, usuario_id=usuario_id)
     _garantir_sessao_mutavel(sessao)
 
     produto_id = requisicao.produto_id or _uuid_ou_none(sessao.get("produto_id"))
     if requisicao.produto_id:
-        servico_de_produtos.buscar_produto(requisicao.produto_id)
+        servico_de_produtos.buscar_produto(requisicao.produto_id, usuario_id=usuario_id)
 
     rascunho_atual = _normalizar_rascunho(sessao.get("rascunho") or {}, produto_id=produto_id)
     rascunho_novo = _normalizar_rascunho(requisicao.rascunho, produto_id=produto_id)
@@ -314,8 +327,10 @@ def atualizar_rascunho(
 def confirmar_sessao(
     sessao_id: UUID,
     requisicao: RequisicaoConfirmarSessaoCusteio,
+    *,
+    usuario_id: UUID | str | None = None,
 ) -> dict:
-    sessao = _buscar_sessao_bruta(sessao_id)
+    sessao = _buscar_sessao_bruta(sessao_id, usuario_id=usuario_id)
     _garantir_sessao_mutavel(sessao)
 
     produto_id = _uuid_ou_none(sessao.get("produto_id"))
@@ -323,7 +338,7 @@ def confirmar_sessao(
         raise BadRequestError("A sessao precisa estar atrelada a um produto antes de confirmar.")
 
     rascunho = _normalizar_rascunho(sessao.get("rascunho") or {}, produto_id=produto_id)
-    estado = _montar_estado_da_sessao(rascunho, produto_id=produto_id)
+    estado = _montar_estado_da_sessao(rascunho, produto_id=produto_id, usuario_id=usuario_id)
     pendencias = estado["pendencias"]
     if pendencias and not requisicao.permitir_pendencias:
         raise BadRequestError(
@@ -333,7 +348,10 @@ def confirmar_sessao(
 
     receita_draft = rascunho["receita"]
     rendimento = _decimal_obrigatorio(receita_draft.get("rendimento"), "rendimento")
-    ingredientes = _montar_ingredientes_para_confirmacao(rascunho["ingredientes"])
+    ingredientes = _montar_ingredientes_para_confirmacao(
+        rascunho["ingredientes"],
+        usuario_id=usuario_id,
+    )
     if not ingredientes:
         raise BadRequestError("A receita precisa ter pelo menos um ingrediente.")
 
@@ -347,6 +365,7 @@ def confirmar_sessao(
             observacoes=receita_draft.get("observacoes"),
             ingredientes=ingredientes,
         ),
+        usuario_id=usuario_id,
     )
 
     custos_adicionais = []
@@ -365,12 +384,14 @@ def confirmar_sessao(
                     status=_status_de_custo(custo.get("status"), padrao="ESTIMADO"),
                     observacoes=_observacao_do_custo_adicional(custo),
                 ),
+                usuario_id=usuario_id,
             )
         )
 
     calculo = servico_de_custos.calcular_custo_do_produto(
         produto_id,
         receita_id=UUID(receita["id"]),
+        usuario_id=usuario_id,
     )
     preco_atualizado = None
     if requisicao.atualizar_preco_custo_produto and calculo.get("custo_por_unidade") is not None:
@@ -380,6 +401,7 @@ def confirmar_sessao(
             vigente_desde=requisicao.vigente_desde,
             motivo=requisicao.motivo_preco,
             origem=requisicao.origem,
+            usuario_id=usuario_id,
         )
 
     resultado = {
@@ -417,6 +439,7 @@ def confirmar_sessao(
         titulo="Custo do produto confirmado",
         tipo_entidade="produto",
         entidade_id=produto_id,
+        usuario_id=usuario_id,
         detalhes={
             "sessao_custeio_id": str(sessao_id),
             "receita_id": receita["id"],
@@ -426,8 +449,8 @@ def confirmar_sessao(
     return _montar_sessao_saida(sessao_atualizada)
 
 
-def descartar_sessao(sessao_id: UUID) -> dict:
-    sessao = _buscar_sessao_bruta(sessao_id)
+def descartar_sessao(sessao_id: UUID, *, usuario_id: UUID | str | None = None) -> dict:
+    sessao = _buscar_sessao_bruta(sessao_id, usuario_id=usuario_id)
     if sessao["situacao"] == "confirmado":
         raise ConflictError("Uma sessao confirmada nao pode ser descartada.")
     if sessao["situacao"] == "descartado":
@@ -450,16 +473,16 @@ def descartar_sessao(sessao_id: UUID) -> dict:
     return _montar_sessao_saida(sessao_atualizada)
 
 
-def _buscar_sessao_bruta(sessao_id: UUID) -> dict:
-    sessao = first_or_none(
+def _buscar_sessao_bruta(sessao_id: UUID, *, usuario_id: UUID | str | None = None) -> dict:
+    consulta = (
         get_supabase_client()
         .table("sessoes_custeio_assistido")
         .select("*")
         .eq("id", str(sessao_id))
-        .limit(1)
-        .execute()
-        .data
     )
+    if usuario_id:
+        consulta = consulta.eq("usuario_id", str(usuario_id))
+    sessao = first_or_none(consulta.limit(1).execute().data)
     if not sessao:
         raise NotFoundError("Sessao de custeio", str(sessao_id))
     return sessao
@@ -528,12 +551,17 @@ def _aplicar_entrada(
     else:
         rascunho_final = _normalizar_rascunho(rascunho_final, produto_id=produto_id_final)
 
+    usuario_id = sessao.get("usuario_id")
     produto_id_extraido = _uuid_ou_none(rascunho_final.get("produto_id"))
     if produto_id_extraido:
         produto_id_final = produto_id_extraido
-        servico_de_produtos.buscar_produto(produto_id_final)
+        servico_de_produtos.buscar_produto(produto_id_final, usuario_id=usuario_id)
 
-    estado = _montar_estado_da_sessao(rascunho_final, produto_id=produto_id_final)
+    estado = _montar_estado_da_sessao(
+        rascunho_final,
+        produto_id=produto_id_final,
+        usuario_id=usuario_id,
+    )
     sessao_atualizada = (
         client.table("sessoes_custeio_assistido")
         .update(
@@ -563,7 +591,10 @@ def _montar_sessao_saida(sessao: dict, entradas: list[dict] | None = None) -> di
     produto_id = _uuid_ou_none(sessao.get("produto_id"))
     if produto_id:
         try:
-            produto = servico_de_produtos.buscar_produto(produto_id)
+            produto = servico_de_produtos.buscar_produto(
+                produto_id,
+                usuario_id=sessao.get("usuario_id"),
+            )
         except NotFoundError:
             produto = None
 
@@ -589,7 +620,11 @@ def _sessao_com_estado_recalculado(sessao: dict) -> dict:
         return sessao
     produto_id = _uuid_ou_none(sessao.get("produto_id"))
     rascunho = _normalizar_rascunho(sessao.get("rascunho") or {}, produto_id=produto_id)
-    estado = _montar_estado_da_sessao(rascunho, produto_id=produto_id)
+    estado = _montar_estado_da_sessao(
+        rascunho,
+        produto_id=produto_id,
+        usuario_id=sessao.get("usuario_id"),
+    )
     return {
         **sessao,
         "situacao": estado["situacao"],
@@ -602,18 +637,37 @@ def _sessao_com_estado_recalculado(sessao: dict) -> dict:
     }
 
 
-def _montar_estado_da_sessao(rascunho: dict, *, produto_id: UUID | None) -> dict:
+def _montar_estado_da_sessao(
+    rascunho: dict,
+    *,
+    produto_id: UUID | None,
+    usuario_id: UUID | str | None = None,
+) -> dict:
     rascunho_normalizado = _normalizar_rascunho(rascunho, produto_id=produto_id)
-    custo_simulado = _simular_custo(rascunho_normalizado, produto_id=produto_id)
-    fase = _resolver_fase_do_rascunho(rascunho_normalizado, produto_id=produto_id)
+    custo_simulado = _simular_custo(
+        rascunho_normalizado,
+        produto_id=produto_id,
+        usuario_id=usuario_id,
+    )
+    fase = _resolver_fase_do_rascunho(
+        rascunho_normalizado,
+        produto_id=produto_id,
+        usuario_id=usuario_id,
+    )
     pendencias = _consolidar_pendencias_para_fase(
         custo_simulado["pendencias"],
         rascunho_normalizado,
         fase=fase,
+        usuario_id=usuario_id,
     )
     custo_simulado["pendencias"] = pendencias
     avisos = _deduplicar_textos(custo_simulado["avisos"] + rascunho_normalizado.get("avisos", []))
-    perguntas = _montar_perguntas(rascunho_normalizado, pendencias, fase=fase)
+    perguntas = _montar_perguntas(
+        rascunho_normalizado,
+        pendencias,
+        fase=fase,
+        usuario_id=usuario_id,
+    )
     confianca = _calcular_confianca_geral(rascunho_normalizado, pendencias)
     status = custo_simulado["status"]
     if pendencias:
@@ -633,7 +687,12 @@ def _montar_estado_da_sessao(rascunho: dict, *, produto_id: UUID | None) -> dict
     }
 
 
-def _simular_custo(rascunho: dict, *, produto_id: UUID | str | None) -> dict:
+def _simular_custo(
+    rascunho: dict,
+    *,
+    produto_id: UUID | str | None,
+    usuario_id: UUID | str | None = None,
+) -> dict:
     pendencias = []
     avisos = []
     ingredientes_simulados = []
@@ -656,6 +715,7 @@ def _simular_custo(rascunho: dict, *, produto_id: UUID | str | None) -> dict:
         statuses.append(status)
         custo_total, custo_unitario, pendencia, metadados_calculo = _simular_ingrediente(
             ingrediente,
+            usuario_id=usuario_id,
         )
         for campo_unidade in ("unidade_usada", "unidade_compra"):
             descricao = _descrever_conversao_aproximada(ingrediente.get(campo_unidade))
@@ -752,6 +812,8 @@ def _simular_custo(rascunho: dict, *, produto_id: UUID | str | None) -> dict:
 
 def _simular_ingrediente(
     ingrediente: dict,
+    *,
+    usuario_id: UUID | str | None = None,
 ) -> tuple[Decimal | None, Decimal | None, str | None, dict]:
     nome = ingrediente.get("nome") or "sem nome"
     quantidade_usada = _decimal_ou_none(ingrediente.get("quantidade_usada"))
@@ -766,7 +828,7 @@ def _simular_ingrediente(
     insumo_id = _uuid_ou_none(ingrediente.get("insumo_id"))
     try:
         if insumo_id:
-            insumo = servico_de_custos.buscar_insumo(insumo_id)
+            insumo = servico_de_custos.buscar_insumo(insumo_id, usuario_id=usuario_id)
             custo_unitario = Decimal(str(insumo["custo_por_unidade"]))
             quantidade_calculo, unidade_usada_calculo, metadados_calculo = (
                 _resolver_uso_do_ingrediente_para_calculo(
@@ -795,7 +857,10 @@ def _simular_ingrediente(
         quantidade_comprada = _decimal_ou_none(ingrediente.get("quantidade_comprada"))
         unidade_compra = ingrediente.get("unidade_compra")
         preco_total = _decimal_ou_none(ingrediente.get("preco_total"))
-        insumo_existente = _buscar_insumo_existente_para_ingrediente(ingrediente)
+        insumo_existente = _buscar_insumo_existente_para_ingrediente(
+            ingrediente,
+            usuario_id=usuario_id,
+        )
         if insumo_existente and not _tem_dados_de_compra_completos(ingrediente):
             custo_unitario = Decimal(str(insumo_existente["custo_por_unidade"]))
             quantidade_calculo, unidade_usada_calculo, metadados_calculo = (
@@ -857,7 +922,13 @@ def _simular_ingrediente(
         return None, None, f"{nome}: {exc.message}", {}
 
 
-def _montar_perguntas(rascunho: dict, pendencias: list[str], *, fase: str) -> list[dict]:
+def _montar_perguntas(
+    rascunho: dict,
+    pendencias: list[str],
+    *,
+    fase: str,
+    usuario_id: UUID | str | None = None,
+) -> list[dict]:
     perguntas = []
     if not rascunho.get("produto_id"):
         perguntas.append(
@@ -897,7 +968,10 @@ def _montar_perguntas(rascunho: dict, pendencias: list[str], *, fase: str) -> li
             }
         )
 
-    ingredientes_sem_compra = _ingredientes_sem_dados_de_compra(rascunho["ingredientes"])
+    ingredientes_sem_compra = _ingredientes_sem_dados_de_compra(
+        rascunho["ingredientes"],
+        usuario_id=usuario_id,
+    )
     if _fase_permite_perguntas_de_preco(fase) and ingredientes_sem_compra:
         perguntas.append(
             {
@@ -971,20 +1045,28 @@ def _ingrediente_tem_quantidade_ambigua(ingrediente: dict) -> bool:
     ) or _texto_indica_quantidade_alternativa(ingrediente.get("unidade_usada"))
 
 
-def _ingredientes_sem_dados_de_compra(ingredientes: list[dict]) -> list[str]:
+def _ingredientes_sem_dados_de_compra(
+    ingredientes: list[dict],
+    *,
+    usuario_id: UUID | str | None = None,
+) -> list[str]:
     nomes = []
     for indice, ingrediente in enumerate(ingredientes, start=1):
-        if _ingrediente_precisa_de_dados_de_compra(ingrediente):
+        if _ingrediente_precisa_de_dados_de_compra(ingrediente, usuario_id=usuario_id):
             nomes.append(ingrediente.get("nome") or f"ingrediente {indice}")
     return nomes
 
 
-def _ingrediente_precisa_de_dados_de_compra(ingrediente: dict) -> bool:
+def _ingrediente_precisa_de_dados_de_compra(
+    ingrediente: dict,
+    *,
+    usuario_id: UUID | str | None = None,
+) -> bool:
     if ingrediente.get("insumo_id"):
         return False
     if _tem_dados_de_compra_completos(ingrediente):
         return False
-    return _buscar_insumo_existente_para_ingrediente(ingrediente) is None
+    return _buscar_insumo_existente_para_ingrediente(ingrediente, usuario_id=usuario_id) is None
 
 
 def _resolver_uso_do_ingrediente_para_calculo(
@@ -1266,6 +1348,7 @@ def _consolidar_pendencias_para_fase(
     rascunho: dict,
     *,
     fase: str,
+    usuario_id: UUID | str | None = None,
 ) -> list[str]:
     pendencias_de_medida = [
         pendencia for pendencia in pendencias if _pendencia_indica_medida_de_receita(pendencia)
@@ -1294,7 +1377,10 @@ def _consolidar_pendencias_para_fase(
     if not _fase_permite_perguntas_de_preco(fase):
         return _deduplicar_textos(pendencias_consolidadas)
 
-    ingredientes_sem_compra = _ingredientes_sem_dados_de_compra(rascunho["ingredientes"])
+    ingredientes_sem_compra = _ingredientes_sem_dados_de_compra(
+        rascunho["ingredientes"],
+        usuario_id=usuario_id,
+    )
     resumo = (
         "Informe os dados de compra/preco dos ingredientes para calcular o custo: "
         f"{_formatar_lista_nomes(ingredientes_sem_compra)}."
@@ -1383,7 +1469,7 @@ def _extrair_com_openai_texto(
                 "finalidade": finalidade,
                 "produto_id_da_sessao": sessao.get("produto_id"),
                 "rascunho_atual": sessao.get("rascunho") or {},
-                "catalogo_produtos": _catalogo_de_produtos_para_ia(),
+                "catalogo_produtos": _catalogo_de_produtos_para_ia(sessao.get("usuario_id")),
             },
             ensure_ascii=False,
         ),
@@ -1439,7 +1525,9 @@ def _extrair_rascunho_de_imagem(
                                 "finalidade": finalidade,
                                 "produto_id_da_sessao": sessao.get("produto_id"),
                                 "rascunho_atual": sessao.get("rascunho") or {},
-                                "catalogo_produtos": _catalogo_de_produtos_para_ia(),
+                                "catalogo_produtos": _catalogo_de_produtos_para_ia(
+                                    sessao.get("usuario_id")
+                                ),
                                 "orientacao": (
                                     "Extraia somente itens, precos, quantidades e unidades "
                                     "legiveis. Se a imagem estiver ruim, gere perguntas."
@@ -1501,7 +1589,7 @@ def _extrair_com_fallback_texto(
     finalidade: str,
 ) -> dict:
     rascunho = _normalizar_rascunho({}, produto_id=sessao.get("produto_id"), contexto=contexto)
-    produto_id = _identificar_produto_no_texto(texto)
+    produto_id = _identificar_produto_no_texto(texto, usuario_id=sessao.get("usuario_id"))
     if produto_id and not rascunho.get("produto_id"):
         rascunho["produto_id"] = str(produto_id)
 
@@ -1531,19 +1619,24 @@ def _extrair_com_fallback_texto(
     }
 
 
-def _catalogo_de_produtos_para_ia() -> list[dict]:
+def _catalogo_de_produtos_para_ia(usuario_id: UUID | str | None = None) -> list[dict]:
     return [
         {
             "id": produto["id"],
             "nome": produto["nome"],
             "descricao": produto.get("descricao"),
         }
-        for produto in servico_de_produtos.listar_produtos(somente_ativos=True)
+        for produto in servico_de_produtos.listar_produtos(
+            somente_ativos=True,
+            usuario_id=usuario_id,
+        )
     ]
 
 
 def _montar_ingredientes_para_confirmacao(
     ingredientes_draft: list[dict],
+    *,
+    usuario_id: UUID | str | None = None,
 ) -> list[RequisicaoIngredienteReceita]:
     ingredientes = []
     for item in ingredientes_draft:
@@ -1556,7 +1649,7 @@ def _montar_ingredientes_para_confirmacao(
                 {"ingrediente": item},
             )
         _validar_unidades_do_ingrediente_para_confirmacao(item)
-        insumo_id = _resolver_ou_criar_insumo(item)
+        insumo_id = _resolver_ou_criar_insumo(item, usuario_id=usuario_id)
         ingredientes.append(
             RequisicaoIngredienteReceita(
                 insumo_id=insumo_id,
@@ -1570,14 +1663,14 @@ def _montar_ingredientes_para_confirmacao(
     return ingredientes
 
 
-def _resolver_ou_criar_insumo(item: dict) -> UUID | None:
+def _resolver_ou_criar_insumo(item: dict, *, usuario_id: UUID | str | None = None) -> UUID | None:
     insumo_id = _uuid_ou_none(item.get("insumo_id"))
     if insumo_id:
-        servico_de_custos.buscar_insumo(insumo_id)
+        servico_de_custos.buscar_insumo(insumo_id, usuario_id=usuario_id)
         return insumo_id
     if item.get("salvar_como_insumo") is False:
         return None
-    insumo_existente = _buscar_insumo_existente_para_ingrediente(item)
+    insumo_existente = _buscar_insumo_existente_para_ingrediente(item, usuario_id=usuario_id)
     if insumo_existente:
         if _tem_dados_de_compra_completos(item):
             insumo_atualizado = servico_de_custos.atualizar_insumo(
@@ -1591,6 +1684,7 @@ def _resolver_ou_criar_insumo(item: dict) -> UUID | None:
                     status=_status_de_custo(item.get("status"), padrao=insumo_existente["status"]),
                     observacoes=item.get("observacoes") or insumo_existente.get("observacoes"),
                 ),
+                usuario_id=usuario_id,
             )
             return UUID(insumo_atualizado["id"])
         return UUID(insumo_existente["id"])
@@ -1609,7 +1703,8 @@ def _resolver_ou_criar_insumo(item: dict) -> UUID | None:
             preco_total=preco_total,
             status=_status_de_custo(item.get("status"), padrao="ESTIMADO"),
             observacoes=item.get("observacoes"),
-        )
+        ),
+        usuario_id=usuario_id,
     )
     return UUID(insumo["id"])
 
@@ -1621,8 +1716,9 @@ def _atualizar_preco_custo_do_produto(
     vigente_desde: date,
     motivo: str | None,
     origem: str,
+    usuario_id: UUID | str | None = None,
 ) -> dict | None:
-    produto = servico_de_produtos.buscar_produto(produto_id)
+    produto = servico_de_produtos.buscar_produto(produto_id, usuario_id=usuario_id)
     preco_atual = produto.get("preco_atual")
     if not preco_atual:
         return None
@@ -1652,6 +1748,7 @@ def _atualizar_preco_custo_do_produto(
             titulo=f"Custo atualizado: {produto['nome']}",
             tipo_entidade="produto",
             entidade_id=produto_id,
+            usuario_id=usuario_id,
             detalhes={"preco": preco, "motivo": motivo, "origem": origem},
         )
         return preco
@@ -1666,6 +1763,7 @@ def _atualizar_preco_custo_do_produto(
             origem=origem,
             gerado_por_ia=gerado_por_ia,
         ),
+        usuario_id=usuario_id,
     )
 
 
@@ -1835,10 +1933,19 @@ def _resolver_fase(sessao: dict, *, produto_id: UUID | None) -> str:
         return "descartada"
 
     rascunho = _normalizar_rascunho(sessao.get("rascunho") or {}, produto_id=produto_id)
-    return _resolver_fase_do_rascunho(rascunho, produto_id=produto_id)
+    return _resolver_fase_do_rascunho(
+        rascunho,
+        produto_id=produto_id,
+        usuario_id=sessao.get("usuario_id"),
+    )
 
 
-def _resolver_fase_do_rascunho(rascunho: dict, *, produto_id: UUID | str | None) -> str:
+def _resolver_fase_do_rascunho(
+    rascunho: dict,
+    *,
+    produto_id: UUID | str | None,
+    usuario_id: UUID | str | None = None,
+) -> str:
     produto_id_resolvido = _uuid_ou_none(produto_id or rascunho.get("produto_id"))
     if not produto_id_resolvido:
         return "vinculando_produto"
@@ -1848,12 +1955,19 @@ def _resolver_fase_do_rascunho(rascunho: dict, *, produto_id: UUID | str | None)
         or any(_ingrediente_precisa_de_dados_de_receita(item) for item in rascunho["ingredientes"])
     ):
         return "coletando_ingredientes"
-    if any(_ingrediente_precisa_de_preco_ou_unidade(item) for item in rascunho["ingredientes"]):
+    if any(
+        _ingrediente_precisa_de_preco_ou_unidade(item, usuario_id=usuario_id)
+        for item in rascunho["ingredientes"]
+    ):
         return "coletando_precos"
     return "revisando"
 
 
-def _ingrediente_precisa_de_preco_ou_unidade(ingrediente: dict) -> bool:
+def _ingrediente_precisa_de_preco_ou_unidade(
+    ingrediente: dict,
+    *,
+    usuario_id: UUID | str | None = None,
+) -> bool:
     if not ingrediente.get("unidade_usada"):
         return True
     if not servico_de_custos.unidade_suportada(ingrediente.get("unidade_usada")):
@@ -1862,12 +1976,19 @@ def _ingrediente_precisa_de_preco_ou_unidade(ingrediente: dict) -> bool:
         return False
     if _tem_dados_de_compra_completos(ingrediente):
         return not servico_de_custos.unidade_suportada(ingrediente.get("unidade_compra"))
-    return _buscar_insumo_existente_para_ingrediente(ingrediente) is None
+    return _buscar_insumo_existente_para_ingrediente(ingrediente, usuario_id=usuario_id) is None
 
 
-def _identificar_produto_no_texto(texto: str) -> UUID | None:
+def _identificar_produto_no_texto(
+    texto: str,
+    *,
+    usuario_id: UUID | str | None = None,
+) -> UUID | None:
     texto_normalizado = _normalizar_chave(texto)
-    for produto in servico_de_produtos.listar_produtos(somente_ativos=True):
+    for produto in servico_de_produtos.listar_produtos(
+        somente_ativos=True,
+        usuario_id=usuario_id,
+    ):
         if _normalizar_chave(produto["nome"]) in texto_normalizado:
             return UUID(produto["id"])
     return None
@@ -1955,11 +2076,15 @@ def _validar_unidades_do_ingrediente_para_confirmacao(item: dict) -> None:
         )
 
 
-def _buscar_insumo_existente_para_ingrediente(item: dict) -> dict | None:
+def _buscar_insumo_existente_para_ingrediente(
+    item: dict,
+    *,
+    usuario_id: UUID | str | None = None,
+) -> dict | None:
     nome = item.get("nome")
     if not nome:
         return None
-    return servico_de_custos.buscar_insumo_compativel_por_nome(nome)
+    return servico_de_custos.buscar_insumo_compativel_por_nome(nome, usuario_id=usuario_id)
 
 
 def _descrever_conversao_aproximada(unidade: str | None) -> str | None:
