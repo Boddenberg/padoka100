@@ -85,8 +85,10 @@ def montar_linhas_decisoes_sobra(
 ) -> list[dict]:
     """Valida as decisoes contra as sobras pendentes e devolve as linhas a inserir.
 
-    Levanta BadRequestError nas mesmas condicoes do fluxo original. As linhas
-    voltam como dicts simples; a serializacao/insercao fica no caso de uso.
+    Somente itens explicitamente decididos entram no dia: produto pendente sem
+    decisao recebe ``quantidade_usada_hoje = 0`` (sobra registrada como nao
+    usada). A lista de sobras disponiveis nunca vira lista de consumo. Produto
+    decidido que nao esta pendente continua sendo rejeitado.
     """
     if not decisoes:
         raise BadRequestError("Informe a decisao para cada sobra pendente.")
@@ -99,27 +101,27 @@ def montar_linhas_decisoes_sobra(
             raise BadRequestError("Ha decisao de sobra repetida para o mesmo produto.")
         decisoes_por_produto[produto_id] = decisao
 
-    produtos_pendentes = set(sobras_por_produto)
-    produtos_decididos = set(decisoes_por_produto)
-    produtos_faltando = produtos_pendentes - produtos_decididos
-    produtos_extras = produtos_decididos - produtos_pendentes
-    if produtos_faltando or produtos_extras:
+    produtos_extras = set(decisoes_por_produto) - set(sobras_por_produto)
+    if produtos_extras:
         raise BadRequestError(
-            "As decisoes de sobra precisam corresponder exatamente as sobras pendentes.",
-            {
-                "produtos_faltando": sorted(produtos_faltando),
-                "produtos_sem_sobra_pendente": sorted(produtos_extras),
-            },
+            "Ha decisao de sobra para produto sem sobra pendente.",
+            {"produtos_sem_sobra_pendente": sorted(produtos_extras)},
         )
 
     linhas = []
     for produto_id, sobra in sobras_por_produto.items():
-        decisao = decisoes_por_produto[produto_id]
-        quantidade_usada = decisao.quantidade_usada_hoje
+        decisao = decisoes_por_produto.get(produto_id)
         quantidade_sobra = sobra["quantidade_sobra"]
-        quantidade_nao_usada = decisao.quantidade_nao_usada_hoje
-        if quantidade_nao_usada is None:
-            quantidade_nao_usada = quantidade_sobra - quantidade_usada
+        if decisao is None:
+            quantidade_usada = 0
+            quantidade_nao_usada = quantidade_sobra
+            observacoes = None
+        else:
+            quantidade_usada = decisao.quantidade_usada_hoje
+            quantidade_nao_usada = decisao.quantidade_nao_usada_hoje
+            observacoes = decisao.observacoes
+            if quantidade_nao_usada is None:
+                quantidade_nao_usada = quantidade_sobra - quantidade_usada
         if quantidade_nao_usada < 0:
             raise BadRequestError(
                 "A quantidade usada hoje nao pode ser maior que a sobra de origem.",
@@ -150,7 +152,7 @@ def montar_linhas_decisoes_sobra(
                 "quantidade_sobra_origem": quantidade_sobra,
                 "quantidade_usada_hoje": quantidade_usada,
                 "quantidade_nao_usada_hoje": quantidade_nao_usada,
-                "observacoes": decisao.observacoes,
+                "observacoes": observacoes,
             }
         )
     return linhas

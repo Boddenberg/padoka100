@@ -113,7 +113,7 @@ def test_montar_linhas_exige_decisoes():
         )
 
 
-def test_montar_linhas_rejeita_decisao_extra_ou_faltando():
+def test_montar_linhas_rejeita_decisao_para_produto_sem_sobra():
     with pytest.raises(BadRequestError):
         montar_linhas_decisoes_sobra(
             dia_origem=DIA_ORIGEM,
@@ -121,6 +121,31 @@ def test_montar_linhas_rejeita_decisao_extra_ou_faltando():
             sobras_pendentes=[SOBRA],
             decisoes=[_decisao(produto_id=OUTRO_PID)],
         )
+
+
+def test_selecao_parcial_processa_somente_itens_selecionados():
+    """Cenario do bug relatado: usuario seleciona so um item; os demais nao
+    podem entrar no dia atual — a lista de disponiveis nao e lista de consumo."""
+    sobra_nao_selecionada = {
+        "produto_id": OUTRO_PID,
+        "nome_produto": "Bolo",
+        "quantidade_sobra": 7,
+        "url_imagem_produto": None,
+    }
+    linhas = montar_linhas_decisoes_sobra(
+        dia_origem=DIA_ORIGEM,
+        dia_destino=DIA_DESTINO,
+        sobras_pendentes=[SOBRA, sobra_nao_selecionada],
+        decisoes=[_decisao(produto_id=PID, usada=3)],
+    )
+
+    por_produto = {linha["produto_id"]: linha for linha in linhas}
+    assert por_produto[PID]["quantidade_usada_hoje"] == 3
+    assert por_produto[PID]["quantidade_nao_usada_hoje"] == 7
+    # O item nao selecionado fica registrado como decidido, mas nada dele
+    # entra na disponibilidade do dia atual.
+    assert por_produto[OUTRO_PID]["quantidade_usada_hoje"] == 0
+    assert por_produto[OUTRO_PID]["quantidade_nao_usada_hoje"] == 7
 
 
 def test_montar_linhas_rejeita_soma_incoerente():
