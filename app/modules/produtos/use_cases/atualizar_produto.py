@@ -15,10 +15,11 @@ def atualizar_produto(
     produto_id: UUID,
     requisicao: RequisicaoAtualizarProduto,
     *,
+    usuario_id: UUID | str | None = None,
     repository: ProdutoRepository | None = None,
     preco_repository: PrecoProdutoRepository | None = None,
 ) -> dict:
-    repo = repository or ProdutoRepository()
+    repo = repository or ProdutoRepository(usuario_id=usuario_id)
     preco_repo = preco_repository or PrecoProdutoRepository(repo.client)
     produto = repo.buscar_produto(produto_id)
     dados_atualizacao = requisicao.model_dump(exclude_unset=True)
@@ -38,6 +39,7 @@ def atualizar_produto(
         titulo=f"Produto atualizado: {produto_atualizado['nome']}",
         tipo_entidade="produto",
         entidade_id=produto_id,
+        usuario_id=repo.usuario_id,
         detalhes={"campos_alterados": sorted(dados_atualizacao.keys())},
     )
     return anexar_preco_atual(preco_repo, produto_atualizado, hoje_operacional())

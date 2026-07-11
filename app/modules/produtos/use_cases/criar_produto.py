@@ -1,3 +1,5 @@
+from uuid import UUID
+
 from app.modules.produtos.adapters.supabase_repository import (
     PrecoProdutoRepository,
     ProdutoRepository,
@@ -11,10 +13,11 @@ from app.shared.linha_do_tempo import registrar_evento_na_linha_do_tempo
 def criar_produto(
     requisicao: RequisicaoCriarProduto,
     *,
+    usuario_id: UUID | str | None = None,
     repository: ProdutoRepository | None = None,
     preco_repository: PrecoProdutoRepository | None = None,
 ) -> dict:
-    repo = repository or ProdutoRepository()
+    repo = repository or ProdutoRepository(usuario_id=usuario_id)
     preco_repo = preco_repository or PrecoProdutoRepository(repo.client)
     origem_preco, gerado_por_ia = normalizar_origem_preco(
         requisicao.origem_preco,
@@ -52,6 +55,7 @@ def criar_produto(
         titulo=f"Produto criado: {produto['nome']}",
         tipo_entidade="produto",
         entidade_id=produto["id"],
+        usuario_id=repo.usuario_id,
         detalhes={"preco_inicial": preco},
     )
     produto["preco_atual"] = preco

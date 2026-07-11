@@ -21,10 +21,11 @@ def criar_versao_de_preco(
     produto_id: UUID,
     requisicao: RequisicaoCriarVersaoDePreco,
     *,
+    usuario_id: UUID | str | None = None,
     repository: ProdutoRepository | None = None,
     preco_repository: PrecoProdutoRepository | None = None,
 ) -> dict:
-    repo = repository or ProdutoRepository()
+    repo = repository or ProdutoRepository(usuario_id=usuario_id)
     preco_repo = preco_repository or PrecoProdutoRepository(repo.client)
     produto = repo.buscar_produto(produto_id)
     versoes_existentes = preco_repo.listar_versoes(produto_id)
@@ -68,6 +69,7 @@ def criar_versao_de_preco(
         titulo=f"Preco alterado: {produto['nome']}",
         tipo_entidade="produto",
         entidade_id=produto_id,
+        usuario_id=repo.usuario_id,
         detalhes={
             "novo_preco": preco,
             "vigente_desde": requisicao.vigente_desde.isoformat(),

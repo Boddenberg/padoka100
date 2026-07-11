@@ -1,4 +1,5 @@
 from datetime import date
+from uuid import UUID
 
 from app.core.clock import hoje_operacional
 from app.modules.produtos.adapters.supabase_repository import (
@@ -12,10 +13,11 @@ def listar_produtos(
     *,
     somente_ativos: bool = True,
     data_preco: date | None = None,
+    usuario_id: UUID | str | None = None,
     repository: ProdutoRepository | None = None,
     preco_repository: PrecoProdutoRepository | None = None,
 ) -> list[dict]:
-    repo = repository or ProdutoRepository()
+    repo = repository or ProdutoRepository(usuario_id=usuario_id)
     preco_repo = preco_repository or PrecoProdutoRepository(repo.client)
     data_alvo = data_preco or hoje_operacional()
     produtos = repo.listar_produtos(somente_ativos=somente_ativos)

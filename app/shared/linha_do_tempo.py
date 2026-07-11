@@ -29,6 +29,7 @@ def registrar_evento_na_linha_do_tempo(
     tipo_entidade: str,
     entidade_id: UUID | str | None = None,
     dia_de_venda_id: UUID | str | None = None,
+    usuario_id: UUID | str | None = None,
     detalhes: dict[str, Any] | None = None,
 ) -> None:
     tipo_publico = normalizar_tipo_evento_publico(tipo_evento)
@@ -39,6 +40,7 @@ def registrar_evento_na_linha_do_tempo(
             "tipo_entidade": tipo_entidade,
             "entidade_id": entidade_id,
             "dia_de_venda_id": dia_de_venda_id,
+            "usuario_id": usuario_id,
             "detalhes": detalhes or {},
         }
     )

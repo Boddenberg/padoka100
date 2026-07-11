@@ -9,20 +9,38 @@ from supabase import Client
 
 
 class ProdutoRepository:
-    def __init__(self, client: Client | None = None) -> None:
+    """Acesso a produtos sempre restrito ao dono informado.
+
+    ``usuario_id`` e transicional-opcional enquanto os modulos consumidores
+    migram para o modelo multiusuario; sem ele, nenhum filtro de dono e
+    aplicado (comportamento legado).
+    """
+
+    def __init__(
+        self,
+        client: Client | None = None,
+        *,
+        usuario_id: UUID | str | None = None,
+    ) -> None:
         self.client = client or get_supabase_client()
+        self.usuario_id = str(usuario_id) if usuario_id else None
+
+    def _escopo(self, consulta):
+        if self.usuario_id:
+            consulta = consulta.eq("usuario_id", self.usuario_id)
+        return consulta
 
     def listar_produtos(self, *, somente_ativos: bool) -> list[dict]:
-        consulta = self.client.table("produtos").select("*").order("ordem_exibicao").order("nome")
+        consulta = self._escopo(
+            self.client.table("produtos").select("*").order("ordem_exibicao").order("nome")
+        )
         if somente_ativos:
             consulta = consulta.eq("situacao", "ativo")
         return consulta.execute().data
 
     def buscar_produto(self, produto_id: UUID | str) -> dict:
         produto = one_or_none(
-            self.client.table("produtos")
-            .select("*")
-            .eq("id", str(produto_id))
+            self._escopo(self.client.table("produtos").select("*").eq("id", str(produto_id)))
             .limit(1)
             .execute()
             .data
@@ -32,25 +50,35 @@ class ProdutoRepository:
         return produto
 
     def inserir_produto(self, dados: dict) -> dict:
+        if self.usuario_id:
+            dados = {**dados, "usuario_id": self.usuario_id}
         return inserted_one(self.client.table("produtos").insert(to_db_payload(dados)).execute())
 
     def atualizar_produto(self, produto_id: UUID | str, dados: dict) -> dict:
         return updated_one(
-            self.client.table("produtos")
-            .update(to_db_payload(dados))
-            .eq("id", str(produto_id))
-            .execute(),
+            self._escopo(
+                self.client.table("produtos")
+                .update(to_db_payload(dados))
+                .eq("id", str(produto_id))
+            ).execute(),
             resource="Produto",
             resource_id=str(produto_id),
         )
 
     def buscar_produto_por_slug(self, slug: str) -> dict | None:
         return one_or_none(
-            self.client.table("produtos").select("id").eq("slug", slug).limit(1).execute().data
+            self._escopo(self.client.table("produtos").select("id").eq("slug", slug))
+            .limit(1)
+            .execute()
+            .data
         )
 
 
 class PrecoProdutoRepository:
+    """Versoes de preco sao escopadas pelo produto: quem constroi este
+    repositorio precisa ter validado o dono do produto antes (via
+    ``ProdutoRepository.buscar_produto``)."""
+
     def __init__(self, client: Client | None = None) -> None:
         self.client = client or get_supabase_client()
 

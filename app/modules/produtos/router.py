@@ -29,11 +29,15 @@ CatalogoEditar = Annotated[dict, Depends(exigir_capacidade("catalogo.editar"))]
     response_model_exclude_unset=True,
 )
 def listar_produtos(
+    usuario: CatalogoLer,
     somente_ativos: bool = True,
     data_preco: Annotated[date | None, Query()] = None,
-    _: CatalogoLer = None,
 ) -> list[dict]:
-    produtos = servico.listar_produtos(somente_ativos=somente_ativos, data_preco=data_preco)
+    produtos = servico.listar_produtos(
+        somente_ativos=somente_ativos,
+        data_preco=data_preco,
+        usuario_id=usuario["id"],
+    )
     return servico.formatar_produtos_para_lista_http(produtos, somente_ativos=somente_ativos)
 
 
@@ -42,17 +46,17 @@ def listar_produtos(
     response_model=ProdutoSaida,
     status_code=201,
 )
-def criar_produto(requisicao: RequisicaoCriarProduto, _: CatalogoEditar = None) -> dict:
-    return servico.criar_produto(requisicao)
+def criar_produto(requisicao: RequisicaoCriarProduto, usuario: CatalogoEditar) -> dict:
+    return servico.criar_produto(requisicao, usuario_id=usuario["id"])
 
 
 @router.get("/{produto_id}", response_model=ProdutoSaida)
 def buscar_produto(
     produto_id: UUID,
+    usuario: CatalogoLer,
     data_preco: Annotated[date | None, Query()] = None,
-    _: CatalogoLer = None,
 ) -> dict:
-    return servico.buscar_produto(produto_id, data_preco=data_preco)
+    return servico.buscar_produto(produto_id, data_preco=data_preco, usuario_id=usuario["id"])
 
 
 @router.patch(
@@ -62,14 +66,14 @@ def buscar_produto(
 def atualizar_produto(
     produto_id: UUID,
     requisicao: RequisicaoAtualizarProduto,
-    _: CatalogoEditar = None,
+    usuario: CatalogoEditar,
 ) -> dict:
-    return servico.atualizar_produto(produto_id, requisicao)
+    return servico.atualizar_produto(produto_id, requisicao, usuario_id=usuario["id"])
 
 
 @router.get("/{produto_id}/precos", response_model=list[VersaoDePrecoSaida])
-def listar_versoes_de_preco(produto_id: UUID, _: CatalogoLer = None) -> list[dict]:
-    return servico.listar_versoes_de_preco(produto_id)
+def listar_versoes_de_preco(produto_id: UUID, usuario: CatalogoLer) -> list[dict]:
+    return servico.listar_versoes_de_preco(produto_id, usuario_id=usuario["id"])
 
 
 @router.post(
@@ -80,9 +84,9 @@ def listar_versoes_de_preco(produto_id: UUID, _: CatalogoLer = None) -> list[dic
 def criar_versao_de_preco(
     produto_id: UUID,
     requisicao: RequisicaoCriarVersaoDePreco,
-    _: CatalogoEditar = None,
+    usuario: CatalogoEditar,
 ) -> dict:
-    return servico.criar_versao_de_preco(produto_id, requisicao)
+    return servico.criar_versao_de_preco(produto_id, requisicao, usuario_id=usuario["id"])
 
 
 @router.post(
@@ -92,12 +96,13 @@ def criar_versao_de_preco(
 )
 async def enviar_midia_do_produto(
     produto_id: UUID,
+    usuario: CatalogoEditar,
     file: Annotated[UploadFile, File()],
     descricao: Annotated[str | None, Form()] = None,
     texto_alternativo: Annotated[str | None, Form()] = None,
     definir_como_principal: Annotated[bool, Form()] = True,
-    _: CatalogoEditar = None,
 ) -> dict:
+    servico.buscar_produto(produto_id, usuario_id=usuario["id"])
     return await servico_de_midia.enviar_midia(
         tipo_entidade="produto",
         entidade_id=produto_id,

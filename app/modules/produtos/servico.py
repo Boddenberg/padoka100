@@ -31,8 +31,17 @@ from app.modules.produtos.use_cases.listar_versoes_de_preco import (
 )
 
 
-def listar_produtos(*, somente_ativos: bool = True, data_preco: date | None = None) -> list[dict]:
-    return listar_produtos_use_case(somente_ativos=somente_ativos, data_preco=data_preco)
+def listar_produtos(
+    *,
+    somente_ativos: bool = True,
+    data_preco: date | None = None,
+    usuario_id: UUID | str | None = None,
+) -> list[dict]:
+    return listar_produtos_use_case(
+        somente_ativos=somente_ativos,
+        data_preco=data_preco,
+        usuario_id=usuario_id,
+    )
 
 
 def formatar_produtos_para_lista_http(
@@ -46,32 +55,57 @@ def formatar_produtos_para_lista_http(
     )
 
 
-def buscar_produto(produto_id: UUID, *, data_preco: date | None = None) -> dict:
-    return buscar_produto_use_case(produto_id, data_preco=data_preco)
+def buscar_produto(
+    produto_id: UUID,
+    *,
+    data_preco: date | None = None,
+    usuario_id: UUID | str | None = None,
+) -> dict:
+    return buscar_produto_use_case(produto_id, data_preco=data_preco, usuario_id=usuario_id)
 
 
-def criar_produto(requisicao: RequisicaoCriarProduto) -> dict:
-    return criar_produto_use_case(requisicao)
+def criar_produto(
+    requisicao: RequisicaoCriarProduto,
+    *,
+    usuario_id: UUID | str | None = None,
+) -> dict:
+    return criar_produto_use_case(requisicao, usuario_id=usuario_id)
 
 
-def atualizar_produto(produto_id: UUID, requisicao: RequisicaoAtualizarProduto) -> dict:
-    return atualizar_produto_use_case(produto_id, requisicao)
+def atualizar_produto(
+    produto_id: UUID,
+    requisicao: RequisicaoAtualizarProduto,
+    *,
+    usuario_id: UUID | str | None = None,
+) -> dict:
+    return atualizar_produto_use_case(produto_id, requisicao, usuario_id=usuario_id)
 
 
-def listar_versoes_de_preco(produto_id: UUID) -> list[dict]:
-    return listar_versoes_de_preco_use_case(produto_id)
+def listar_versoes_de_preco(
+    produto_id: UUID,
+    *,
+    usuario_id: UUID | str | None = None,
+) -> list[dict]:
+    return listar_versoes_de_preco_use_case(produto_id, usuario_id=usuario_id)
 
 
 def criar_versao_de_preco(
     produto_id: UUID,
     requisicao: RequisicaoCriarVersaoDePreco,
+    *,
+    usuario_id: UUID | str | None = None,
 ) -> dict:
-    return criar_versao_de_preco_use_case(produto_id, requisicao)
+    return criar_versao_de_preco_use_case(produto_id, requisicao, usuario_id=usuario_id)
 
 
 def buscar_preco_vigente(produto_id: UUID | str, data_alvo: date) -> dict:
     return buscar_preco_vigente_use_case(produto_id, data_alvo)
 
 
-def buscar_snapshot_do_produto(produto_id: UUID | str, data_alvo: date) -> dict:
-    return buscar_snapshot_do_produto_use_case(produto_id, data_alvo)
+def buscar_snapshot_do_produto(
+    produto_id: UUID | str,
+    data_alvo: date,
+    *,
+    usuario_id: UUID | str | None = None,
+) -> dict:
+    return buscar_snapshot_do_produto_use_case(produto_id, data_alvo, usuario_id=usuario_id)
