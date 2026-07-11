@@ -32,13 +32,14 @@ IaAnalitica = Annotated[dict, Depends(exigir_capacidade("ia.analitica"))]
 def montar_dados_estruturados_periodo(
     data_inicio: str,
     data_fim: str,
+    usuario: IaAnalitica,
     produto_id: UUID | None = None,
-    _: IaAnalitica = None,
 ) -> dict:
     return servico.montar_dados_estruturados_periodo(
         data_inicio=data_inicio,
         data_fim=data_fim,
         produto_id=produto_id,
+        usuario_id=usuario["id"],
     )
 
 
@@ -46,8 +47,8 @@ def montar_dados_estruturados_periodo(
     "/analises/padrao",
     response_model=RespostaAnaliseIA,
 )
-def analisar_periodo_padrao(requisicao: RequisicaoAnalisePadrao, _: IaAnalitica = None) -> dict:
-    return servico.analisar_periodo_padrao(requisicao)
+def analisar_periodo_padrao(requisicao: RequisicaoAnalisePadrao, usuario: IaAnalitica) -> dict:
+    return servico.analisar_periodo_padrao(requisicao, usuario_id=usuario["id"])
 
 
 @router.post(
@@ -56,60 +57,62 @@ def analisar_periodo_padrao(requisicao: RequisicaoAnalisePadrao, _: IaAnalitica 
 )
 def analisar_periodo_especifico(
     requisicao: RequisicaoAnaliseEspecifica,
-    _: IaAnalitica = None,
+    usuario: IaAnalitica,
 ) -> dict:
-    return servico.analisar_periodo_especifico(requisicao)
+    return servico.analisar_periodo_especifico(requisicao, usuario_id=usuario["id"])
 
 
 @router.post("/interpretar-comando", response_model=RespostaInterpretarComandoDeIA)
 def interpretar_comando(
     requisicao: RequisicaoInterpretarComandoDeIA,
-    _: IaOperacional = None,
+    usuario: IaOperacional,
 ) -> dict:
-    return servico.interpretar_comando(requisicao)
+    return servico.interpretar_comando(requisicao, usuario_id=usuario["id"])
 
 
 @router.post("/interpretar-comando-de-venda", response_model=RespostaInterpretarComandoDeVenda)
 def interpretar_comando_de_venda(
     requisicao: RequisicaoInterpretarComandoDeVenda,
-    _: IaOperacional = None,
+    usuario: IaOperacional,
 ) -> dict:
-    return servico.interpretar_comando_de_venda(requisicao)
+    return servico.interpretar_comando_de_venda(requisicao, usuario_id=usuario["id"])
 
 
 @router.post("/transcrever-audio", response_model=RespostaTranscreverAudioDeIA)
 async def transcrever_audio(
     file: Annotated[UploadFile, File()],
+    usuario: IaOperacional,
     dia_de_venda_id: Annotated[UUID | None, Form()] = None,
     interpretar: Annotated[bool, Form()] = True,
-    _: IaOperacional = None,
 ) -> dict:
     return await servico.transcrever_audio(
         file=file,
         dia_de_venda_id=dia_de_venda_id,
         interpretar=interpretar,
+        usuario_id=usuario["id"],
     )
 
 
 @router.post("/transcrever-audio-de-venda", response_model=RespostaTranscreverAudioDeVenda)
 async def transcrever_audio_de_venda(
     file: Annotated[UploadFile, File()],
+    usuario: IaOperacional,
     dia_de_venda_id: Annotated[UUID | None, Form()] = None,
     interpretar: Annotated[bool, Form()] = True,
-    _: IaOperacional = None,
 ) -> dict:
     return await servico.transcrever_audio_de_venda(
         file=file,
         dia_de_venda_id=dia_de_venda_id,
         interpretar=interpretar,
+        usuario_id=usuario["id"],
     )
 
 
 @router.post("/interacoes/{interacao_ia_id}/confirmar", response_model=RespostaConfirmarComandoDeIA)
-def confirmar_comando(interacao_ia_id: UUID, _: IaOperacional = None) -> dict:
-    return servico.confirmar_comando(interacao_ia_id)
+def confirmar_comando(interacao_ia_id: UUID, usuario: IaOperacional) -> dict:
+    return servico.confirmar_comando(interacao_ia_id, usuario_id=usuario["id"])
 
 
 @router.post("/interacoes/{interacao_ia_id}/confirmar-venda", response_model=RespostaConfirmarVenda)
-def confirmar_venda(interacao_ia_id: UUID, _: IaOperacional = None) -> dict:
-    return servico.confirmar_venda(interacao_ia_id)
+def confirmar_venda(interacao_ia_id: UUID, usuario: IaOperacional) -> dict:
+    return servico.confirmar_venda(interacao_ia_id, usuario_id=usuario["id"])
