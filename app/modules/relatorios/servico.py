@@ -20,9 +20,14 @@ def buscar_resumo_do_dia_de_venda(
     dia_de_venda_id: UUID,
     *,
     produto_id: UUID | None = None,
+    usuario_id: UUID | str | None = None,
 ) -> dict:
     client = get_supabase_client()
-    dia_de_venda = servico_de_dias_de_venda.buscar_linha_dia_de_venda(client, dia_de_venda_id)
+    dia_de_venda = servico_de_dias_de_venda.buscar_linha_dia_de_venda(
+        client,
+        dia_de_venda_id,
+        usuario_id=usuario_id,
+    )
     validar_data_nao_futura(date.fromisoformat(dia_de_venda["data_venda"]), campo="data_venda")
     itens_producao = (
         client.table("itens_producao")
@@ -56,6 +61,7 @@ def buscar_resumo_do_dia_de_venda(
     historico = servico_de_historico.listar_eventos_da_linha_do_tempo(
         dia_de_venda_id=dia_de_venda_id,
         limite=500,
+        usuario_id=usuario_id,
     )
     correcoes = _listar_correcoes_do_dia(client, dia_de_venda_id)
     produtos_produzidos = [produto for produto in produtos if produto["quantidade_produzida"] > 0]
@@ -88,27 +94,37 @@ def buscar_resumo_do_dia_por_data(
     data_venda: date,
     *,
     produto_id: UUID | None = None,
+    usuario_id: UUID | str | None = None,
 ) -> dict:
     validar_data_nao_futura(data_venda, campo="data_venda")
     client = get_supabase_client()
-    dias = (
+    consulta = (
         client.table("dias_de_venda")
         .select("id")
         .eq("data_venda", data_venda.isoformat())
-        .order("aberto_em")
-        .execute()
-        .data
     )
+    if usuario_id:
+        consulta = consulta.eq("usuario_id", str(usuario_id))
+    dias = consulta.order("aberto_em").execute().data
     if not dias:
         raise NotFoundError("Dia de venda", data_venda.isoformat())
     resumos = [
-        buscar_resumo_do_dia_de_venda(UUID(dia["id"]), produto_id=produto_id) for dia in dias
+        buscar_resumo_do_dia_de_venda(
+            UUID(dia["id"]),
+            produto_id=produto_id,
+            usuario_id=usuario_id,
+        )
+        for dia in dias
     ]
     return agregacao.consolidar_resumos_da_mesma_data(resumos)
 
 
-def buscar_produtos_da_venda_do_dia(dia_de_venda_id: UUID) -> list[dict]:
-    return buscar_resumo_do_dia_de_venda(dia_de_venda_id)["produtos"]
+def buscar_produtos_da_venda_do_dia(
+    dia_de_venda_id: UUID,
+    *,
+    usuario_id: UUID | str | None = None,
+) -> list[dict]:
+    return buscar_resumo_do_dia_de_venda(dia_de_venda_id, usuario_id=usuario_id)["produtos"]
 
 
 def buscar_resumo_do_periodo(
@@ -116,6 +132,7 @@ def buscar_resumo_do_periodo(
     data_fim: date,
     *,
     produto_id: UUID | None = None,
+    usuario_id: UUID | str | None = None,
 ) -> dict:
     validar_periodo(data_inicio, data_fim)
     resumo = _buscar_resumo_leve_do_periodo(
@@ -123,6 +140,7 @@ def buscar_resumo_do_periodo(
         data_fim,
         incluir_dias=True,
         produto_id=produto_id,
+        usuario_id=usuario_id,
     )
     resumo["produto_id"] = produto_id
     return resumo
@@ -134,9 +152,15 @@ def buscar_resumo_leve_do_periodo(
     *,
     comparar: bool = False,
     incluir_dias: bool = False,
+    usuario_id: UUID | str | None = None,
 ) -> dict:
     validar_periodo(data_inicio, data_fim)
-    resumo = _buscar_resumo_leve_do_periodo(data_inicio, data_fim, incluir_dias=incluir_dias)
+    resumo = _buscar_resumo_leve_do_periodo(
+        data_inicio,
+        data_fim,
+        incluir_dias=incluir_dias,
+        usuario_id=usuario_id,
+    )
     if comparar:
         tamanho_periodo = (data_fim - data_inicio).days + 1
         data_fim_anterior = data_inicio - timedelta(days=1)
@@ -145,6 +169,7 @@ def buscar_resumo_leve_do_periodo(
             data_inicio_anterior,
             data_fim_anterior,
             incluir_dias=False,
+            usuario_id=usuario_id,
         )
         resumo["periodo_anterior"] = {
             "faturamento_bruto": resumo_anterior["faturamento_bruto"],
@@ -158,18 +183,18 @@ def _buscar_resumo_leve_do_periodo(
     *,
     incluir_dias: bool,
     produto_id: UUID | None = None,
+    usuario_id: UUID | str | None = None,
 ) -> dict:
     client = get_supabase_client()
-    dias = (
+    consulta = (
         client.table("dias_de_venda")
         .select("id, data_venda, nome_local_no_momento, situacao, aberto_em")
         .gte("data_venda", data_inicio.isoformat())
         .lte("data_venda", data_fim.isoformat())
-        .order("data_venda")
-        .order("aberto_em")
-        .execute()
-        .data
     )
+    if usuario_id:
+        consulta = consulta.eq("usuario_id", str(usuario_id))
+    dias = consulta.order("data_venda").order("aberto_em").execute().data
     resumos_por_abertura = _montar_resumos_leves_das_aberturas(client, dias, produto_id=produto_id)
     resumos_por_data = agregacao.consolidar_resumos_leves_por_data(resumos_por_abertura)
     totais = agregacao.somar_dias(resumos_por_data)

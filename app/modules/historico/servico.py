@@ -10,6 +10,7 @@ def listar_eventos_da_linha_do_tempo(
     tipo_entidade: str | None = None,
     entidade_id: UUID | None = None,
     limite: int = 100,
+    usuario_id: UUID | str | None = None,
 ) -> list[dict]:
     client = get_supabase_client()
     consulta = (
@@ -18,6 +19,8 @@ def listar_eventos_da_linha_do_tempo(
         .order("criado_em", desc=True)
         .limit(limite)
     )
+    if usuario_id:
+        consulta = consulta.eq("usuario_id", str(usuario_id))
     if dia_de_venda_id:
         consulta = consulta.eq("dia_de_venda_id", str(dia_de_venda_id))
     if tipo_entidade:
