@@ -66,7 +66,11 @@ def corrigir_dia_fechado(
 
     for venda_retroativa in requisicao.vendas_adicionadas:
         alteracoes.append(
-            _registrar_venda_retroativa_em_dia_fechado(dia_de_venda, venda_retroativa)
+            _registrar_venda_retroativa_em_dia_fechado(
+                dia_de_venda,
+                venda_retroativa,
+                usuario_id=usuario_id,
+            )
         )
 
     for cancelamento in requisicao.vendas_canceladas:
@@ -74,6 +78,7 @@ def corrigir_dia_fechado(
             dia_de_venda,
             cancelamento.venda_id,
             cancelamento.motivo,
+            usuario_id=usuario_id,
         )
         if alteracao:
             alteracoes.append(alteracao)
@@ -297,6 +302,8 @@ def _corrigir_item_venda_em_dia_fechado(
 def _registrar_venda_retroativa_em_dia_fechado(
     dia_de_venda: dict,
     requisicao: RequisicaoVendaRetroativaDiaFechado,
+    *,
+    usuario_id: UUID | str | None = None,
 ) -> dict:
     from app.modules.vendas import servico as servico_de_vendas
     from app.modules.vendas.esquemas import RequisicaoItemVendido, RequisicaoRegistrarVenda
@@ -313,6 +320,7 @@ def _registrar_venda_retroativa_em_dia_fechado(
             observacoes=requisicao.observacoes,
             ocorrido_em=requisicao.ocorrido_em,
         ),
+        usuario_id=usuario_id,
         permitir_dia_fechado=True,
         detalhes_evento={"origem": "correcao_dia_fechado"},
     )
@@ -337,11 +345,13 @@ def _cancelar_venda_em_correcao(
     dia_de_venda: dict,
     venda_id: UUID,
     motivo: str | None,
+    *,
+    usuario_id: UUID | str | None = None,
 ) -> dict | None:
     from app.modules.vendas import servico as servico_de_vendas
     from app.modules.vendas.esquemas import RequisicaoCancelarVenda
 
-    venda_antes = servico_de_vendas.buscar_venda(venda_id)
+    venda_antes = servico_de_vendas.buscar_venda(venda_id, usuario_id=usuario_id)
     if venda_antes["dia_de_venda_id"] != dia_de_venda["id"]:
         raise BadRequestError(
             "A venda informada nao pertence ao dia fechado.",
@@ -353,6 +363,7 @@ def _cancelar_venda_em_correcao(
     venda_cancelada = servico_de_vendas.cancelar_venda(
         venda_id,
         RequisicaoCancelarVenda(motivo=motivo),
+        usuario_id=usuario_id,
     )
     return {
         "tipo": "VENDA_CANCELADA",

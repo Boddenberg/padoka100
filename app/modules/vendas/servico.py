@@ -13,23 +13,30 @@ from app.modules.vendas.use_cases.registrar_venda import (
 def registrar_venda(
     requisicao: RequisicaoRegistrarVenda,
     *,
+    usuario_id: UUID | str | None = None,
     permitir_dia_fechado: bool = False,
     detalhes_evento: dict[str, Any] | None = None,
 ) -> dict:
     return registrar_venda_use_case(
         requisicao,
+        usuario_id=usuario_id,
         permitir_dia_fechado=permitir_dia_fechado,
         detalhes_evento=detalhes_evento,
     )
 
 
-def listar_vendas(dia_de_venda_id: UUID) -> list[dict]:
-    return listar_vendas_use_case(dia_de_venda_id)
+def listar_vendas(dia_de_venda_id: UUID, *, usuario_id: UUID | str | None = None) -> list[dict]:
+    return listar_vendas_use_case(dia_de_venda_id, usuario_id=usuario_id)
 
 
-def buscar_venda(venda_id: UUID) -> dict:
-    return buscar_venda_use_case(venda_id)
+def buscar_venda(venda_id: UUID, *, usuario_id: UUID | str | None = None) -> dict:
+    return buscar_venda_use_case(venda_id, usuario_id=usuario_id)
 
 
-def cancelar_venda(venda_id: UUID, requisicao: RequisicaoCancelarVenda) -> dict:
-    return cancelar_venda_use_case(venda_id, requisicao)
+def cancelar_venda(
+    venda_id: UUID,
+    requisicao: RequisicaoCancelarVenda,
+    *,
+    usuario_id: UUID | str | None = None,
+) -> dict:
+    return cancelar_venda_use_case(venda_id, requisicao, usuario_id=usuario_id)

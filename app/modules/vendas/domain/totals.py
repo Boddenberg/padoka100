@@ -11,9 +11,15 @@ def montar_dados_item_vendido(
     dia_de_venda: dict,
     produto_id: UUID,
     quantidade: int,
+    *,
+    usuario_id: UUID | str | None = None,
 ) -> dict:
     data_venda = date.fromisoformat(dia_de_venda["data_venda"])
-    snapshot = produtos_public.buscar_snapshot_do_produto(produto_id, data_venda)
+    snapshot = produtos_public.buscar_snapshot_do_produto(
+        produto_id,
+        data_venda,
+        usuario_id=usuario_id,
+    )
     produto = snapshot["produto"]
     preco = snapshot["preco"]
     preco_venda = Decimal(str(preco["preco_venda"]))

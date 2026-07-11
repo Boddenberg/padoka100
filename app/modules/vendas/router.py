@@ -16,24 +16,24 @@ VendasOperar = Annotated[dict, Depends(exigir_capacidade("vendas.operar"))]
 
 
 @router.post("", response_model=VendaSaida, status_code=201)
-def registrar_venda(requisicao: RequisicaoRegistrarVenda, _: VendasOperar = None) -> dict:
-    return servico.registrar_venda(requisicao)
+def registrar_venda(requisicao: RequisicaoRegistrarVenda, usuario: VendasOperar) -> dict:
+    return servico.registrar_venda(requisicao, usuario_id=usuario["id"])
 
 
 @router.get("/por-dia/{dia_de_venda_id}", response_model=list[VendaSaida])
-def listar_vendas(dia_de_venda_id: UUID, _: VendasOperar = None) -> list[dict]:
-    return servico.listar_vendas(dia_de_venda_id)
+def listar_vendas(dia_de_venda_id: UUID, usuario: VendasOperar) -> list[dict]:
+    return servico.listar_vendas(dia_de_venda_id, usuario_id=usuario["id"])
 
 
 @router.get("/{venda_id}", response_model=VendaSaida)
-def buscar_venda(venda_id: UUID, _: VendasOperar = None) -> dict:
-    return servico.buscar_venda(venda_id)
+def buscar_venda(venda_id: UUID, usuario: VendasOperar) -> dict:
+    return servico.buscar_venda(venda_id, usuario_id=usuario["id"])
 
 
 @router.post("/{venda_id}/cancelar", response_model=VendaSaida)
 def cancelar_venda(
     venda_id: UUID,
     requisicao: RequisicaoCancelarVenda,
-    _: VendasOperar = None,
+    usuario: VendasOperar,
 ) -> dict:
-    return servico.cancelar_venda(venda_id, requisicao)
+    return servico.cancelar_venda(venda_id, requisicao, usuario_id=usuario["id"])

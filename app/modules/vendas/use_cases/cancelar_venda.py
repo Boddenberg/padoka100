@@ -11,9 +11,10 @@ def cancelar_venda(
     venda_id: UUID,
     requisicao: RequisicaoCancelarVenda,
     *,
+    usuario_id: UUID | str | None = None,
     repository: VendaRepository | None = None,
 ) -> dict:
-    venda_repo = repository or VendaRepository()
+    venda_repo = repository or VendaRepository(usuario_id=usuario_id)
     item_repo = ItemVendaRepository(venda_repo.client)
     venda = venda_repo.buscar(venda_id)
     if venda["situacao"] == "cancelada":
@@ -34,6 +35,7 @@ def cancelar_venda(
         tipo_entidade="venda",
         entidade_id=venda_id,
         dia_de_venda_id=venda_atualizada["dia_de_venda_id"],
+        usuario_id=usuario_id,
         detalhes={"motivo": requisicao.motivo},
     )
     return anexar_itens_as_vendas(item_repo, [venda_atualizada])[0]
