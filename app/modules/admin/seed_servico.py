@@ -41,7 +41,11 @@ OBSERVACOES_ITEM = [
 ]
 
 
-def gerar_vendas_fake(requisicao: RequisicaoGerarVendasFake) -> dict:
+def gerar_vendas_fake(
+    requisicao: RequisicaoGerarVendasFake,
+    *,
+    usuario_id: UUID | str | None = None,
+) -> dict:
     datas = _resolver_datas(requisicao)
     lote_id = uuid4()
     seed = requisicao.seed if requisicao.seed is not None else uuid4().int % 1_000_000_000
@@ -49,11 +53,11 @@ def gerar_vendas_fake(requisicao: RequisicaoGerarVendasFake) -> dict:
     avisos: list[str] = []
 
     if requisicao.limpar_seed_anterior:
-        removidos = _limpar_seed_anterior(datas, requisicao.marcador)
+        removidos = _limpar_seed_anterior(datas, requisicao.marcador, usuario_id=usuario_id)
         if removidos:
             avisos.append(f"{removidos} dia(s) seed anterior removido(s) no periodo.")
 
-    produtos = _resolver_produtos_para_seed(requisicao, datas, rng, avisos)
+    produtos = _resolver_produtos_para_seed(requisicao, datas, rng, avisos, usuario_id=usuario_id)
     if not produtos:
         raise BadRequestError("Nao ha produtos com preco vigente para gerar o historico fake.")
 
@@ -64,6 +68,7 @@ def gerar_vendas_fake(requisicao: RequisicaoGerarVendasFake) -> dict:
         rng=rng,
         lote_id=lote_id,
         seed=seed,
+        usuario_id=usuario_id,
     )
     client = get_supabase_client()
     _inserir_em_lotes(client, "dias_de_venda", lote["dias_de_venda"])
@@ -96,6 +101,7 @@ def _montar_lote_seed(
     rng: Random,
     lote_id: UUID,
     seed: int,
+    usuario_id: UUID | str | None = None,
 ) -> dict:
     lote = {
         "dias_de_venda": [],
@@ -121,6 +127,7 @@ def _montar_lote_seed(
             rng=rng,
             lote_id=lote_id,
             seed=seed,
+            usuario_id=usuario_id,
         )
     return lote
 
@@ -135,6 +142,7 @@ def _montar_dia_seed(
     rng: Random,
     lote_id: UUID,
     seed: int,
+    usuario_id: UUID | str | None = None,
 ) -> None:
     # A ordem das chamadas ao rng precisa ser estavel: a mesma seed deve
     # gerar exatamente o mesmo lote de dados fake.
@@ -147,6 +155,7 @@ def _montar_dia_seed(
         data_venda=data_venda,
         rng=rng,
         lote_id=lote_id,
+        usuario_id=usuario_id,
     )
     estoque, unidades_produzidas = _produzir_itens_do_dia_seed(
         lote,
@@ -156,6 +165,7 @@ def _montar_dia_seed(
         selecionados=selecionados,
         snapshots=snapshots,
         rng=rng,
+        usuario_id=usuario_id,
     )
     vendas_dia, itens_venda_dia, unidades_vendidas = _vender_itens_do_dia_seed(
         lote,
@@ -168,6 +178,7 @@ def _montar_dia_seed(
         rng=rng,
         lote_id=lote_id,
         seed=seed,
+        usuario_id=usuario_id,
     )
     observacao_fechamento = _fechar_dia_seed(
         lote,
@@ -178,6 +189,7 @@ def _montar_dia_seed(
         lote_id=lote_id,
         unidades_produzidas=unidades_produzidas,
         unidades_vendidas=unidades_vendidas,
+        usuario_id=usuario_id,
     )
     lote["dias_saida"].append(
         {
@@ -205,6 +217,7 @@ def _abrir_dia_seed(
     data_venda: date,
     rng: Random,
     lote_id: UUID,
+    usuario_id: UUID | str | None = None,
 ) -> None:
     observacao_abertura = _montar_observacao_abertura(
         marcador=requisicao.marcador,
@@ -220,6 +233,7 @@ def _abrir_dia_seed(
             "observacoes": observacao_abertura,
             "situacao": "fechado" if requisicao.fechar_dias else "aberto",
             "fechado_em": datetime.now(UTC) if requisicao.fechar_dias else None,
+            "usuario_id": usuario_id,
         }
     )
     lote["eventos"].append(
@@ -229,6 +243,7 @@ def _abrir_dia_seed(
             tipo_entidade="dia_de_venda",
             entidade_id=dia_id,
             dia_de_venda_id=dia_id,
+            usuario_id=usuario_id,
             detalhes={"nome_local": requisicao.nome_local, "lote_id": str(lote_id)},
         )
     )
@@ -243,6 +258,7 @@ def _produzir_itens_do_dia_seed(
     selecionados: list[dict],
     snapshots: dict,
     rng: Random,
+    usuario_id: UUID | str | None = None,
 ) -> tuple[dict[str, int], int]:
     estoque: dict[str, int] = {}
     unidades_produzidas = 0
@@ -279,6 +295,7 @@ def _produzir_itens_do_dia_seed(
                 tipo_entidade="item_producao",
                 entidade_id=item_id,
                 dia_de_venda_id=dia_id,
+                usuario_id=usuario_id,
                 detalhes={
                     "produto_id": produto_linha["id"],
                     "quantidade_produzida": quantidade,
@@ -302,6 +319,7 @@ def _vender_itens_do_dia_seed(
     rng: Random,
     lote_id: UUID,
     seed: int,
+    usuario_id: UUID | str | None = None,
 ) -> tuple[int, int, int]:
     vendas_dia = 0
     itens_venda_dia = 0
@@ -334,6 +352,7 @@ def _vender_itens_do_dia_seed(
                 "observacoes": f"{requisicao.marcador} venda simulada do lote {lote_id}",
                 "ocorrido_em": ocorrido_em,
                 "situacao": "ativa",
+                "usuario_id": usuario_id,
             }
         )
         lote["itens_venda"].extend(venda_itens)
@@ -347,6 +366,7 @@ def _vender_itens_do_dia_seed(
                 tipo_entidade="venda",
                 entidade_id=venda_id,
                 dia_de_venda_id=dia_id,
+                usuario_id=usuario_id,
                 detalhes={
                     "tipo_entrada": "manual",
                     "origem": "seed_analytics",
@@ -377,6 +397,7 @@ def _fechar_dia_seed(
     lote_id: UUID,
     unidades_produzidas: int,
     unidades_vendidas: int,
+    usuario_id: UUID | str | None = None,
 ) -> str | None:
     if not requisicao.fechar_dias:
         return None
@@ -395,6 +416,7 @@ def _fechar_dia_seed(
             tipo_entidade="dia_de_venda",
             entidade_id=dia_id,
             dia_de_venda_id=dia_id,
+            usuario_id=usuario_id,
             detalhes={"lote_id": str(lote_id), "origem": "seed_analytics"},
         )
     )
@@ -468,6 +490,7 @@ def _montar_evento_seed(
     tipo_entidade: str,
     entidade_id: UUID,
     dia_de_venda_id: UUID,
+    usuario_id: UUID | str | None = None,
     detalhes: dict | None = None,
 ) -> dict:
     return {
@@ -477,6 +500,7 @@ def _montar_evento_seed(
         "tipo_evento": normalizar_tipo_evento_publico(tipo_evento),
         "titulo": titulo,
         "detalhes": detalhes or {},
+        "usuario_id": usuario_id,
     }
 
 
@@ -520,17 +544,23 @@ def _resolver_datas(requisicao: RequisicaoGerarVendasFake) -> list[date]:
     return datas
 
 
-def _limpar_seed_anterior(datas: list[date], marcador: str) -> int:
+def _limpar_seed_anterior(
+    datas: list[date],
+    marcador: str,
+    *,
+    usuario_id: UUID | str | None = None,
+) -> int:
     client = get_supabase_client()
-    linhas = (
+    consulta = (
         client.table("dias_de_venda")
         .select("id")
         .gte("data_venda", min(datas).isoformat())
         .lte("data_venda", max(datas).isoformat())
         .ilike("observacoes", f"%{marcador}%")
-        .execute()
-        .data
     )
+    if usuario_id:
+        consulta = consulta.eq("usuario_id", str(usuario_id))
+    linhas = consulta.execute().data
     ids = [linha["id"] for linha in linhas]
     if not ids:
         return 0
@@ -544,14 +574,24 @@ def _resolver_produtos_para_seed(
     datas: list[date],
     rng: Random,
     avisos: list[str],
+    *,
+    usuario_id: UUID | str | None = None,
 ) -> list[dict]:
     produtos: list[dict] = []
     if requisicao.produto_ids:
         for produto_id in requisicao.produto_ids:
-            produto = servico_de_produtos.buscar_produto(produto_id, data_preco=min(datas))
+            produto = servico_de_produtos.buscar_produto(
+                produto_id,
+                data_preco=min(datas),
+                usuario_id=usuario_id,
+            )
             produtos.append(produto)
     else:
-        produtos = servico_de_produtos.listar_produtos(somente_ativos=True, data_preco=min(datas))
+        produtos = servico_de_produtos.listar_produtos(
+            somente_ativos=True,
+            data_preco=min(datas),
+            usuario_id=usuario_id,
+        )
 
     produtos = _filtrar_produtos_com_preco_para_datas(produtos, datas, avisos)
 
@@ -561,7 +601,7 @@ def _resolver_produtos_para_seed(
     )
     if len(produtos) < minimo_desejado and requisicao.criar_produtos_fake_se_necessario:
         faltantes = minimo_desejado - len(produtos)
-        produtos.extend(_garantir_produtos_fake(datas, faltantes, rng))
+        produtos.extend(_garantir_produtos_fake(datas, faltantes, rng, usuario_id=usuario_id))
         avisos.append(
             "Produtos seed foram criados/reutilizados para garantir preco vigente no periodo."
         )
@@ -638,16 +678,23 @@ def _parse_data_db(valor: date | str) -> date:
     return date.fromisoformat(valor)
 
 
-def _garantir_produtos_fake(datas: list[date], quantidade: int, rng: Random) -> list[dict]:
+def _garantir_produtos_fake(
+    datas: list[date],
+    quantidade: int,
+    rng: Random,
+    *,
+    usuario_id: UUID | str | None = None,
+) -> list[dict]:
     client = get_supabase_client()
-    existentes = (
+    consulta = (
         client.table("produtos")
         .select("*")
         .like("nome", "[Seed]%")
         .eq("situacao", "ativo")
-        .execute()
-        .data
     )
+    if usuario_id:
+        consulta = consulta.eq("usuario_id", str(usuario_id))
+    existentes = consulta.execute().data
     por_nome = {produto["nome"]: produto for produto in existentes}
     specs = PRODUTOS_FAKE.copy()
     rng.shuffle(specs)
@@ -658,11 +705,18 @@ def _garantir_produtos_fake(datas: list[date], quantidade: int, rng: Random) -> 
             break
         produto = por_nome.get(nome)
         if produto:
-            _garantir_preco_seed(produto["id"], min(datas), preco_venda, preco_custo)
+            _garantir_preco_seed(
+                produto["id"],
+                min(datas),
+                preco_venda,
+                preco_custo,
+                usuario_id=usuario_id,
+            )
             produtos.append(
                 servico_de_produtos.buscar_produto(
                     UUID(produto["id"]),
                     data_preco=min(datas),
+                    usuario_id=usuario_id,
                 )
             )
             continue
@@ -674,7 +728,8 @@ def _garantir_produtos_fake(datas: list[date], quantidade: int, rng: Random) -> 
                 preco_custo=preco_custo,
                 vigente_desde=min(datas),
                 motivo_preco="Seed analytics",
-            )
+            ),
+            usuario_id=usuario_id,
         )
         produtos.append(criado)
     return produtos
@@ -685,9 +740,15 @@ def _garantir_preco_seed(
     data_inicio: date,
     preco_venda: Decimal,
     preco_custo: Decimal,
+    *,
+    usuario_id: UUID | str | None = None,
 ) -> None:
     try:
-        servico_de_produtos.buscar_snapshot_do_produto(produto_id, data_inicio)
+        servico_de_produtos.buscar_snapshot_do_produto(
+            produto_id,
+            data_inicio,
+            usuario_id=usuario_id,
+        )
     except AppError:
         servico_de_produtos.criar_versao_de_preco(
             UUID(str(produto_id)),
@@ -697,6 +758,7 @@ def _garantir_preco_seed(
                 vigente_desde=data_inicio,
                 motivo="Seed analytics retroativo",
             ),
+            usuario_id=usuario_id,
         )
 
 

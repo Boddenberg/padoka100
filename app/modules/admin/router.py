@@ -11,5 +11,5 @@ SeedGerar = Annotated[dict, Depends(exigir_capacidade("seed.gerar"))]
 
 
 @router.post("/seed/vendas-fake", response_model=RespostaGerarVendasFake, status_code=201)
-def gerar_vendas_fake(requisicao: RequisicaoGerarVendasFake, _: SeedGerar = None) -> dict:
-    return seed_servico.gerar_vendas_fake(requisicao)
+def gerar_vendas_fake(requisicao: RequisicaoGerarVendasFake, usuario: SeedGerar) -> dict:
+    return seed_servico.gerar_vendas_fake(requisicao, usuario_id=usuario["id"])
