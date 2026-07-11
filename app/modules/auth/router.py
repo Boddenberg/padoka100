@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, File, UploadFile
 
 from app.modules.admin.dependencias import exigir_admin_real
 from app.modules.auth import servico
-from app.modules.auth.dependencias import obter_sessao_autenticada
+from app.modules.auth.dependencias import exigir_sessao_de_usuario, obter_sessao_autenticada
 from app.modules.auth.esquemas import (
     RequisicaoAtualizarPapel,
     RequisicaoAtualizarPerfil,
@@ -19,6 +19,7 @@ from app.modules.auth.esquemas import (
 
 router = APIRouter(tags=["auth"])
 SessaoAtual = Annotated[dict, Depends(obter_sessao_autenticada)]
+SessaoUsuario = Annotated[dict, Depends(exigir_sessao_de_usuario)]
 AdminReal = Annotated[dict, Depends(exigir_admin_real)]
 
 
@@ -42,7 +43,7 @@ def logout(sessao: SessaoAtual) -> dict:
 @router.post("/auth/trocar-senha")
 def trocar_senha(
     requisicao: RequisicaoTrocarSenha,
-    sessao: SessaoAtual,
+    sessao: SessaoUsuario,
 ) -> dict:
     return servico.trocar_senha(sessao["usuario"]["id"], requisicao)
 
@@ -71,14 +72,14 @@ def atualizar_plano_usuario(
 
 
 @router.get("/perfil/me", response_model=UsuarioSaida)
-def buscar_meu_perfil(sessao: SessaoAtual) -> dict:
+def buscar_meu_perfil(sessao: SessaoUsuario) -> dict:
     return sessao["usuario"]
 
 
 @router.patch("/perfil/me", response_model=UsuarioSaida)
 def atualizar_meu_perfil(
     requisicao: RequisicaoAtualizarPerfil,
-    sessao: SessaoAtual,
+    sessao: SessaoUsuario,
 ) -> dict:
     return servico.atualizar_perfil(sessao["usuario"]["id"], requisicao)
 
@@ -86,6 +87,6 @@ def atualizar_meu_perfil(
 @router.post("/perfil/me/foto", response_model=UsuarioSaida)
 async def atualizar_foto_do_perfil(
     file: Annotated[UploadFile, File()],
-    sessao: SessaoAtual,
+    sessao: SessaoUsuario,
 ) -> dict:
     return await servico.atualizar_foto_perfil(sessao["usuario"]["id"], file)

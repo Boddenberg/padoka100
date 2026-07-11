@@ -16,6 +16,7 @@ class Settings(BaseSettings):
     supabase_key: str = ""
     supabase_service_role_key: str = ""
     supabase_storage_bucket: str = "padoka-midia"
+    max_upload_bytes: int = 25 * 1024 * 1024
 
     openai_api_key: str = ""
     openai_chat_model: str = ""

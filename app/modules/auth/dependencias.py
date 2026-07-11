@@ -29,7 +29,7 @@ def obter_sessao_autenticada(
 
     if not authorization or not authorization.lower().startswith("bearer "):
         return {
-            "usuario": servico.buscar_usuario_padrao_sem_token(),
+            "usuario": servico.usuario_sem_token(),
             "sessao_id": None,
             "via_api_key": False,
             "sem_token": True,
@@ -43,6 +43,24 @@ def obter_usuario_autenticado(
     sessao: Annotated[dict, Depends(obter_sessao_autenticada)],
 ) -> dict:
     return sessao["usuario"]
+
+
+def exigir_sessao_de_usuario(
+    sessao: Annotated[dict, Depends(obter_sessao_autenticada)],
+) -> dict:
+    if sessao.get("sem_token"):
+        raise AppError(
+            status_code=401,
+            code="unauthorized",
+            message="Informe uma sessao autenticada para acessar esta rota.",
+        )
+    if sessao.get("via_api_key"):
+        raise AppError(
+            status_code=403,
+            code="forbidden",
+            message="Esta rota exige uma sessao de usuario, nao X-API-Key.",
+        )
+    return sessao
 
 
 def obter_sessao_opcional(
