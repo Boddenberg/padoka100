@@ -292,6 +292,42 @@ essa equivalencia em vez do padrao. Quando a simulacao usar medida caseira
 aproximada, o campo `avisos` da sessao trara um alerta para o front pedir
 confirmacao visual.
 
+## Estimativa aproximada: o custeio nunca trava por unidade
+
+O backend sempre entrega uma estimativa de custo, mesmo quando a unidade da
+receita e a unidade da compra sao de tipos diferentes. Nao existe mais
+pendencia de "unidades incompativeis" bloqueando a confirmacao. As conversoes
+aplicadas, em ordem de preferencia:
+
+1. equivalencia explicita informada pelo usuario (ex.: `1 pacote = 500g`);
+2. medidas caseiras por ingrediente (ex.: colher de sopa de farinha = 8 g);
+3. densidade media do ingrediente para volume x massa (ex.: 1 colher de sopa
+   de farinha contra compra em kg vira ~8,25 g);
+4. peso tipico para itens contados (ex.: 1 ovo = 50 g, 1 dente de alho = 5 g);
+5. ultimo recurso: sem equivalencia da embalagem, o backend considera que a
+   receita consome 1 embalagem inteira, ou que 1 unidade usada equivale a
+   1 unidade comprada.
+
+Sinalizacao para o front:
+
+- `custo_simulado.calculo_aproximado`: `true` quando qualquer ingrediente usou
+  conversao aproximada. Nesse caso o front DEVE exibir um selo/disclaimer
+  visivel de que o custo e uma estimativa aproximada e pode variar.
+- `custo_simulado.avisos` (e `avisos` da sessao): inclui um aviso geral de
+  estimativa e um aviso por ingrediente explicando a conversao adotada.
+- `custo_simulado.ingredientes[].calculo_estimado` e `avisos_calculo`: permitem
+  marcar o item especifico e mostrar como melhorar a precisao (ex.: informar
+  `1 pacote = 500g`).
+- `GET /api/v1/custos/produtos/{id}/calculo` tambem retorna `avisos` e
+  `calculo_aproximado`, e cada ingrediente pode trazer `calculo_aproximado` e
+  `avisos_calculo`.
+
+Texto sugerido para o disclaimer no front:
+
+> Custo estimado. Algumas medidas foram convertidas com valores medios
+> (medidas caseiras, densidade ou tamanho de embalagem), entao o valor real
+> pode variar um pouco. Informe as equivalencias exatas para refinar.
+
 ## Merge e insumos compartilhados
 
 Ao receber novas entradas, o backend junta ingredientes por nome normalizado.
