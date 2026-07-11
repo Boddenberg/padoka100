@@ -82,7 +82,6 @@ class RequisicaoCancelarVendaDiaFechado(ApiModel):
 
 
 class RequisicaoCorrigirDiaFechado(ApiModel):
-    usuario_id: str | None = None
     motivo: str | None = None
     producoes: list[RequisicaoCorrigirProducaoDiaFechado] = Field(default_factory=list)
     itens_venda: list[RequisicaoCorrigirItemVendaDiaFechado] = Field(default_factory=list)

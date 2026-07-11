@@ -26,9 +26,15 @@ from supabase import Client
 def corrigir_dia_fechado(
     dia_de_venda_id: UUID,
     requisicao: RequisicaoCorrigirDiaFechado,
+    *,
+    usuario_id: UUID | str | None = None,
 ) -> dict:
     client = get_supabase_client()
-    dia_de_venda = servico_dias.buscar_linha_dia_de_venda(client, dia_de_venda_id)
+    dia_de_venda = servico_dias.buscar_linha_dia_de_venda(
+        client,
+        dia_de_venda_id,
+        usuario_id=usuario_id,
+    )
     if dia_de_venda["situacao"] != "fechado":
         raise BadRequestError("Somente dias fechados podem receber correcao retroativa.")
 
@@ -44,7 +50,12 @@ def corrigir_dia_fechado(
 
     alteracoes: list[dict] = []
     for producao in requisicao.producoes:
-        alteracao = _corrigir_producao_em_dia_fechado(client, dia_de_venda, producao)
+        alteracao = _corrigir_producao_em_dia_fechado(
+            client,
+            dia_de_venda,
+            producao,
+            usuario_id=usuario_id,
+        )
         if alteracao:
             alteracoes.append(alteracao)
 
@@ -76,7 +87,7 @@ def corrigir_dia_fechado(
             to_db_payload(
                 {
                     "dia_de_venda_id": dia_de_venda_id,
-                    "usuario_id": requisicao.usuario_id,
+                    "usuario_id": str(usuario_id) if usuario_id else None,
                     "motivo": requisicao.motivo,
                     "alteracoes": alteracoes,
                 }
@@ -92,9 +103,10 @@ def corrigir_dia_fechado(
         tipo_entidade="dia_de_venda",
         entidade_id=dia_de_venda_id,
         dia_de_venda_id=dia_de_venda_id,
+        usuario_id=usuario_id,
         detalhes={
             "correcao_id": correcao["id"],
-            "usuario_id": requisicao.usuario_id,
+            "usuario_id": str(usuario_id) if usuario_id else None,
             "motivo": requisicao.motivo,
             "alteracoes": alteracoes,
         },
@@ -106,6 +118,8 @@ def _corrigir_producao_em_dia_fechado(
     client: Client,
     dia_de_venda: dict,
     requisicao: RequisicaoCorrigirProducaoDiaFechado,
+    *,
+    usuario_id: UUID | str | None = None,
 ) -> dict | None:
     existente = first_or_none(
         client.table("itens_producao")
@@ -118,7 +132,12 @@ def _corrigir_producao_em_dia_fechado(
     )
     if existente:
         return _atualizar_producao_existente_em_correcao(client, existente, requisicao)
-    return _adicionar_producao_em_correcao(client, dia_de_venda, requisicao)
+    return _adicionar_producao_em_correcao(
+        client,
+        dia_de_venda,
+        requisicao,
+        usuario_id=usuario_id,
+    )
 
 
 def _atualizar_producao_existente_em_correcao(
@@ -170,10 +189,13 @@ def _adicionar_producao_em_correcao(
     client: Client,
     dia_de_venda: dict,
     requisicao: RequisicaoCorrigirProducaoDiaFechado,
+    *,
+    usuario_id: UUID | str | None = None,
 ) -> dict:
     snapshot = produtos_public.buscar_snapshot_do_produto(
         requisicao.produto_id,
         date.fromisoformat(dia_de_venda["data_venda"]),
+        usuario_id=usuario_id,
     )
     produto = snapshot["produto"]
     preco = snapshot["preco"]

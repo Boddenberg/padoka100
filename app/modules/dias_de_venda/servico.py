@@ -2,6 +2,10 @@
 
 Os fluxos maiores (iniciar dia e corrigir dia fechado) vivem em `use_cases/`;
 aqui ficam as operacoes de base e as fachadas finas que outros modulos usam.
+
+Todo acesso a dias de venda passa por ``buscar_linha_dia_de_venda`` (ou pelas
+listagens), que aplicam o filtro de dono. Itens de producao e decisoes de
+sobra herdam o escopo do dia ja validado.
 """
 
 from datetime import UTC, date, datetime
@@ -30,6 +34,7 @@ def listar_dias_de_venda(
     data_inicio: date | None = None,
     data_fim: date | None = None,
     situacao: str | None = None,
+    usuario_id: UUID | str | None = None,
 ) -> list[dict]:
     if data_inicio and data_fim:
         validar_periodo(data_inicio, data_fim)
@@ -40,6 +45,8 @@ def listar_dias_de_venda(
 
     client = get_supabase_client()
     consulta = client.table("dias_de_venda").select("*").order("data_venda", desc=True)
+    if usuario_id:
+        consulta = consulta.eq("usuario_id", str(usuario_id))
     if data_inicio:
         consulta = consulta.gte("data_venda", data_inicio.isoformat())
     if data_fim:
@@ -50,12 +57,16 @@ def listar_dias_de_venda(
     return [anexar_itens_producao(client, dia) for dia in dias]
 
 
-def criar_dia_de_venda(requisicao: RequisicaoCriarDiaDeVenda) -> dict:
+def criar_dia_de_venda(
+    requisicao: RequisicaoCriarDiaDeVenda,
+    *,
+    usuario_id: UUID | str | None = None,
+) -> dict:
     validar_data_nao_futura(requisicao.data_venda, campo="data_venda")
     client = get_supabase_client()
     nome_local_no_momento = requisicao.nome_local
     if requisicao.local_id:
-        local = servico_de_locais.buscar_local(requisicao.local_id)
+        local = servico_de_locais.buscar_local(requisicao.local_id, usuario_id=usuario_id)
         nome_local_no_momento = local["nome"]
 
     dados_dia = to_db_payload(
@@ -65,6 +76,7 @@ def criar_dia_de_venda(requisicao: RequisicaoCriarDiaDeVenda) -> dict:
             "nome_local_no_momento": nome_local_no_momento,
             "observacoes": requisicao.observacoes,
             "situacao": "aberto",
+            "usuario_id": usuario_id,
         }
     )
     dia_de_venda = client.table("dias_de_venda").insert(dados_dia).execute().data[0]
@@ -75,16 +87,21 @@ def criar_dia_de_venda(requisicao: RequisicaoCriarDiaDeVenda) -> dict:
         tipo_entidade="dia_de_venda",
         entidade_id=dia_de_venda["id"],
         dia_de_venda_id=dia_de_venda["id"],
+        usuario_id=usuario_id,
         detalhes={"nome_local": nome_local_no_momento},
     )
 
     for item in requisicao.itens_producao:
-        salvar_item_producao(UUID(dia_de_venda["id"]), item)
+        salvar_item_producao(UUID(dia_de_venda["id"]), item, usuario_id=usuario_id)
 
-    return buscar_dia_de_venda(UUID(dia_de_venda["id"]))
+    return buscar_dia_de_venda(UUID(dia_de_venda["id"]), usuario_id=usuario_id)
 
 
-def buscar_dia_de_venda_atual(*, data_venda: date | None = None) -> dict:
+def buscar_dia_de_venda_atual(
+    *,
+    data_venda: date | None = None,
+    usuario_id: UUID | str | None = None,
+) -> dict:
     if data_venda:
         validar_data_nao_futura(data_venda, campo="data_venda")
 
@@ -95,6 +112,8 @@ def buscar_dia_de_venda_atual(*, data_venda: date | None = None) -> dict:
         .eq("situacao", "aberto")
         .order("aberto_em", desc=True)
     )
+    if usuario_id:
+        consulta = consulta.eq("usuario_id", str(usuario_id))
     if data_venda:
         consulta = consulta.eq("data_venda", data_venda.isoformat())
     dia_de_venda = first_or_none(consulta.limit(1).execute().data)
@@ -106,21 +125,26 @@ def buscar_dia_de_venda_atual(*, data_venda: date | None = None) -> dict:
     return anexar_itens_producao(client, dia_de_venda)
 
 
-def buscar_dia_de_venda(dia_de_venda_id: UUID | str) -> dict:
+def buscar_dia_de_venda(
+    dia_de_venda_id: UUID | str,
+    *,
+    usuario_id: UUID | str | None = None,
+) -> dict:
     client = get_supabase_client()
-    dia_de_venda = buscar_linha_dia_de_venda(client, dia_de_venda_id)
+    dia_de_venda = buscar_linha_dia_de_venda(client, dia_de_venda_id, usuario_id=usuario_id)
     return anexar_itens_producao(client, dia_de_venda)
 
 
-def buscar_linha_dia_de_venda(client: Client, dia_de_venda_id: UUID | str) -> dict:
-    dia_de_venda = first_or_none(
-        client.table("dias_de_venda")
-        .select("*")
-        .eq("id", str(dia_de_venda_id))
-        .limit(1)
-        .execute()
-        .data
-    )
+def buscar_linha_dia_de_venda(
+    client: Client,
+    dia_de_venda_id: UUID | str,
+    *,
+    usuario_id: UUID | str | None = None,
+) -> dict:
+    consulta = client.table("dias_de_venda").select("*").eq("id", str(dia_de_venda_id))
+    if usuario_id:
+        consulta = consulta.eq("usuario_id", str(usuario_id))
+    dia_de_venda = first_or_none(consulta.limit(1).execute().data)
     if not dia_de_venda:
         raise NotFoundError("Dia de venda", str(dia_de_venda_id))
     return dia_de_venda
@@ -129,15 +153,17 @@ def buscar_linha_dia_de_venda(client: Client, dia_de_venda_id: UUID | str) -> di
 def atualizar_dia_de_venda(
     dia_de_venda_id: UUID,
     requisicao: RequisicaoAtualizarDiaDeVenda,
+    *,
+    usuario_id: UUID | str | None = None,
 ) -> dict:
     client = get_supabase_client()
-    dia_de_venda = buscar_linha_dia_de_venda(client, dia_de_venda_id)
+    dia_de_venda = buscar_linha_dia_de_venda(client, dia_de_venda_id, usuario_id=usuario_id)
     if dia_de_venda["situacao"] == "fechado":
         raise BadRequestError("Nao e possivel editar um dia fechado.")
 
     dados_atualizacao = requisicao.model_dump(exclude_unset=True)
     if requisicao.local_id:
-        local = servico_de_locais.buscar_local(requisicao.local_id)
+        local = servico_de_locais.buscar_local(requisicao.local_id, usuario_id=usuario_id)
         dados_atualizacao["nome_local_no_momento"] = local["nome"]
     elif requisicao.nome_local is not None:
         dados_atualizacao["nome_local_no_momento"] = requisicao.nome_local
@@ -158,20 +184,27 @@ def atualizar_dia_de_venda(
             tipo_entidade="dia_de_venda",
             entidade_id=dia_de_venda_id,
             dia_de_venda_id=dia_de_venda_id,
+            usuario_id=usuario_id,
             detalhes={"campos_alterados": sorted(dados_atualizacao.keys())},
         )
     return anexar_itens_producao(client, dia_de_venda)
 
 
-def salvar_item_producao(dia_de_venda_id: UUID, requisicao: RequisicaoCriarItemProducao) -> dict:
+def salvar_item_producao(
+    dia_de_venda_id: UUID,
+    requisicao: RequisicaoCriarItemProducao,
+    *,
+    usuario_id: UUID | str | None = None,
+) -> dict:
     client = get_supabase_client()
-    dia_de_venda = buscar_linha_dia_de_venda(client, dia_de_venda_id)
+    dia_de_venda = buscar_linha_dia_de_venda(client, dia_de_venda_id, usuario_id=usuario_id)
     if dia_de_venda["situacao"] == "fechado":
         raise BadRequestError("Nao e possivel alterar a producao de um dia fechado.")
 
     snapshot = produtos_public.buscar_snapshot_do_produto(
         requisicao.produto_id,
         date.fromisoformat(dia_de_venda["data_venda"]),
+        usuario_id=usuario_id,
     )
     produto = snapshot["produto"]
     preco = snapshot["preco"]
@@ -220,6 +253,7 @@ def salvar_item_producao(dia_de_venda_id: UUID, requisicao: RequisicaoCriarItemP
         tipo_entidade="item_producao",
         entidade_id=item["id"],
         dia_de_venda_id=dia_de_venda_id,
+        usuario_id=usuario_id,
         detalhes={
             "produto_id": str(requisicao.produto_id),
             "quantidade_produzida": requisicao.quantidade_produzida,
@@ -229,9 +263,14 @@ def salvar_item_producao(dia_de_venda_id: UUID, requisicao: RequisicaoCriarItemP
     return item
 
 
-def fechar_dia_de_venda(dia_de_venda_id: UUID, requisicao: RequisicaoFecharDiaDeVenda) -> dict:
+def fechar_dia_de_venda(
+    dia_de_venda_id: UUID,
+    requisicao: RequisicaoFecharDiaDeVenda,
+    *,
+    usuario_id: UUID | str | None = None,
+) -> dict:
     client = get_supabase_client()
-    dia_de_venda = buscar_linha_dia_de_venda(client, dia_de_venda_id)
+    dia_de_venda = buscar_linha_dia_de_venda(client, dia_de_venda_id, usuario_id=usuario_id)
     if dia_de_venda["situacao"] == "fechado":
         return anexar_itens_producao(client, dia_de_venda)
 
@@ -255,27 +294,34 @@ def fechar_dia_de_venda(dia_de_venda_id: UUID, requisicao: RequisicaoFecharDiaDe
         tipo_entidade="dia_de_venda",
         entidade_id=dia_de_venda_id,
         dia_de_venda_id=dia_de_venda_id,
+        usuario_id=usuario_id,
     )
     return anexar_itens_producao(client, dia_fechado)
 
 
-def iniciar_dia_de_venda(requisicao: RequisicaoIniciarDiaDeVenda) -> dict:
+def iniciar_dia_de_venda(
+    requisicao: RequisicaoIniciarDiaDeVenda,
+    *,
+    usuario_id: UUID | str | None = None,
+) -> dict:
     from app.modules.dias_de_venda.use_cases.iniciar_dia import (
         iniciar_dia_de_venda as _iniciar,
     )
 
-    return _iniciar(requisicao)
+    return _iniciar(requisicao, usuario_id=usuario_id)
 
 
 def corrigir_dia_fechado(
     dia_de_venda_id: UUID,
     requisicao: RequisicaoCorrigirDiaFechado,
+    *,
+    usuario_id: UUID | str | None = None,
 ) -> dict:
     from app.modules.dias_de_venda.use_cases.correcao_dia_fechado import (
         corrigir_dia_fechado as _corrigir,
     )
 
-    return _corrigir(dia_de_venda_id, requisicao)
+    return _corrigir(dia_de_venda_id, requisicao, usuario_id=usuario_id)
 
 
 def anexar_itens_producao(client: Client, dia_de_venda: dict) -> dict:

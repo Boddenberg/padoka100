@@ -3,6 +3,9 @@
 Orquestra: localizar dia atual/anterior, calcular e decidir sobras do dia
 anterior, criar o novo dia e fechar o anterior quando aplicavel. Todo o calculo
 de sobra vive em ``domain.sobras``; aqui fica a coordenacao com o banco.
+
+Todas as buscas de dia sao restritas ao dono informado: o dia anterior de um
+usuario nunca considera dias de outra conta.
 """
 
 from datetime import date
@@ -31,25 +34,30 @@ from app.shared.linha_do_tempo import registrar_evento_na_linha_do_tempo
 from supabase import Client
 
 
-def iniciar_dia_de_venda(requisicao: RequisicaoIniciarDiaDeVenda) -> dict:
+def iniciar_dia_de_venda(
+    requisicao: RequisicaoIniciarDiaDeVenda,
+    *,
+    usuario_id: UUID | str | None = None,
+) -> dict:
     client = get_supabase_client()
     data_venda = requisicao.data_venda or data_operacional_hoje()
     validar_data_nao_futura(data_venda, campo="data_venda")
 
-    dia_atual_existente = _buscar_dia_aberto_por_data(client, data_venda)
+    dia_atual_existente = _buscar_dia_aberto_por_data(client, data_venda, usuario_id)
     criar_nova_abertura = requisicao.criar_nova_abertura or requisicao_indica_nova_abertura(
         requisicao,
         dia_atual_existente=dia_atual_existente,
     )
     dia_atual = None if criar_nova_abertura else dia_atual_existente
 
-    dia_anterior = _buscar_dia_aberto_anterior(client, data_venda)
+    dia_anterior = _buscar_dia_aberto_anterior(client, data_venda, usuario_id)
     if dia_anterior:
         sobras_pendentes = _calcular_sobras_pendentes(client, dia_anterior["id"])
     else:
         dia_anterior, sobras_pendentes = _buscar_dia_fechado_anterior_com_sobra_pendente(
             client,
             data_venda,
+            usuario_id,
         )
 
     if not dia_anterior:
@@ -60,6 +68,7 @@ def iniciar_dia_de_venda(requisicao: RequisicaoIniciarDiaDeVenda) -> dict:
             dia_atual=dia_atual,
             dia_atual_existente=dia_atual_existente,
             criar_nova_abertura=criar_nova_abertura,
+            usuario_id=usuario_id,
         )
 
     if sobras_pendentes:
@@ -70,6 +79,7 @@ def iniciar_dia_de_venda(requisicao: RequisicaoIniciarDiaDeVenda) -> dict:
             dia_atual=dia_atual,
             dia_anterior=dia_anterior,
             sobras_pendentes=sobras_pendentes,
+            usuario_id=usuario_id,
         )
         if "acao" in resposta_ou_estado:
             return resposta_ou_estado
@@ -79,7 +89,14 @@ def iniciar_dia_de_venda(requisicao: RequisicaoIniciarDiaDeVenda) -> dict:
         if requisicao.decisoes_sobra:
             raise BadRequestError("O dia anterior nao tem sobra pendente.")
         decisoes_sobra = []
-        dia_atual = _garantir_dia_atual(client, requisicao, data_venda, dia_atual, dia_anterior)
+        dia_atual = _garantir_dia_atual(
+            client,
+            requisicao,
+            data_venda,
+            dia_atual,
+            dia_anterior,
+            usuario_id,
+        )
 
     return _finalizar_dia_iniciado(
         requisicao,
@@ -87,6 +104,7 @@ def iniciar_dia_de_venda(requisicao: RequisicaoIniciarDiaDeVenda) -> dict:
         dia_atual=dia_atual,
         dia_anterior=dia_anterior,
         decisoes_sobra=decisoes_sobra,
+        usuario_id=usuario_id,
     )
 
 
@@ -98,15 +116,23 @@ def _responder_sem_dia_anterior(
     dia_atual: dict | None,
     dia_atual_existente: dict | None,
     criar_nova_abertura: bool,
+    usuario_id: UUID | str | None,
 ) -> dict:
     if dia_atual:
-        _salvar_itens_producao_informados(UUID(dia_atual["id"]), requisicao.itens_producao)
+        _salvar_itens_producao_informados(
+            UUID(dia_atual["id"]),
+            requisicao.itens_producao,
+            usuario_id,
+        )
         decisoes_destino = servico_dias.listar_decisoes_sobra_do_destino(client, dia_atual["id"])
         return {
             "acao": "dia_atual_aberto",
             "mensagem": "O dia de venda de hoje ja esta aberto.",
             "data_venda": data_venda,
-            "dia_de_venda": servico_dias.buscar_dia_de_venda(UUID(dia_atual["id"])),
+            "dia_de_venda": servico_dias.buscar_dia_de_venda(
+                UUID(dia_atual["id"]),
+                usuario_id=usuario_id,
+            ),
             "dia_anterior": None,
             "sobras_pendentes": [],
             "decisoes_sobra": decisoes_destino,
@@ -114,7 +140,7 @@ def _responder_sem_dia_anterior(
     if requisicao.decisoes_sobra:
         raise BadRequestError("Nao ha dia anterior com sobra pendente.")
 
-    dia_atual = _criar_dia_de_venda_para_inicio(requisicao, data_venda, None)
+    dia_atual = _criar_dia_de_venda_para_inicio(requisicao, data_venda, None, usuario_id)
     mensagem = (
         "Nova abertura criada para este dia."
         if dia_atual_existente and criar_nova_abertura
@@ -139,6 +165,7 @@ def _decidir_sobras_do_dia_anterior(
     dia_atual: dict | None,
     dia_anterior: dict,
     sobras_pendentes: list[dict],
+    usuario_id: UUID | str | None,
 ) -> dict:
     """Retorna ou uma resposta 'decidir_sobras' (contem 'acao') ou o estado
     resolvido {'dia_atual', 'decisoes_sobra'} para seguir o fluxo."""
@@ -157,14 +184,23 @@ def _decidir_sobras_do_dia_anterior(
             ),
             "data_venda": data_venda,
             "dia_de_venda": (
-                servico_dias.buscar_dia_de_venda(UUID(dia_atual["id"])) if dia_atual else None
+                servico_dias.buscar_dia_de_venda(UUID(dia_atual["id"]), usuario_id=usuario_id)
+                if dia_atual
+                else None
             ),
             "dia_anterior": servico_dias.anexar_itens_producao(client, dia_anterior),
             "sobras_pendentes": sobras_pendentes,
             "decisoes_sobra": [],
         }
 
-    dia_atual = _garantir_dia_atual(client, requisicao, data_venda, dia_atual, dia_anterior)
+    dia_atual = _garantir_dia_atual(
+        client,
+        requisicao,
+        data_venda,
+        dia_atual,
+        dia_anterior,
+        usuario_id,
+    )
     if decisoes_existentes:
         decisoes_sobra = decisoes_existentes
     else:
@@ -174,6 +210,7 @@ def _decidir_sobras_do_dia_anterior(
             dia_destino=dia_atual,
             sobras_pendentes=sobras_pendentes,
             decisoes=requisicao.decisoes_sobra,
+            usuario_id=usuario_id,
         )
     return {"dia_atual": dia_atual, "decisoes_sobra": decisoes_sobra}
 
@@ -184,10 +221,15 @@ def _garantir_dia_atual(
     data_venda: date,
     dia_atual: dict | None,
     dia_anterior: dict | None,
+    usuario_id: UUID | str | None,
 ) -> dict:
     if not dia_atual:
-        return _criar_dia_de_venda_para_inicio(requisicao, data_venda, dia_anterior)
-    _salvar_itens_producao_informados(UUID(dia_atual["id"]), requisicao.itens_producao)
+        return _criar_dia_de_venda_para_inicio(requisicao, data_venda, dia_anterior, usuario_id)
+    _salvar_itens_producao_informados(
+        UUID(dia_atual["id"]),
+        requisicao.itens_producao,
+        usuario_id,
+    )
     return dia_atual
 
 
@@ -198,14 +240,19 @@ def _finalizar_dia_iniciado(
     dia_atual: dict,
     dia_anterior: dict,
     decisoes_sobra: list[dict],
+    usuario_id: UUID | str | None,
 ) -> dict:
     if dia_anterior["situacao"] == "fechado":
-        dia_anterior_saida = servico_dias.buscar_dia_de_venda(UUID(dia_anterior["id"]))
+        dia_anterior_saida = servico_dias.buscar_dia_de_venda(
+            UUID(dia_anterior["id"]),
+            usuario_id=usuario_id,
+        )
         mensagem = "Novo dia iniciado com sobras do dia anterior."
     else:
         dia_anterior_saida = servico_dias.fechar_dia_de_venda(
             UUID(dia_anterior["id"]),
             RequisicaoFecharDiaDeVenda(observacoes=requisicao.observacoes_fechamento_dia_anterior),
+            usuario_id=usuario_id,
         )
         mensagem = "Dia anterior fechado e novo dia iniciado."
 
@@ -213,19 +260,35 @@ def _finalizar_dia_iniciado(
         "acao": "dia_iniciado",
         "mensagem": mensagem,
         "data_venda": data_venda,
-        "dia_de_venda": servico_dias.buscar_dia_de_venda(UUID(dia_atual["id"])),
+        "dia_de_venda": servico_dias.buscar_dia_de_venda(
+            UUID(dia_atual["id"]),
+            usuario_id=usuario_id,
+        ),
         "dia_anterior": dia_anterior_saida,
         "sobras_pendentes": [],
         "decisoes_sobra": decisoes_sobra,
     }
 
 
-def _buscar_dia_aberto_por_data(client: Client, data_venda: date) -> dict | None:
+def _com_escopo_de_usuario(consulta, usuario_id: UUID | str | None):
+    if usuario_id:
+        consulta = consulta.eq("usuario_id", str(usuario_id))
+    return consulta
+
+
+def _buscar_dia_aberto_por_data(
+    client: Client,
+    data_venda: date,
+    usuario_id: UUID | str | None,
+) -> dict | None:
     return first_or_none(
-        client.table("dias_de_venda")
-        .select("*")
-        .eq("situacao", "aberto")
-        .eq("data_venda", data_venda.isoformat())
+        _com_escopo_de_usuario(
+            client.table("dias_de_venda")
+            .select("*")
+            .eq("situacao", "aberto")
+            .eq("data_venda", data_venda.isoformat()),
+            usuario_id,
+        )
         .order("aberto_em", desc=True)
         .limit(1)
         .execute()
@@ -233,12 +296,19 @@ def _buscar_dia_aberto_por_data(client: Client, data_venda: date) -> dict | None
     )
 
 
-def _buscar_dia_aberto_anterior(client: Client, data_venda: date) -> dict | None:
+def _buscar_dia_aberto_anterior(
+    client: Client,
+    data_venda: date,
+    usuario_id: UUID | str | None,
+) -> dict | None:
     dia = first_or_none(
-        client.table("dias_de_venda")
-        .select("*")
-        .eq("situacao", "aberto")
-        .lt("data_venda", data_venda.isoformat())
+        _com_escopo_de_usuario(
+            client.table("dias_de_venda")
+            .select("*")
+            .eq("situacao", "aberto")
+            .lt("data_venda", data_venda.isoformat()),
+            usuario_id,
+        )
         .order("data_venda", desc=True)
         .order("aberto_em", desc=True)
         .limit(1)
@@ -253,12 +323,16 @@ def _buscar_dia_aberto_anterior(client: Client, data_venda: date) -> dict | None
 def _buscar_dia_fechado_anterior_com_sobra_pendente(
     client: Client,
     data_venda: date,
+    usuario_id: UUID | str | None,
 ) -> tuple[dict | None, list[dict]]:
     dia = first_or_none(
-        client.table("dias_de_venda")
-        .select("*")
-        .eq("situacao", "fechado")
-        .lt("data_venda", data_venda.isoformat())
+        _com_escopo_de_usuario(
+            client.table("dias_de_venda")
+            .select("*")
+            .eq("situacao", "fechado")
+            .lt("data_venda", data_venda.isoformat()),
+            usuario_id,
+        )
         .order("data_venda", desc=True)
         .order("fechado_em", desc=True)
         .limit(1)
@@ -277,6 +351,7 @@ def _criar_dia_de_venda_para_inicio(
     requisicao: RequisicaoIniciarDiaDeVenda,
     data_venda: date,
     dia_anterior: dict | None,
+    usuario_id: UUID | str | None,
 ) -> dict:
     local_id = requisicao.local_id
     nome_local = requisicao.nome_local
@@ -291,13 +366,18 @@ def _criar_dia_de_venda_para_inicio(
             nome_local=nome_local,
             observacoes=requisicao.observacoes,
             itens_producao=requisicao.itens_producao,
-        )
+        ),
+        usuario_id=usuario_id,
     )
 
 
-def _salvar_itens_producao_informados(dia_de_venda_id: UUID, itens_producao) -> None:
+def _salvar_itens_producao_informados(
+    dia_de_venda_id: UUID,
+    itens_producao,
+    usuario_id: UUID | str | None,
+) -> None:
     for item in itens_producao:
-        servico_dias.salvar_item_producao(dia_de_venda_id, item)
+        servico_dias.salvar_item_producao(dia_de_venda_id, item, usuario_id=usuario_id)
 
 
 def _calcular_sobras_pendentes(client: Client, dia_de_venda_id: UUID | str) -> list[dict]:
@@ -359,6 +439,7 @@ def _registrar_decisoes_sobra(
     dia_destino: dict,
     sobras_pendentes: list[dict],
     decisoes: list,
+    usuario_id: UUID | str | None,
 ) -> list[dict]:
     linhas = montar_linhas_decisoes_sobra(
         dia_origem=dia_origem,
@@ -379,6 +460,7 @@ def _registrar_decisoes_sobra(
         tipo_entidade="dia_de_venda",
         entidade_id=dia_destino["id"],
         dia_de_venda_id=dia_destino["id"],
+        usuario_id=usuario_id,
         detalhes={
             "dia_origem_id": dia_origem["id"],
             "itens": [
