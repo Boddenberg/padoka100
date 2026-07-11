@@ -273,6 +273,7 @@ async def atualizar_foto_perfil(usuario_id: UUID | str | None, file: UploadFile)
         descricao="Foto de perfil",
         texto_alternativo="Foto de perfil do usuario",
         definir_como_principal=False,
+        usuario_id=usuario_id,
     )
     foto_url = midia.get("url_publica")
     if not foto_url:

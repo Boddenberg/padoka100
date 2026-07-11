@@ -7,6 +7,7 @@ from fastapi import UploadFile
 from app.core.config import get_settings
 from app.core.errors import BadRequestError
 from app.db.supabase import get_supabase_client
+from app.modules.midia.propriedade import validar_propriedade_da_entidade
 from app.shared.db import to_db_payload
 from app.shared.linha_do_tempo import registrar_evento_na_linha_do_tempo
 
@@ -39,6 +40,7 @@ async def enviar_midia(
     descricao: str | None = None,
     texto_alternativo: str | None = None,
     definir_como_principal: bool = False,
+    usuario_id: UUID | str | None = None,
 ) -> dict:
     conteudo = await file.read()
     return enviar_midia_em_bytes(
@@ -50,6 +52,7 @@ async def enviar_midia(
         descricao=descricao,
         texto_alternativo=texto_alternativo,
         definir_como_principal=definir_como_principal,
+        usuario_id=usuario_id,
     )
 
 
@@ -63,6 +66,7 @@ def enviar_midia_em_bytes(
     descricao: str | None = None,
     texto_alternativo: str | None = None,
     definir_como_principal: bool = False,
+    usuario_id: UUID | str | None = None,
 ) -> dict:
     if tipo_entidade not in TIPOS_DE_ENTIDADE_COM_MIDIA:
         raise BadRequestError(
@@ -72,6 +76,8 @@ def enviar_midia_em_bytes(
 
     if not conteudo:
         raise BadRequestError("Arquivo vazio.")
+
+    validar_propriedade_da_entidade(tipo_entidade, entidade_id, usuario_id)
 
     settings = get_settings()
     _validar_upload(
@@ -104,6 +110,7 @@ def enviar_midia_em_bytes(
                     "tipo_conteudo": tipo_conteudo_resolvido,
                     "descricao": descricao,
                     "texto_alternativo": texto_alternativo,
+                    "usuario_id": usuario_id,
                 }
             )
         )
@@ -124,6 +131,7 @@ def enviar_midia_em_bytes(
         titulo="Midia enviada",
         tipo_entidade=tipo_entidade,
         entidade_id=entidade_id,
+        usuario_id=usuario_id,
         detalhes={
             "midia_id": midia["id"],
             "caminho_arquivo": caminho_arquivo,

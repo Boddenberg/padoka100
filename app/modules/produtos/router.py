@@ -102,7 +102,6 @@ async def enviar_midia_do_produto(
     texto_alternativo: Annotated[str | None, Form()] = None,
     definir_como_principal: Annotated[bool, Form()] = True,
 ) -> dict:
-    servico.buscar_produto(produto_id, usuario_id=usuario["id"])
     return await servico_de_midia.enviar_midia(
         tipo_entidade="produto",
         entidade_id=produto_id,
@@ -110,4 +109,5 @@ async def enviar_midia_do_produto(
         descricao=descricao,
         texto_alternativo=texto_alternativo,
         definir_como_principal=definir_como_principal,
+        usuario_id=usuario["id"],
     )
