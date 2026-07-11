@@ -125,9 +125,30 @@ A documentacao interativa fica em:
 
 Exemplos de uso ficam em `docs/API_USAGE.md`.
 
-Autenticacao atual: nenhum endpoint exige Bearer token. O login ainda devolve
-`access_token` por compatibilidade, mas o front pode chamar todas as rotas sem
-enviar `Authorization`.
+Autenticacao atual: **toda rota de negocio exige sessao autenticada** (Bearer
+token proprio ou do Supabase Auth) e a capacidade do plano correspondente.
+Requisicoes anonimas recebem 401; sessao via `X-API-Key` opera como usuario de
+servico (id fixo) e nao acessa rotas de perfil.
+
+## Modelo multiusuario (beta)
+
+Todo dado de negocio tem dono explicito (`usuario_id`) obtido da sessao
+autenticada no backend — nunca do payload do cliente:
+
+- produtos, precos, locais, dias de venda, producao, vendas, sobras,
+  correcoes, relatorios, historico, midias, interacoes de IA, insumos,
+  receitas, listas de compras e sessoes de custeio sao isolados por conta;
+- listagens e consultas por id filtram por `usuario_id` na propria query
+  (nao ha validacao tardia); registro de outra conta responde 404;
+- dois usuarios podem ter produtos com o mesmo nome (slug unico por usuario);
+- dados legados criados antes da autenticacao sao associados ao primeiro
+  usuario `dono` pela migration `014_multiusuario.sql`; sem dono cadastrado,
+  ficam invisiveis nas consultas normais;
+- **a migration 014 precisa ser aplicada no Supabase antes de implantar esta
+  versao do backend** (as escritas passam a incluir `usuario_id`);
+- para promover uma conta tester de plano sem editar o banco:
+  `PATCH /api/v1/auth/usuarios/{usuario_id}/plano` com `X-API-Key` (ou sessao
+  de administrador real). Usuario comum nao promove o proprio plano.
 
 ## Regras de negocio centrais
 
@@ -202,12 +223,16 @@ Ja existe:
   confirmacao final e atualizacao do custo vigente do produto;
 - login com token do Supabase Auth e sincronizacao do perfil local;
 - planos de acesso (`basico`, `analitico`, `ia`, `admin`) com capacidades por rota;
-- suite de testes de dominio puro com pytest (144 casos) e lint com ruff.
+- isolamento completo por usuario em todas as entidades de negocio;
+- reaproveitamento seletivo de sobras (somente itens explicitamente decididos
+  entram no dia atual);
+- suite pytest com dominio puro + testes de integracao multiusuario com
+  Supabase fake em memoria (202 casos) e lint com ruff.
 
 Ainda nao existe como funcionalidade completa:
 
 - integracao fiscal oficial por XML/chave de acesso de nota;
-- testes automatizados de integracao.
+- rate limiting e bloqueio de forca bruta no login.
 
 ## Autenticacao e perfil
 
@@ -529,7 +554,7 @@ router -> servico (fachada) -> use_cases -> domain (puro)
 
 ```bash
 pip install -e ".[dev]"
-python -m pytest                        # 144 testes de dominio
+python -m pytest                        # dominio puro + integracao multiusuario
 python -m ruff check .                  # lint
 python -m compileall -q app             # smoke de compilacao
 python scripts/architecture_report.py   # limites de tamanho/acoplamento
