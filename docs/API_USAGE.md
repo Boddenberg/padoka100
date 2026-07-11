@@ -748,6 +748,48 @@ Contrato detalhado para o front: `docs/NOTIFICACOES_FRONT.md`.
 As notificacoes exigem `Authorization: Bearer ...`; a API filtra o feed pelo
 usuario logado, plano de acesso e alvo especifico, e persiste estado por usuario.
 
+Endpoint recomendado para o front:
+
+```bash
+curl "http://localhost:8000/api/v1/notificacoes/feed?limite=20&incluir_lidas=true" \
+  -H "Authorization: Bearer TOKEN"
+```
+
+Resposta:
+
+```json
+{
+  "itens": [
+    {
+      "id": "NOTIFICACAO_ID",
+      "titulo": "Aviso",
+      "corpo": "Texto da notificacao",
+      "prioridade": "normal",
+      "publicado_em": "2026-07-10T10:00:00Z",
+      "expira_em": null,
+      "criado_em": "2026-07-10T09:50:00Z",
+      "lida": false,
+      "lida_em": null,
+      "nova": true,
+      "midias": []
+    }
+  ],
+  "resumo": {
+    "total": 3,
+    "nao_lidas": 1,
+    "lidas": 2,
+    "novas": 1,
+    "retornadas": 3
+  },
+  "limite": 20,
+  "tem_mais": false,
+  "persistida": true
+}
+```
+
+O feed ja prioriza nao lidas, prioridade alta e mais recentes. As rotas abaixo
+continuam disponiveis para compatibilidade e detalhes pontuais.
+
 Listar:
 
 ```bash
@@ -762,11 +804,13 @@ Resposta publica enxuta:
     "id": "NOTIFICACAO_ID",
     "titulo": "Aviso",
     "corpo": "Texto da notificacao",
+    "prioridade": "normal",
     "publicado_em": "2026-07-10T10:00:00Z",
     "expira_em": null,
     "criado_em": "2026-07-10T09:50:00Z",
     "lida": false,
     "lida_em": null,
+    "nova": true,
     "midias": [
       {
         "url": "https://...",
@@ -788,8 +832,8 @@ curl -X POST http://localhost:8000/api/v1/notificacoes/NOTIFICACAO_ID/ocultar
 
 As rotas de acao devolvem o estado completo (`lida`, `lida_em`, `oculta`,
 `oculta_em`, `persistida`). A lista publica nao devolve campos internos/admin,
-como `publico`, `prioridade`, `status`, `metadados`, `expira_em` ou usuario
-criador.
+como `publico`, `planos_alvo`, `usuario_alvo_id`, `status`, `metadados` ou
+usuario criador.
 
 Criacao admin com alvo por plano e expiracao em dias:
 

@@ -117,6 +117,7 @@ A documentacao interativa fica em:
 - `POST /api/v1/custos/assistente/sessoes/{sessao_id}/confirmar`
 - `POST /api/v1/custos/assistente/sessoes/{sessao_id}/descartar`
 - `GET /api/v1/notificacoes`
+- `GET /api/v1/notificacoes/feed`
 - `GET /api/v1/notificacoes/nao-lidas/contagem`
 - `POST /api/v1/notificacoes/{notificacao_id}/lida`
 - `POST /api/v1/notificacoes/{notificacao_id}/ler`
@@ -231,7 +232,7 @@ Ja existe:
 - reaproveitamento seletivo de sobras (somente itens explicitamente decididos
   entram no dia atual);
 - suite pytest com dominio puro + testes de integracao multiusuario com
-  Supabase fake em memoria (205 casos) e lint com ruff.
+  Supabase fake em memoria (206 casos) e lint com ruff.
 
 Ainda nao existe como funcionalidade completa:
 

@@ -33,7 +33,7 @@ def listar_notificacoes_publicas(
         limite=_limite_consulta_publica(limite, usuario),
         campos=(
             "id,titulo,corpo,status,publico,planos_alvo,usuario_alvo_id,"
-            "midias,publicado_em,expira_em,criado_em"
+            "prioridade,midias,publicado_em,expira_em,criado_em"
         ),
     )
     linhas = [
@@ -51,6 +51,48 @@ def listar_notificacoes_publicas(
     if not incluir_lidas:
         notificacoes = [notificacao for notificacao in notificacoes if not notificacao["lida"]]
     return [_formatar_notificacao_publica(notificacao) for notificacao in notificacoes[:limite]]
+
+
+def obter_feed_notificacoes(
+    *,
+    limite: int = 20,
+    usuario: dict | None = None,
+    incluir_lidas: bool = True,
+) -> dict:
+    client = get_supabase_client()
+    usuario = _normalizar_usuario(usuario)
+    usuario_id_estado = _usuario_id_para_estado(usuario)
+    notificacoes = _buscar_notificacoes_visiveis_com_estado(
+        client,
+        usuario=usuario,
+        usuario_id_estado=usuario_id_estado,
+    )
+    notificacoes = [notificacao for notificacao in notificacoes if not notificacao["oculta"]]
+
+    nao_lidas = sorted(
+        [notificacao for notificacao in notificacoes if not notificacao["lida"]],
+        key=_chave_feed,
+    )
+    lidas = sorted(
+        [notificacao for notificacao in notificacoes if notificacao["lida"]],
+        key=_chave_feed,
+    )
+    candidatas = nao_lidas + (lidas if incluir_lidas else [])
+    itens = candidatas[:limite]
+
+    return {
+        "itens": [_formatar_notificacao_publica(notificacao) for notificacao in itens],
+        "resumo": {
+            "total": len(notificacoes),
+            "nao_lidas": len(nao_lidas),
+            "lidas": len(lidas),
+            "novas": len(nao_lidas),
+            "retornadas": len(itens),
+        },
+        "limite": limite,
+        "tem_mais": len(candidatas) > len(itens),
+        "persistida": bool(usuario_id_estado),
+    }
 
 
 def listar_notificacoes_admin(*, status: str | None = None, limite: int = 100) -> list[dict]:
@@ -391,6 +433,31 @@ def _consultar_notificacoes_publicas(
     return consulta.execute().data
 
 
+def _buscar_notificacoes_visiveis_com_estado(
+    client: Client,
+    *,
+    usuario: dict | None,
+    usuario_id_estado: UUID | str | None,
+) -> list[dict]:
+    linhas = _consultar_notificacoes_publicas(
+        client,
+        campos=(
+            "id,titulo,corpo,status,publico,planos_alvo,usuario_alvo_id,"
+            "prioridade,midias,publicado_em,expira_em,criado_em"
+        ),
+    )
+    linhas = [
+        notificacao
+        for notificacao in linhas
+        if _notificacao_visivel_para_usuario(notificacao, usuario)
+    ]
+    return _anexar_estado(
+        client,
+        _anexar_midias(client, linhas, enxuto=True),
+        usuario_id=usuario_id_estado,
+    )
+
+
 def _limite_consulta_publica(limite: int, usuario: dict | None) -> int:
     if not usuario:
         return limite
@@ -452,15 +519,18 @@ def _anexar_midias(
 
 
 def _formatar_notificacao_publica(notificacao: dict) -> dict:
+    lida = notificacao.get("lida", False)
     return {
         "id": notificacao["id"],
         "titulo": notificacao["titulo"],
         "corpo": notificacao["corpo"],
+        "prioridade": notificacao.get("prioridade") or "normal",
         "publicado_em": notificacao.get("publicado_em"),
         "expira_em": notificacao.get("expira_em"),
         "criado_em": notificacao.get("criado_em"),
-        "lida": notificacao.get("lida", False),
+        "lida": lida,
         "lida_em": notificacao.get("lida_em"),
+        "nova": not lida,
         "midias": [
             _formatar_midia_publica(midia)
             for midia in (notificacao.get("midias") or [])
@@ -693,6 +763,14 @@ def _normalizar_planos_alvo(planos: list[str] | None) -> list[str]:
             vistos.add(valor)
             normalizados.append(valor)
     return normalizados
+
+
+def _chave_feed(notificacao: dict) -> tuple[int, float]:
+    prioridade = str(notificacao.get("prioridade") or "normal")
+    prioridade_rank = {"alta": 0, "normal": 1, "baixa": 2}.get(prioridade, 1)
+    data = _parse_datetime(notificacao.get("publicado_em") or notificacao.get("criado_em"))
+    timestamp = data.timestamp() if data else 0
+    return (prioridade_rank, -timestamp)
 
 
 def _validar_alvo_notificacao(

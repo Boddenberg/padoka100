@@ -106,11 +106,13 @@ class NotificacaoPublicaSaida(ApiModel):
     id: UUID
     titulo: str
     corpo: str
+    prioridade: PrioridadeNotificacao = "normal"
     publicado_em: datetime | None = None
     expira_em: datetime | None = None
     criado_em: datetime | None = None
     lida: bool = False
     lida_em: datetime | None = None
+    nova: bool = False
     midias: list[MidiaNotificacaoPublicaSaida] = Field(default_factory=list)
 
 
@@ -125,6 +127,22 @@ class EstadoNotificacaoSaida(ApiModel):
 
 class ContagemNotificacoesNaoLidasSaida(ApiModel):
     total: int
+    persistida: bool = True
+
+
+class ResumoFeedNotificacoesSaida(ApiModel):
+    total: int
+    nao_lidas: int
+    lidas: int
+    novas: int
+    retornadas: int
+
+
+class FeedNotificacoesSaida(ApiModel):
+    itens: list[NotificacaoPublicaSaida] = Field(default_factory=list)
+    resumo: ResumoFeedNotificacoesSaida
+    limite: int
+    tem_mais: bool = False
     persistida: bool = True
 
 

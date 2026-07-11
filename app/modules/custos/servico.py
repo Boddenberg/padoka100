@@ -910,59 +910,124 @@ def _acumular_ingrediente_na_lista(
     data_referencia: date,
     usuario_id: UUID | str | None = None,
 ) -> None:
-    try:
-        tipo_unidade, fator_unidade = _resolver_unidade(ingrediente["unidade"])
-    except BadRequestError as exc:
-        pendencias.append(f"{ingrediente['nome_insumo_no_momento']}: {exc.message}")
-        return
-
-    quantidade_base = (
-        Decimal(str(ingrediente["quantidade_usada"])) * fator_unidade * fator_receita
-    )
+    quantidade_usada = Decimal(str(ingrediente["quantidade_usada"])) * fator_receita
     insumo = (
         buscar_insumo(ingrediente["insumo_id"], usuario_id=usuario_id)
         if ingrediente.get("insumo_id")
         else None
     )
+    preco = (
+        buscar_preco_vigente_insumo(insumo["id"], data_referencia, obrigatorio=False)
+        if insumo
+        else None
+    )
+    calculo = _calcular_item_lista_compras(
+        ingrediente,
+        quantidade_usada=quantidade_usada,
+        preco=preco,
+    )
+    if not calculo:
+        pendencias.append(
+            f"{ingrediente['nome_insumo_no_momento']}: unidade de medida ainda nao suportada."
+        )
+        return
+
     chave = (
         f"insumo:{insumo['id']}"
         if insumo
         else f"nome:{normalizar_nome_insumo(ingrediente['nome_insumo_no_momento'])}"
     )
     if chave not in grupos:
-        preco = (
-            buscar_preco_vigente_insumo(insumo["id"], data_referencia, obrigatorio=False)
-            if insumo
-            else None
-        )
         grupos[chave] = {
             "chave": chave,
             "insumo_id": insumo["id"] if insumo else None,
             "nome": insumo["nome"] if insumo else ingrediente["nome_insumo_no_momento"],
             "categoria": (insumo or {}).get("categoria"),
-            "tipo_unidade": tipo_unidade,
+            "tipo_unidade": calculo["tipo_unidade"],
             "quantidade_base": Decimal("0"),
-            "custo_unitario_base": Decimal(str(preco["custo_por_unidade"])) if preco else None,
+            "custo_unitario_base": calculo["custo_unitario_base"],
             "status": "CONFIRMADO" if preco else "PENDENTE",
             "observacoes": None if preco else "Sem preco vigente para estimar custo.",
             "contribuicoes": [],
         }
     grupo = grupos[chave]
-    if grupo["tipo_unidade"] != tipo_unidade:
+    if grupo["tipo_unidade"] != calculo["tipo_unidade"]:
         pendencias.append(
             f"{grupo['nome']}: unidades incompativeis entre receitas para lista de compras."
         )
         return
-    grupo["quantidade_base"] += quantidade_base
+    if calculo["aproximado"]:
+        grupo["status"] = _consolidar_status([grupo["status"], "ESTIMADO"])
+        grupo["observacoes"] = _juntar_observacoes(
+            grupo.get("observacoes"),
+            calculo["avisos"],
+        )
+    grupo["quantidade_base"] += calculo["quantidade_base"]
     grupo["contribuicoes"].append(
         {
             "produto_id": produto["id"],
             "produto": produto["nome"],
             "receita_id": receita["id"],
             "quantidade_produto": quantidade_produto,
-            "quantidade_base": quantidade_base,
+            "quantidade_base": calculo["quantidade_base"],
         }
     )
+
+
+def _calcular_item_lista_compras(
+    ingrediente: dict,
+    *,
+    quantidade_usada: Decimal,
+    preco: dict | None,
+) -> dict | None:
+    nome = ingrediente["nome_insumo_no_momento"]
+    if preco:
+        custo_unitario_base = _custo_unitario_base_do_preco(preco)
+        estimativa = estimar_custo_ingrediente(
+            custo_unitario_base,
+            quantidade_usada,
+            ingrediente["unidade"],
+            preco["unidade_compra"],
+            nome_ingrediente=nome,
+        )
+        return {
+            "tipo_unidade": _tipo_unidade_flexivel(preco["unidade_compra"]),
+            "quantidade_base": Decimal(str(estimativa["quantidade_base"])),
+            "custo_unitario_base": custo_unitario_base,
+            "aproximado": estimativa["aproximado"],
+            "avisos": estimativa["avisos"],
+        }
+
+    try:
+        tipo_unidade, fator_unidade = _resolver_unidade(ingrediente["unidade"])
+    except BadRequestError:
+        return None
+    return {
+        "tipo_unidade": tipo_unidade,
+        "quantidade_base": quantidade_usada * fator_unidade,
+        "custo_unitario_base": None,
+        "aproximado": False,
+        "avisos": [],
+    }
+
+
+def _custo_unitario_base_do_preco(preco: dict) -> Decimal:
+    try:
+        return _calcular_custo_por_unidade(
+            Decimal(str(preco["preco_total"])),
+            Decimal(str(preco["quantidade_comprada"])),
+            preco["unidade_compra"],
+        )
+    except (BadRequestError, InvalidOperation, KeyError, TypeError, ValueError):
+        return Decimal(str(preco["custo_por_unidade"]))
+
+
+def _tipo_unidade_flexivel(unidade: str) -> str:
+    try:
+        tipo_unidade, _ = _resolver_unidade(unidade)
+    except BadRequestError:
+        return "unidade"
+    return tipo_unidade
 
 
 def _montar_item_lista_compras(grupo: dict, multiplicador_margem: Decimal) -> dict:

@@ -86,6 +86,76 @@ def test_notificacao_para_usuario_especifico_e_estado_lido(client):
     assert contagem_alvo.json()["total"] == 0
 
 
+def test_feed_unico_prioriza_nao_lidas_e_resume_estado(client, banco):
+    usuario = registrar_e_logar(client, "feed@padoka.com", "Feed")
+    agora = datetime.now(UTC)
+    lida_id = str(uuid4())
+    nao_lida_alta_id = str(uuid4())
+    nao_lida_normal_id = str(uuid4())
+    banco.tabelas["notificacoes"] = [
+        _notificacao_linha(
+            lida_id,
+            titulo="Lida recente",
+            publicado_em=agora,
+            prioridade="alta",
+        ),
+        _notificacao_linha(
+            nao_lida_normal_id,
+            titulo="Nao lida normal",
+            publicado_em=agora - timedelta(minutes=1),
+            prioridade="normal",
+        ),
+        _notificacao_linha(
+            nao_lida_alta_id,
+            titulo="Nao lida alta",
+            publicado_em=agora - timedelta(minutes=2),
+            prioridade="alta",
+        ),
+    ]
+    banco.tabelas["notificacao_visualizacoes"] = [
+        {
+            "id": str(uuid4()),
+            "notificacao_id": lida_id,
+            "usuario_id": usuario["usuario"]["id"],
+            "visualizado_em": agora.isoformat(),
+        }
+    ]
+
+    resposta = client.get(
+        "/api/v1/notificacoes/feed?limite=2",
+        headers=usuario["headers"],
+    )
+
+    assert resposta.status_code == 200, resposta.text
+    payload = resposta.json()
+    assert [item["id"] for item in payload["itens"]] == [
+        nao_lida_alta_id,
+        nao_lida_normal_id,
+    ]
+    assert payload["resumo"] == {
+        "total": 3,
+        "nao_lidas": 2,
+        "lidas": 1,
+        "novas": 2,
+        "retornadas": 2,
+    }
+    assert payload["tem_mais"] is True
+    assert payload["persistida"] is True
+    assert set(payload["itens"][0]) == {
+        "id",
+        "titulo",
+        "corpo",
+        "prioridade",
+        "publicado_em",
+        "expira_em",
+        "criado_em",
+        "lida",
+        "lida_em",
+        "nova",
+        "midias",
+    }
+
+
 def test_admin_exclui_notificacao_e_limpa_expiradas(client, banco):
     usuario = registrar_e_logar(client, "notificacoes@padoka.com", "Leitor")
     criada = client.post(
@@ -154,7 +224,8 @@ def _notificacao_linha(
     *,
     titulo: str,
     publicado_em: datetime,
-    expira_em: datetime,
+    expira_em: datetime | None = None,
+    prioridade: str = "normal",
 ) -> dict:
     agora = datetime.now(UTC).isoformat()
     return {
@@ -164,13 +235,13 @@ def _notificacao_linha(
         "publico": "todos",
         "planos_alvo": [],
         "usuario_alvo_id": None,
-        "prioridade": "normal",
+        "prioridade": prioridade,
         "status": "publicada",
         "midias": [],
         "metadados": {},
         "criado_por_usuario_id": None,
         "publicado_em": publicado_em.isoformat(),
-        "expira_em": expira_em.isoformat(),
+        "expira_em": expira_em.isoformat() if expira_em else None,
         "expira_em_dias": None,
         "criado_em": agora,
         "atualizado_em": agora,

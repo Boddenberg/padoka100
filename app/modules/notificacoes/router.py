@@ -8,6 +8,7 @@ from app.modules.notificacoes import servico
 from app.modules.notificacoes.esquemas import (
     ContagemNotificacoesNaoLidasSaida,
     EstadoNotificacaoSaida,
+    FeedNotificacoesSaida,
     LimpezaNotificacoesSaida,
     NotificacaoPublicaSaida,
     NotificacaoSaida,
@@ -44,6 +45,19 @@ def contar_notificacoes_nao_lidas(
     usuario: NotificacoesLer = None,
 ) -> dict:
     return servico.contar_notificacoes_nao_lidas(usuario=usuario)
+
+
+@router.get("/notificacoes/feed", response_model=FeedNotificacoesSaida)
+def obter_feed_notificacoes(
+    limite: Annotated[int, Query(ge=1, le=100)] = 20,
+    incluir_lidas: bool = True,
+    usuario: NotificacoesLer = None,
+) -> dict:
+    return servico.obter_feed_notificacoes(
+        limite=limite,
+        usuario=usuario,
+        incluir_lidas=incluir_lidas,
+    )
 
 
 @router.get("/notificacoes/{notificacao_id}", response_model=NotificacaoPublicaSaida)
