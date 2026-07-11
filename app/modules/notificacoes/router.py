@@ -16,15 +16,6 @@ from app.modules.notificacoes.esquemas import (
 
 router = APIRouter(tags=["notificacoes"])
 
-USUARIO_SISTEMA_SEM_AUTH = {
-    "id": None,
-    "email": "sem-auth@padoka.local",
-    "nome": "Sem autenticacao",
-    "papel": "dono",
-    "situacao": "ativo",
-}
-
-
 SessaoOpcional = Annotated[dict | None, Depends(obter_sessao_opcional)]
 NotificacoesLer = Annotated[dict, Depends(exigir_capacidade("notificacoes.ler"))]
 NotificacoesAdmin = Annotated[dict, Depends(exigir_capacidade("notificacoes.admin"))]
@@ -132,9 +123,9 @@ def listar_notificacoes_admin(
 @router.post("/admin/notificacoes", response_model=NotificacaoSaida, status_code=201)
 def criar_notificacao(
     requisicao: RequisicaoCriarNotificacao,
-    usuario: NotificacoesAdmin = None,
+    usuario: NotificacoesAdmin,
 ) -> dict:
-    return servico.criar_notificacao(requisicao, usuario or USUARIO_SISTEMA_SEM_AUTH)
+    return servico.criar_notificacao(requisicao, usuario)
 
 
 @router.patch("/admin/notificacoes/{notificacao_id}", response_model=NotificacaoSaida)

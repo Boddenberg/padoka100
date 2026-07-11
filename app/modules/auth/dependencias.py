@@ -71,23 +71,6 @@ def obter_sessao_opcional(
     return {"usuario": usuario, "sessao_id": sessao["id"], "via_api_key": False, "sem_token": False}
 
 
-def exigir_papel(*papeis: str):
-    def dependencia(
-        sessao: Annotated[dict, Depends(obter_sessao_autenticada)],
-    ) -> dict:
-        usuario = sessao["usuario"]
-        if not servico.papel_atende(usuario, papeis):
-            raise AppError(
-                status_code=403,
-                code="forbidden",
-                message="Usuario nao tem permissao para esta acao.",
-                details={"papeis_necessarios": list(papeis), "papel_atual": usuario.get("papel")},
-            )
-        return usuario
-
-    return dependencia
-
-
 def exigir_capacidade(capacidade: str):
     def dependencia(
         sessao: Annotated[dict, Depends(obter_sessao_autenticada)],

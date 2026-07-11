@@ -17,6 +17,7 @@ def test_sessao_sem_authorization_nao_carrega_usuario_real():
     sessao = obter_sessao_autenticada()
 
     assert sessao["sem_token"] is True
+    assert sessao["usuario"]["papel"] == "usuario"
     assert sessao["via_api_key"] is False
     assert sessao["usuario"]["id"] == USUARIO_SEM_TOKEN_ID
     assert sessao["usuario"]["email"] == "sem-token@padoka.local"

@@ -28,7 +28,6 @@ from app.modules.midia import servico as servico_de_midia
 from app.shared.db import first_or_none, to_db_payload
 
 HORAS_EXPIRACAO_SESSAO = 24 * 14
-PAPEIS_ORDENADOS = {"usuario": 1, "administrador": 2, "dono": 3}
 USUARIO_SEM_TOKEN_ID = "00000000-0000-0000-0000-000000000000"
 
 
@@ -182,32 +181,12 @@ def sincronizar_usuario_supabase(usuario_supabase: dict) -> dict:
     return _usuario_publico(criado)
 
 
-def buscar_usuario_padrao_sem_token() -> dict:
-    client = get_supabase_client()
-    try:
-        usuario = first_or_none(
-            client.table("usuarios")
-            .select("*")
-            .eq("situacao", "ativo")
-            .order("criado_em")
-            .limit(1)
-            .execute()
-            .data
-        )
-    except Exception as exc:
-        if _erro_tabela_ausente(exc):
-            return _usuario_sem_token()
-        raise
-    if usuario:
-        return _usuario_publico(usuario)
-    return _usuario_sem_token()
-
-
 def usuario_sem_token() -> dict:
-    return _usuario_sem_token()
+    """Placeholder de requisicao anonima: sem papel elevado e sem plano.
 
-
-def _usuario_sem_token() -> dict:
+    Toda rota protegida rejeita a sessao antes de usar este usuario; ele so
+    existe para o fluxo de borda nao quebrar ao montar a sessao.
+    """
     agora = datetime.now(UTC)
     return {
         "id": USUARIO_SEM_TOKEN_ID,
@@ -216,7 +195,7 @@ def _usuario_sem_token() -> dict:
         "foto_url": None,
         "data_nascimento": None,
         "telefone": None,
-        "papel": "dono",
+        "papel": "usuario",
         "situacao": "ativo",
         "criado_em": agora,
         "atualizado_em": agora,
@@ -362,11 +341,6 @@ def buscar_linha_usuario(usuario_id: UUID | str) -> dict:
     if not usuario:
         raise NotFoundError("Usuario", str(usuario_id))
     return usuario
-
-
-def papel_atende(usuario: dict, papeis: tuple[str, ...]) -> bool:
-    papel_usuario = usuario.get("papel", "usuario")
-    return any(PAPEIS_ORDENADOS[papel_usuario] >= PAPEIS_ORDENADOS[papel] for papel in papeis)
 
 
 def _buscar_usuario_por_email(client, email: str) -> dict | None:
