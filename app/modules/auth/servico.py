@@ -165,17 +165,20 @@ def sincronizar_usuario_supabase(usuario_supabase: dict) -> dict:
             _atualizar_usuario_supabase_existente(client, usuario_por_email, usuario_supabase)
         )
 
-    criado = (
-        client.table("usuarios")
-        .insert(
-            montar_dados_usuario_supabase(
-                usuario_supabase,
-                primeiro_usuario=_contar_usuarios(client) == 0,
-            )
-        )
-        .execute()
-        .data[0]
+    criado = _escrever_perfil_supabase(
+        lambda payload: client.table("usuarios").insert(payload),
+        montar_dados_usuario_supabase(
+            usuario_supabase,
+            primeiro_usuario=_contar_usuarios(client) == 0,
+        ),
     )
+    if criado is None:
+        raise AppError(
+            status_code=503,
+            code="perfil_indisponivel",
+            message="Nao foi possivel criar o perfil do usuario. Tente novamente.",
+            details={},
+        )
     return _usuario_publico(criado)
 
 
@@ -402,13 +405,31 @@ def _atualizar_usuario_supabase_existente(client, usuario: dict, usuario_supabas
         dados["foto_url"] = dados_supabase["foto_url"]
     if not usuario.get("telefone") and dados_supabase.get("telefone"):
         dados["telefone"] = dados_supabase["telefone"]
-    return (
-        client.table("usuarios")
-        .update(to_db_payload(dados))
-        .eq("id", usuario["id"])
-        .execute()
-        .data[0]
+    atualizado = _escrever_perfil_supabase(
+        lambda payload: client.table("usuarios").update(payload).eq("id", usuario["id"]),
+        to_db_payload(dados),
     )
+    return atualizado or usuario
+
+
+def _escrever_perfil_supabase(construir_consulta, payload: dict) -> dict | None:
+    """Executa insert/update do perfil vindo do Supabase tolerando ambientes
+    onde a coluna ``supabase_auth_id`` (migracao 012) ainda nao existe.
+
+    Sem a coluna, refaz a escrita sem ela para o login nao quebrar com 500 -- o
+    vinculo com o Supabase Auth fica pendente ate a migracao ser aplicada.
+    """
+    try:
+        resultado = construir_consulta(payload).execute()
+    except Exception as exc:
+        if not _erro_coluna_ausente(exc, "supabase_auth_id"):
+            raise
+        payload_sem_vinculo = {
+            coluna: valor for coluna, valor in payload.items() if coluna != "supabase_auth_id"
+        }
+        resultado = construir_consulta(payload_sem_vinculo).execute()
+    linhas = getattr(resultado, "data", None) or []
+    return linhas[0] if linhas else None
 
 
 def _contar_usuarios(client) -> int:
