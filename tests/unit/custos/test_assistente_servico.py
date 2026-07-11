@@ -5,7 +5,7 @@ from app.modules.custos import assistente_servico
 PRODUTO_ID = UUID("11111111-1111-1111-1111-111111111111")
 
 
-def test_estado_preserva_pendencia_de_unidade_incompativel(monkeypatch):
+def test_estado_estima_custo_quando_unidades_sao_incompativeis(monkeypatch):
     monkeypatch.setattr(
         assistente_servico,
         "_buscar_insumo_existente_para_ingrediente",
@@ -41,13 +41,16 @@ def test_estado_preserva_pendencia_de_unidade_incompativel(monkeypatch):
         produto_id=PRODUTO_ID,
     )
 
-    assert estado["situacao"] == "precisa_revisao"
-    assert estado["pendencias"] == [
-        "Ingrediente 1: calda especial: unidades incompativeis - usado em 'ml', "
-        "comprado em 'un'. Ajuste para unidades convertiveis "
-        "(ex.: g/kg, ml/l ou informe a equivalencia da embalagem)."
-    ]
-    assert "os ingredientes pendentes" not in " ".join(estado["pendencias"])
+    # Unidades incompativeis nao travam mais o custeio: o custo sai como
+    # estimativa aproximada (1 embalagem inteira) com avisos para o usuario.
+    assert estado["pendencias"] == []
+    assert estado["situacao"] == "pronto_para_confirmar"
+    (calda,) = estado["custo_simulado"]["ingredientes"]
+    assert calda["calculo_estimado"] is True
+    assert calda["custo_total_estimado"] == "5.00"
+    assert estado["custo_simulado"]["calculo_aproximado"] is True
+    assert any("embalagem" in aviso for aviso in estado["avisos"])
+    assert any("estimativa aproximada" in aviso for aviso in estado["avisos"])
 
 
 def test_estado_infere_embalagens_comuns_e_equivalencia_explicita(monkeypatch):

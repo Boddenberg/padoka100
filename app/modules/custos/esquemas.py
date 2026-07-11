@@ -117,6 +117,8 @@ class IngredienteReceitaSaida(ApiModel):
     custo_total_estimado: Decimal | None = None
     status: str
     observacoes: str | None = None
+    calculo_aproximado: bool | None = None
+    avisos_calculo: list[str] | None = None
     criado_em: datetime
 
 
@@ -157,6 +159,8 @@ class CalculoCustoProdutoSaida(ApiModel):
     ingredientes: list[IngredienteReceitaSaida] = Field(default_factory=list)
     custos_adicionais: list[CustoAdicionalSaida] = Field(default_factory=list)
     pendencias: list[str] = Field(default_factory=list)
+    avisos: list[str] = Field(default_factory=list)
+    calculo_aproximado: bool = False
 
 
 class ItemAtualizacaoPrecoCompra(ApiModel):

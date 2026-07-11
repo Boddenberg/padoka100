@@ -1,7 +1,7 @@
 import base64
 import json
 from datetime import date
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 from uuid import UUID
 
 from fastapi import UploadFile
@@ -39,6 +39,8 @@ from app.shared.db import first_or_none, to_db_payload
 # sob os nomes ja usados aqui e por app.modules.custos.assistente_servico.
 _calcular_custo_por_unidade = _unidades.calcular_custo_por_unidade
 _calcular_custo_ingrediente = _unidades.calcular_custo_ingrediente
+estimar_custo_ingrediente = _unidades.estimar_custo_ingrediente
+AVISO_ESTIMATIVA_DE_CUSTO = _unidades.AVISO_ESTIMATIVA_DE_CUSTO
 _resolver_unidade = _unidades.resolver_unidade
 _normalizar_unidade = _unidades.normalizar_unidade
 _normalizar_unidade_com_equivalencia_informada = (
@@ -455,6 +457,8 @@ def calcular_custo_do_produto(
             "ingredientes": [],
             "custos_adicionais": [],
             "pendencias": ["Nenhuma receita cadastrada para o produto."],
+            "avisos": [],
+            "calculo_aproximado": False,
         }
 
     ingredientes = _ingredientes_com_custo_vigente(receita["ingredientes"], data_calculo)
@@ -471,6 +475,12 @@ def calcular_custo_do_produto(
     rendimento = Decimal(str(receita["rendimento"]))
     custo_por_unidade = _arredondar_moeda(custo_total / rendimento) if rendimento else None
     pendencias = _listar_pendencias(receita, ingredientes, custos_adicionais)
+    avisos = []
+    for ingrediente in ingredientes:
+        avisos.extend(ingrediente.get("avisos_calculo") or [])
+    calculo_aproximado = any(item.get("calculo_aproximado") for item in ingredientes)
+    if calculo_aproximado:
+        avisos.append(AVISO_ESTIMATIVA_DE_CUSTO)
     status = _consolidar_status(
         [receita["status"]]
         + [ingrediente["status"] for ingrediente in ingredientes]
@@ -493,6 +503,8 @@ def calcular_custo_do_produto(
         "ingredientes": ingredientes,
         "custos_adicionais": custos_adicionais,
         "pendencias": pendencias,
+        "avisos": _deduplicar_textos(avisos),
+        "calculo_aproximado": calculo_aproximado,
     }
 
 
@@ -507,7 +519,18 @@ def atualizar_precos_por_compra(
     ignorados = 0
 
     for item in requisicao.itens:
-        resultado = _processar_item_atualizacao_preco(item, requisicao, usuario_id=usuario_id)
+        try:
+            resultado = _processar_item_atualizacao_preco(item, requisicao, usuario_id=usuario_id)
+        except BadRequestError as exc:
+            # Um item invalido nao pode derrubar a nota inteira: registra e segue.
+            resultado = {
+                "nome_informado": item.nome,
+                "acao": "ignorado",
+                "insumo": None,
+                "preco": None,
+                "mensagem": f"Item ignorado: {exc.message}",
+                "confianca": item.confianca,
+            }
         resultados.append(resultado)
         if resultado["acao"] == "criado":
             criados += 1
@@ -799,15 +822,37 @@ def _extrair_itens_de_nota_com_openai(
         ItemAtualizacaoPrecoCompra(
             nome=item.get("nome") or "Item sem nome",
             categoria=item.get("categoria"),
-            quantidade_comprada=item.get("quantidade_comprada"),
-            unidade_compra=item.get("unidade_compra"),
-            preco_total=item.get("preco_total"),
+            quantidade_comprada=_numero_valido_ou_none(
+                item.get("quantidade_comprada"), minimo_exclusivo=Decimal("0")
+            ),
+            unidade_compra=item.get("unidade_compra") or None,
+            preco_total=_numero_valido_ou_none(item.get("preco_total"), minimo=Decimal("0")),
             observacoes=item.get("observacoes"),
             confianca=item.get("confianca"),
         )
         for item in dados.get("itens", [])
         if item.get("nome")
     ]
+
+
+def _numero_valido_ou_none(
+    valor,
+    *,
+    minimo: Decimal | None = None,
+    minimo_exclusivo: Decimal | None = None,
+) -> Decimal | None:
+    """Sanitiza numeros vindos da extracao por IA para nunca travar a nota."""
+    if valor is None:
+        return None
+    try:
+        numero = Decimal(str(valor))
+    except (InvalidOperation, ValueError):
+        return None
+    if minimo is not None and numero < minimo:
+        return None
+    if minimo_exclusivo is not None and numero <= minimo_exclusivo:
+        return None
+    return numero
 
 
 def _formato_json_extracao_nota() -> dict:
@@ -1012,18 +1057,25 @@ def _montar_linha_ingrediente(
     custo_total = None
     nome = ingrediente.nome
     status = ingrediente.status
+    observacoes = ingrediente.observacoes
     if insumo:
         nome = insumo["nome"]
         preco_vigente = buscar_preco_vigente_insumo(insumo["id"], date.today(), obrigatorio=False)
         custo_unitario = Decimal(str((preco_vigente or insumo)["custo_por_unidade"]))
         unidade_compra = (preco_vigente or insumo)["unidade_compra"]
-        custo_total = _calcular_custo_ingrediente(
+        estimativa = estimar_custo_ingrediente(
             custo_unitario,
             ingrediente.quantidade_usada,
             ingrediente.unidade,
             unidade_compra,
+            nome_ingrediente=nome,
         )
-        status = _consolidar_status([status, insumo["status"]])
+        custo_total = estimativa["custo"]
+        statuses = [status, insumo["status"]]
+        if estimativa["aproximado"]:
+            statuses.append("ESTIMADO")
+            observacoes = _juntar_observacoes(observacoes, estimativa["avisos"])
+        status = _consolidar_status(statuses)
     return to_db_payload(
         {
             "receita_id": receita_id,
@@ -1034,9 +1086,14 @@ def _montar_linha_ingrediente(
             "custo_unitario_no_momento": custo_unitario,
             "custo_total_estimado": custo_total,
             "status": status,
-            "observacoes": ingrediente.observacoes,
+            "observacoes": observacoes,
         }
     )
+
+
+def _juntar_observacoes(observacoes: str | None, avisos: list[str]) -> str | None:
+    partes = [texto for texto in [observacoes, *avisos] if texto and str(texto).strip()]
+    return " | ".join(_deduplicar_textos(partes)) or None
 
 
 def _anexar_ingredientes(receita: dict) -> dict:
@@ -1066,23 +1123,20 @@ def _ingredientes_com_custo_vigente(ingredientes: list[dict], data_referencia: d
             item["preco_insumo_vigente"] = None
             recalculados.append(item)
             continue
-        try:
-            custo_total = _calcular_custo_ingrediente(
-                Decimal(str(preco["custo_por_unidade"])),
-                Decimal(str(item["quantidade_usada"])),
-                item["unidade"],
-                preco["unidade_compra"],
-            )
-        except BadRequestError as exc:
-            item["custo_unitario_no_momento"] = None
-            item["custo_total_estimado"] = None
-            item["status"] = _consolidar_status([item["status"], "PENDENTE"])
-            item["pendencia_calculo"] = exc.message
-            recalculados.append(item)
-            continue
+        estimativa = estimar_custo_ingrediente(
+            Decimal(str(preco["custo_por_unidade"])),
+            Decimal(str(item["quantidade_usada"])),
+            item["unidade"],
+            preco["unidade_compra"],
+            nome_ingrediente=item.get("nome_insumo_no_momento"),
+        )
         item["custo_unitario_no_momento"] = preco["custo_por_unidade"]
-        item["custo_total_estimado"] = custo_total
+        item["custo_total_estimado"] = estimativa["custo"]
         item["preco_insumo_vigente"] = preco
+        if estimativa["aproximado"]:
+            item["status"] = _consolidar_status([item["status"], "ESTIMADO"])
+            item["calculo_aproximado"] = True
+            item["avisos_calculo"] = estimativa["avisos"]
         recalculados.append(item)
     return recalculados
 

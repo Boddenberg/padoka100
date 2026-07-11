@@ -849,6 +849,12 @@ def _simular_custo(
         simulado.update(metadados_calculo.get("campos_simulados", {}))
         ingredientes_simulados.append(simulado)
 
+    calculo_aproximado = any(
+        item.get("calculo_estimado") for item in ingredientes_simulados
+    )
+    if calculo_aproximado:
+        avisos.append(servico_de_custos.AVISO_ESTIMATIVA_DE_CUSTO)
+
     for custo in rascunho["custos_adicionais"]:
         status = _status_de_custo(custo.get("status"), padrao="ESTIMADO")
         statuses.append(status)
@@ -911,6 +917,7 @@ def _simular_custo(
             "lucro_estimado_por_unidade": lucro_estimado,
             "margem_estimada_percentual": margem_estimada,
             "status": status,
+            "calculo_aproximado": calculo_aproximado,
             "ingredientes": ingredientes_simulados,
             "custos_adicionais": custos_simulados,
             "custos_incluidos": {
@@ -967,17 +974,13 @@ def _simular_ingrediente(
             campos["quantidade_comprada_calculo"] = None
             campos["unidade_compra_calculo"] = compra_calculo["unidade"]
             campos["preco_total_calculo"] = None
-            custo_total = servico_de_custos._calcular_custo_ingrediente(
-                custo_unitario,
-                quantidade_calculo,
-                unidade_usada_calculo,
-                compra_calculo["unidade"],
-            )
-            campos["formula_calculo"] = _formula_calculo_ingrediente(
-                quantidade=quantidade_calculo,
-                unidade=unidade_usada_calculo,
+            custo_total = _aplicar_custo_estimado_ao_calculo(
+                nome=nome,
                 custo_unitario=custo_unitario,
-                custo_total=custo_total,
+                quantidade=quantidade_calculo,
+                unidade_usada=unidade_usada_calculo,
+                unidade_compra=compra_calculo["unidade"],
+                metadados_calculo=metadados_calculo,
             )
             return custo_total, custo_unitario, None, metadados_calculo
 
@@ -1012,17 +1015,13 @@ def _simular_ingrediente(
             campos["quantidade_comprada_calculo"] = None
             campos["unidade_compra_calculo"] = compra_calculo["unidade"]
             campos["preco_total_calculo"] = None
-            custo_total = servico_de_custos._calcular_custo_ingrediente(
-                custo_unitario,
-                quantidade_calculo,
-                unidade_usada_calculo,
-                compra_calculo["unidade"],
-            )
-            campos["formula_calculo"] = _formula_calculo_ingrediente(
-                quantidade=quantidade_calculo,
-                unidade=unidade_usada_calculo,
+            custo_total = _aplicar_custo_estimado_ao_calculo(
+                nome=nome,
                 custo_unitario=custo_unitario,
-                custo_total=custo_total,
+                quantidade=quantidade_calculo,
+                unidade_usada=unidade_usada_calculo,
+                unidade_compra=compra_calculo["unidade"],
+                metadados_calculo=metadados_calculo,
             )
             return custo_total, custo_unitario, None, metadados_calculo
 
@@ -1052,21 +1051,52 @@ def _simular_ingrediente(
         campos["quantidade_comprada_calculo"] = str(quantidade_comprada)
         campos["unidade_compra_calculo"] = compra_calculo["unidade"]
         campos["preco_total_calculo"] = str(preco_total)
-        custo_total = servico_de_custos._calcular_custo_ingrediente(
-            custo_unitario,
-            quantidade_calculo,
-            unidade_usada_calculo,
-            compra_calculo["unidade"],
-        )
-        campos["formula_calculo"] = _formula_calculo_ingrediente(
-            quantidade=quantidade_calculo,
-            unidade=unidade_usada_calculo,
+        custo_total = _aplicar_custo_estimado_ao_calculo(
+            nome=nome,
             custo_unitario=custo_unitario,
-            custo_total=custo_total,
+            quantidade=quantidade_calculo,
+            unidade_usada=unidade_usada_calculo,
+            unidade_compra=compra_calculo["unidade"],
+            metadados_calculo=metadados_calculo,
         )
         return custo_total, custo_unitario, None, metadados_calculo
     except BadRequestError as exc:
         return None, None, _formatar_erro_calculo_ingrediente(nome, exc), {}
+
+
+def _aplicar_custo_estimado_ao_calculo(
+    *,
+    nome: str,
+    custo_unitario: Decimal,
+    quantidade: Decimal,
+    unidade_usada: str | None,
+    unidade_compra: str | None,
+    metadados_calculo: dict,
+) -> Decimal:
+    """Calcula o custo pelo estimador (que nunca trava) e anexa os avisos."""
+    estimativa = servico_de_custos.estimar_custo_ingrediente(
+        custo_unitario,
+        quantidade,
+        unidade_usada,
+        unidade_compra,
+        nome_ingrediente=nome,
+    )
+    campos = metadados_calculo["campos_simulados"]
+    campos["formula_calculo"] = _formula_calculo_ingrediente(
+        quantidade=estimativa["quantidade_base"],
+        unidade=estimativa["unidade_base"],
+        custo_unitario=custo_unitario,
+        custo_total=estimativa["custo"],
+    )
+    if estimativa["aproximado"]:
+        campos["calculo_estimado"] = True
+        campos["avisos_calculo"] = _deduplicar_textos(
+            campos.get("avisos_calculo", []) + estimativa["avisos"]
+        )
+        metadados_calculo["avisos"] = _deduplicar_textos(
+            metadados_calculo.get("avisos", []) + estimativa["avisos"]
+        )
+    return estimativa["custo"]
 
 
 def _formatar_erro_calculo_ingrediente(nome: str, exc: BadRequestError) -> str:
@@ -1212,7 +1242,8 @@ def _unidades_compativeis(unidade_a: str | None, unidade_b: str | None) -> bool:
         tipo_b, _ = servico_de_custos._resolver_unidade(unidade_b)
     except BadRequestError:
         return False
-    return tipo_a == tipo_b
+    # Massa e volume sao interconversiveis por densidade aproximada.
+    return tipo_a == tipo_b or {tipo_a, tipo_b} == {"massa", "volume"}
 
 
 def _montar_perguntas(
@@ -1539,8 +1570,9 @@ def _formula_calculo_ingrediente(
     custo_unitario: Decimal,
     custo_total: Decimal,
 ) -> str:
+    quantidade_str = servico_de_custos._decimal_unidade_str(Decimal(str(quantidade)))
     return (
-        f"{quantidade} {unidade} x R$ {_decimal_preciso_str(custo_unitario)} "
+        f"{quantidade_str} {unidade} x R$ {_decimal_preciso_str(custo_unitario)} "
         f"= R$ {_decimal_moeda_str(custo_total)}"
     )
 
@@ -1978,7 +2010,6 @@ def _montar_ingredientes_para_confirmacao(
                 "Ingrediente incompleto para confirmacao.",
                 {"ingrediente": item},
             )
-        _validar_unidades_do_ingrediente_para_confirmacao(item)
         insumo_id = _resolver_ou_criar_insumo(item, usuario_id=usuario_id)
         ingredientes.append(
             RequisicaoIngredienteReceita(
@@ -2384,26 +2415,6 @@ def _observacao_do_custo_adicional(custo: dict) -> str | None:
     if custo.get("aplicacao"):
         partes.append(f"Aplicacao informada no assistente: {custo['aplicacao']}.")
     return " ".join(partes) or None
-
-
-def _validar_unidades_do_ingrediente_para_confirmacao(item: dict) -> None:
-    unidade_usada = item.get("unidade_usada")
-    if not servico_de_custos.unidade_suportada(unidade_usada):
-        raise BadRequestError(
-            "Unidade usada no ingrediente ainda nao pode ser gravada.",
-            {"ingrediente": item.get("nome"), "unidade_usada": unidade_usada},
-        )
-
-    unidade_compra = item.get("unidade_compra")
-    if (
-        unidade_compra
-        and _tem_dados_de_compra_completos(item)
-        and not servico_de_custos.unidade_suportada(unidade_compra)
-    ):
-        raise BadRequestError(
-            "Unidade de compra do ingrediente ainda nao pode ser gravada.",
-            {"ingrediente": item.get("nome"), "unidade_compra": unidade_compra},
-        )
 
 
 def _buscar_insumo_existente_para_ingrediente(
