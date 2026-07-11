@@ -1,3 +1,4 @@
+from decimal import Decimal
 from uuid import UUID
 
 from app.modules.custos import assistente_servico
@@ -186,3 +187,42 @@ def test_consolidar_pendencia_legada_de_unidade_incompativel_nao_vira_compra_gen
     )
 
     assert resultado == [pendencia]
+
+
+def test_confirmacao_persiste_unidade_de_compra_inferida(monkeypatch):
+    capturado = {}
+    insumo_id = UUID("22222222-2222-2222-2222-222222222222")
+
+    monkeypatch.setattr(
+        assistente_servico,
+        "_buscar_insumo_existente_para_ingrediente",
+        lambda *args, **kwargs: None,
+    )
+
+    def criar_insumo(requisicao, **kwargs):
+        capturado["requisicao"] = requisicao
+        return {"id": str(insumo_id)}
+
+    monkeypatch.setattr(
+        assistente_servico.servico_de_custos,
+        "criar_insumo",
+        criar_insumo,
+    )
+
+    resultado = assistente_servico._resolver_ou_criar_insumo(
+        {
+            "nome": "leite integral",
+            "quantidade_usada": "250",
+            "unidade_usada": "ml",
+            "quantidade_comprada": "6",
+            "unidade_compra": "un",
+            "preco_total": "32.94",
+            "observacoes": "Cupom mostra leite integral 3% TP 1L.",
+            "status": "CONFIRMADO",
+        }
+    )
+
+    assert resultado == insumo_id
+    assert capturado["requisicao"].quantidade_comprada == Decimal("6")
+    assert capturado["requisicao"].unidade_compra == "1l"
+    assert capturado["requisicao"].preco_total == Decimal("32.94")

@@ -1,5 +1,7 @@
 import base64
 import json
+import re
+import unicodedata
 from datetime import date
 from decimal import Decimal, InvalidOperation
 from uuid import UUID
@@ -982,16 +984,24 @@ def _calcular_item_lista_compras(
 ) -> dict | None:
     nome = ingrediente["nome_insumo_no_momento"]
     if preco:
-        custo_unitario_base = _custo_unitario_base_do_preco(preco)
+        unidade_compra = _unidade_compra_para_calculo_de_ingrediente(
+            unidade_compra=preco["unidade_compra"],
+            nome=nome,
+            observacoes=ingrediente.get("observacoes"),
+        )
+        custo_unitario_base = _custo_unitario_base_do_preco(
+            preco,
+            unidade_compra=unidade_compra,
+        )
         estimativa = estimar_custo_ingrediente(
             custo_unitario_base,
             quantidade_usada,
             ingrediente["unidade"],
-            preco["unidade_compra"],
+            unidade_compra,
             nome_ingrediente=nome,
         )
         return {
-            "tipo_unidade": _tipo_unidade_flexivel(preco["unidade_compra"]),
+            "tipo_unidade": _tipo_unidade_flexivel(unidade_compra),
             "quantidade_base": Decimal(str(estimativa["quantidade_base"])),
             "custo_unitario_base": custo_unitario_base,
             "aproximado": estimativa["aproximado"],
@@ -1011,12 +1021,16 @@ def _calcular_item_lista_compras(
     }
 
 
-def _custo_unitario_base_do_preco(preco: dict) -> Decimal:
+def _custo_unitario_base_do_preco(
+    preco: dict,
+    *,
+    unidade_compra: str | None = None,
+) -> Decimal:
     try:
         return _calcular_custo_por_unidade(
             Decimal(str(preco["preco_total"])),
             Decimal(str(preco["quantidade_comprada"])),
-            preco["unidade_compra"],
+            unidade_compra or preco["unidade_compra"],
         )
     except (BadRequestError, InvalidOperation, KeyError, TypeError, ValueError):
         return Decimal(str(preco["custo_por_unidade"]))
@@ -1028,6 +1042,130 @@ def _tipo_unidade_flexivel(unidade: str) -> str:
     except BadRequestError:
         return "unidade"
     return tipo_unidade
+
+
+UNIDADES_GENERICAS_DE_EMBALAGEM = {
+    "un",
+    "und",
+    "unidade",
+    "unidades",
+    "caixa",
+    "caixinha",
+    "embalagem",
+    "frasco",
+    "frasquinho",
+    "garrafa",
+    "garrafinha",
+    "lata",
+    "latinha",
+    "pacote",
+    "pacotinho",
+    "pct",
+    "pote",
+    "potinho",
+    "sache",
+    "saco",
+    "saquinho",
+}
+
+EMBALAGENS_PADRAO_LISTA_COMPRAS = (
+    ({"leite", "condensado"}, set(), "395g"),
+    ({"creme", "leite"}, set(), "200g"),
+    ({"leite"}, {"condensado", "creme", "po"}, "1l"),
+    ({"oleo"}, set(), "900ml"),
+    ({"farinha", "trigo"}, set(), "1kg"),
+    ({"acucar"}, set(), "1kg"),
+    ({"polvilho"}, set(), "500g"),
+    ({"fermento"}, set(), "100g"),
+    ({"queijo", "parmesao", "ralado"}, set(), "100g"),
+    ({"manteiga"}, set(), "200g"),
+    ({"margarina"}, set(), "500g"),
+)
+
+
+def _unidade_compra_para_calculo_de_ingrediente(
+    *,
+    unidade_compra: str,
+    nome: str | None,
+    observacoes: str | None,
+) -> str:
+    if not _unidade_compra_generica_de_embalagem(unidade_compra):
+        return unidade_compra
+
+    for texto in (observacoes, nome):
+        unidade_inferida = _inferir_unidade_compra_de_texto(texto)
+        if unidade_inferida:
+            return unidade_inferida
+    return unidade_compra
+
+
+def _unidade_compra_generica_de_embalagem(unidade: str | None) -> bool:
+    if not unidade:
+        return False
+    unidade_normalizada = _normalizar_unidade(unidade)
+    try:
+        tipo_unidade, fator = _resolver_unidade(unidade_normalizada)
+    except BadRequestError:
+        return False
+    return (
+        tipo_unidade == "unidade"
+        and fator == Decimal("1")
+        and unidade_normalizada in UNIDADES_GENERICAS_DE_EMBALAGEM
+    )
+
+
+def _inferir_unidade_compra_de_texto(texto: str | None) -> str | None:
+    if not texto:
+        return None
+
+    unidade_explicita = _inferir_unidade_explicita_por_ordem(texto)
+    if unidade_explicita:
+        return unidade_explicita
+
+    unidade_normalizada = _normalizar_unidade(texto)
+    try:
+        tipo_unidade, fator = _resolver_unidade(unidade_normalizada)
+    except BadRequestError:
+        pass
+    else:
+        if tipo_unidade != "unidade" or fator != Decimal("1"):
+            return unidade_normalizada
+
+    tokens = set(normalizar_nome_insumo(texto).split())
+    singulares = {token[:-1] for token in tokens if token.endswith("s") and len(token) > 3}
+    tokens |= singulares
+    for termos, excluir, unidade in EMBALAGENS_PADRAO_LISTA_COMPRAS:
+        if termos <= tokens and not (tokens & excluir):
+            return unidade
+    return None
+
+
+def _inferir_unidade_explicita_por_ordem(texto: str) -> str | None:
+    texto_normalizado = unicodedata.normalize("NFKD", texto)
+    texto_normalizado = texto_normalizado.encode("ascii", "ignore").decode("ascii").lower()
+    texto_normalizado = re.sub(r"[^a-z0-9,.]+", " ", texto_normalizado)
+    padrao = re.compile(
+        r"(\d+(?:[,.]\d+)?)\s*"
+        r"(kg|quilo|quilos|kilograma|kilogramas|g|grama|gramas|"
+        r"ml|mililitro|mililitros|l|lt|litro|litros|"
+        r"un|und|unidade|unidades|ovo|ovos)\b"
+    )
+    match = padrao.search(texto_normalizado)
+    if not match:
+        return None
+    quantidade = Decimal(match.group(1).replace(",", "."))
+    unidade = match.group(2)
+    if unidade in {"kg", "quilo", "quilos", "kilograma", "kilogramas"}:
+        unidade_canonica = "kg"
+    elif unidade in {"g", "grama", "gramas"}:
+        unidade_canonica = "g"
+    elif unidade in {"ml", "mililitro", "mililitros"}:
+        unidade_canonica = "ml"
+    elif unidade in {"l", "lt", "litro", "litros"}:
+        unidade_canonica = "l"
+    else:
+        unidade_canonica = "unidade"
+    return f"{_decimal_unidade_str(quantidade)}{unidade_canonica}"
 
 
 def _montar_item_lista_compras(grupo: dict, multiplicador_margem: Decimal) -> dict:
@@ -1126,8 +1264,16 @@ def _montar_linha_ingrediente(
     if insumo:
         nome = insumo["nome"]
         preco_vigente = buscar_preco_vigente_insumo(insumo["id"], date.today(), obrigatorio=False)
-        custo_unitario = Decimal(str((preco_vigente or insumo)["custo_por_unidade"]))
-        unidade_compra = (preco_vigente or insumo)["unidade_compra"]
+        preco_para_calculo = preco_vigente or insumo
+        unidade_compra = _unidade_compra_para_calculo_de_ingrediente(
+            unidade_compra=preco_para_calculo["unidade_compra"],
+            nome=nome,
+            observacoes=observacoes,
+        )
+        custo_unitario = _custo_unitario_base_do_preco(
+            preco_para_calculo,
+            unidade_compra=unidade_compra,
+        )
         estimativa = estimar_custo_ingrediente(
             custo_unitario,
             ingrediente.quantidade_usada,
@@ -1188,14 +1334,20 @@ def _ingredientes_com_custo_vigente(ingredientes: list[dict], data_referencia: d
             item["preco_insumo_vigente"] = None
             recalculados.append(item)
             continue
+        unidade_compra = _unidade_compra_para_calculo_de_ingrediente(
+            unidade_compra=preco["unidade_compra"],
+            nome=item.get("nome_insumo_no_momento"),
+            observacoes=item.get("observacoes"),
+        )
+        custo_unitario = _custo_unitario_base_do_preco(preco, unidade_compra=unidade_compra)
         estimativa = estimar_custo_ingrediente(
-            Decimal(str(preco["custo_por_unidade"])),
+            custo_unitario,
             Decimal(str(item["quantidade_usada"])),
             item["unidade"],
-            preco["unidade_compra"],
+            unidade_compra,
             nome_ingrediente=item.get("nome_insumo_no_momento"),
         )
-        item["custo_unitario_no_momento"] = preco["custo_por_unidade"]
+        item["custo_unitario_no_momento"] = custo_unitario
         item["custo_total_estimado"] = estimativa["custo"]
         item["preco_insumo_vigente"] = preco
         if estimativa["aproximado"]:

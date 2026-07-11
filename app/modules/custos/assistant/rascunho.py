@@ -219,26 +219,39 @@ def equivalencia_explicita_na_unidade(valor: str | None) -> dict | None:
     unidade_normalizada = normalizar_chave(valor)
     if texto_indica_quantidade_alternativa(unidade_normalizada):
         return None
-    padroes = [
-        (r"(\d+(?:[,.]\d+)?)\s*(kg|quilo|quilos|kilograma|kilogramas)\b", "massa", "g", "1000"),
-        (r"(\d+(?:[,.]\d+)?)\s*(g|grama|gramas)\b", "massa", "g", "1"),
-        (r"(\d+(?:[,.]\d+)?)\s*(ml|mililitro|mililitros)\b", "volume", "ml", "1"),
-        (r"(\d+(?:[,.]\d+)?)\s*(l|lt|litro|litros)\b", "volume", "ml", "1000"),
-        (r"(\d+(?:[,.]\d+)?)\s*(un|und|unidade|unidades|ovo|ovos)\b", "unidade", "unidades", "1"),
-    ]
-    for padrao, tipo, unidade_base, multiplicador in padroes:
-        match = re.search(padrao, unidade_normalizada)
-        if not match:
-            continue
-        quantidade = Decimal(match.group(1).replace(",", "."))
-        fator_base = quantidade * Decimal(multiplicador)
-        return {
-            "tipo": tipo,
-            "fator_base": fator_base,
-            "unidade_base": unidade_base,
-            "unidade_canonica": f"{decimal_str_limpa(quantidade)}{match.group(2)}",
-        }
-    return None
+    padrao = re.compile(
+        r"(\d+(?:[,.]\d+)?)\s*"
+        r"(kg|quilo|quilos|kilograma|kilogramas|g|grama|gramas|"
+        r"ml|mililitro|mililitros|l|lt|litro|litros|"
+        r"un|und|unidade|unidades|ovo|ovos)\b"
+    )
+    match = padrao.search(unidade_normalizada)
+    if not match:
+        return None
+    quantidade = Decimal(match.group(1).replace(",", "."))
+    unidade = match.group(2)
+    if unidade in {"kg", "quilo", "quilos", "kilograma", "kilogramas"}:
+        tipo, unidade_base, multiplicador, unidade_canonica = "massa", "g", "1000", "kg"
+    elif unidade in {"g", "grama", "gramas"}:
+        tipo, unidade_base, multiplicador, unidade_canonica = "massa", "g", "1", "g"
+    elif unidade in {"ml", "mililitro", "mililitros"}:
+        tipo, unidade_base, multiplicador, unidade_canonica = "volume", "ml", "1", "ml"
+    elif unidade in {"l", "lt", "litro", "litros"}:
+        tipo, unidade_base, multiplicador, unidade_canonica = "volume", "ml", "1000", "l"
+    else:
+        tipo, unidade_base, multiplicador, unidade_canonica = (
+            "unidade",
+            "unidades",
+            "1",
+            "unidade",
+        )
+    fator_base = quantidade * Decimal(multiplicador)
+    return {
+        "tipo": tipo,
+        "fator_base": fator_base,
+        "unidade_base": unidade_base,
+        "unidade_canonica": f"{decimal_str_limpa(quantidade)}{unidade_canonica}",
+    }
 
 
 def mesclar_rascunhos(atual: dict, novo: dict) -> dict:

@@ -76,6 +76,31 @@ def test_lista_recalcula_custo_base_por_litro_sem_multiplicar_por_mil(monkeypatc
     assert item["custo_estimado"] == Decimal("1.37")
 
 
+def test_lista_corrige_preco_antigo_salvo_como_unidade_generica(monkeypatch):
+    resposta = _preparar_lista(
+        monkeypatch,
+        {
+            "insumo_id": str(INSUMO_ID),
+            "nome_insumo_no_momento": "leite integral",
+            "quantidade_usada": Decimal("250"),
+            "unidade": "ml",
+            "observacoes": "Cupom mostra leite integral 3% TP 1L.",
+        },
+        {
+            "quantidade_comprada": Decimal("6"),
+            "unidade_compra": "un",
+            "preco_total": Decimal("32.94"),
+            "custo_por_unidade": Decimal("5.490000"),
+        },
+    )
+
+    (item,) = resposta["itens"]
+    assert item["quantidade_base"] == Decimal("250.000")
+    assert item["unidade_base"] == "ml"
+    assert item["custo_unitario_base"] == Decimal("0.005490")
+    assert item["custo_estimado"] == Decimal("1.37")
+
+
 def test_lista_converte_pacote_da_receita_para_embalagem_com_equivalencia(monkeypatch):
     resposta = _preparar_lista(
         monkeypatch,

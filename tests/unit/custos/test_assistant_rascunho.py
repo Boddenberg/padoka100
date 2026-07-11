@@ -51,6 +51,14 @@ def test_equivalencia_explicita_na_unidade():
     assert equivalencia_explicita_na_unidade("unidade") is None
 
 
+def test_equivalencia_explicita_usa_primeira_medida_do_texto():
+    equivalencia = equivalencia_explicita_na_unidade(
+        "Cupom mostra leite integral TP 1L. Exemplo: 1 pacote = 1kg."
+    )
+    assert equivalencia["unidade_canonica"] == "1l"
+    assert equivalencia["unidade_base"] == "ml"
+
+
 def test_mesclar_rascunhos_preserva_receita_e_une_ingredientes():
     atual = {
         "produto_id": None,

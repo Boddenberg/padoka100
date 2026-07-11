@@ -2034,14 +2034,17 @@ def _resolver_ou_criar_insumo(item: dict, *, usuario_id: UUID | str | None = Non
     insumo_existente = _buscar_insumo_existente_para_ingrediente(item, usuario_id=usuario_id)
     if insumo_existente:
         if _tem_dados_de_compra_completos(item):
+            dados_compra = _dados_de_compra_para_persistencia(item)
+            if not dados_compra:
+                return UUID(insumo_existente["id"])
             insumo_atualizado = servico_de_custos.atualizar_insumo(
                 UUID(insumo_existente["id"]),
                 RequisicaoAtualizarInsumo(
                     nome=item.get("nome") or insumo_existente["nome"],
                     categoria=item.get("categoria") or insumo_existente.get("categoria"),
-                    quantidade_comprada=_decimal_ou_none(item.get("quantidade_comprada")),
-                    unidade_compra=item.get("unidade_compra"),
-                    preco_total=_decimal_ou_none(item.get("preco_total")),
+                    quantidade_comprada=dados_compra["quantidade"],
+                    unidade_compra=dados_compra["unidade"],
+                    preco_total=dados_compra["preco_total"],
                     status=_status_de_custo(item.get("status"), padrao=insumo_existente["status"]),
                     observacoes=item.get("observacoes") or insumo_existente.get("observacoes"),
                 ),
@@ -2050,24 +2053,36 @@ def _resolver_ou_criar_insumo(item: dict, *, usuario_id: UUID | str | None = Non
             return UUID(insumo_atualizado["id"])
         return UUID(insumo_existente["id"])
 
-    quantidade = _decimal_ou_none(item.get("quantidade_comprada"))
-    unidade = item.get("unidade_compra")
-    preco_total = _decimal_ou_none(item.get("preco_total"))
-    if not quantidade or not unidade or preco_total is None:
+    dados_compra = _dados_de_compra_para_persistencia(item)
+    if not dados_compra:
         return None
     insumo = servico_de_custos.criar_insumo(
         RequisicaoCriarInsumo(
             nome=item.get("nome") or "Insumo sem nome",
             categoria=item.get("categoria"),
-            quantidade_comprada=quantidade,
-            unidade_compra=unidade,
-            preco_total=preco_total,
+            quantidade_comprada=dados_compra["quantidade"],
+            unidade_compra=dados_compra["unidade"],
+            preco_total=dados_compra["preco_total"],
             status=_status_de_custo(item.get("status"), padrao="ESTIMADO"),
             observacoes=item.get("observacoes"),
         ),
         usuario_id=usuario_id,
     )
     return UUID(insumo["id"])
+
+
+def _dados_de_compra_para_persistencia(item: dict) -> dict | None:
+    quantidade = _decimal_ou_none(item.get("quantidade_comprada"))
+    unidade = item.get("unidade_compra")
+    preco_total = _decimal_ou_none(item.get("preco_total"))
+    if not quantidade or not unidade or preco_total is None:
+        return None
+    compra_calculo = _resolver_compra_do_ingrediente_para_calculo(item, unidade)
+    return {
+        "quantidade": quantidade,
+        "unidade": compra_calculo["unidade"],
+        "preco_total": preco_total,
+    }
 
 
 def _atualizar_preco_custo_do_produto(
@@ -2432,5 +2447,4 @@ def _descrever_conversao_aproximada(unidade: str | None) -> str | None:
     if not unidade:
         return None
     return servico_de_custos.descrever_unidade_aproximada(unidade)
-
 
