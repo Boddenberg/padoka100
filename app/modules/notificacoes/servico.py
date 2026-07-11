@@ -1,11 +1,13 @@
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
 from fastapi import UploadFile
 
-from app.core.errors import NotFoundError
+from app.core.errors import BadRequestError, NotFoundError
 from app.db.supabase import get_supabase_client
+from app.infra.supabase.payload import encode_value
 from app.infra.supabase.result import executar_lista_opcional, tabela_ausente
+from app.modules.auth.domain.capacidades import usuario_tem_capacidade
 from app.modules.midia import servico as servico_de_midia
 from app.modules.notificacoes.esquemas import (
     RequisicaoAtualizarNotificacao,
@@ -18,20 +20,31 @@ from supabase import Client
 def listar_notificacoes_publicas(
     *,
     limite: int = 50,
+    usuario: dict | None = None,
     usuario_id: UUID | str | None = None,
     incluir_lidas: bool = True,
     incluir_ocultas: bool = False,
 ) -> list[dict]:
     client = get_supabase_client()
+    usuario = _normalizar_usuario(usuario, usuario_id)
+    usuario_id_estado = _usuario_id_para_estado(usuario, usuario_id)
     linhas = _consultar_notificacoes_publicas(
         client,
-        limite=_limite_consulta_estado(limite, usuario_id),
-        campos="id,titulo,corpo,midias,publicado_em,criado_em",
+        limite=_limite_consulta_publica(limite, usuario),
+        campos=(
+            "id,titulo,corpo,status,publico,planos_alvo,usuario_alvo_id,"
+            "midias,publicado_em,expira_em,criado_em"
+        ),
     )
+    linhas = [
+        notificacao
+        for notificacao in linhas
+        if _notificacao_visivel_para_usuario(notificacao, usuario)
+    ]
     notificacoes = _anexar_estado(
         client,
         _anexar_midias(client, linhas, enxuto=True),
-        usuario_id=usuario_id,
+        usuario_id=usuario_id_estado,
     )
     if not incluir_ocultas:
         notificacoes = [notificacao for notificacao in notificacoes if not notificacao["oculta"]]
@@ -51,22 +64,19 @@ def listar_notificacoes_admin(*, status: str | None = None, limite: int = 100) -
 def buscar_notificacao_publica(
     notificacao_id: UUID,
     *,
+    usuario: dict | None = None,
     usuario_id: UUID | str | None = None,
 ) -> dict:
     notificacao = buscar_notificacao(notificacao_id)
-    agora = datetime.now(UTC)
-    publicado_em = _parse_datetime(notificacao.get("publicado_em"))
-    expira_em = _parse_datetime(notificacao.get("expira_em"))
-    if (
-        notificacao["status"] != "publicada"
-        or notificacao["publico"] != "todos"
-        or not publicado_em
-        or publicado_em > agora
-        or (expira_em and expira_em < agora)
-    ):
+    usuario = _normalizar_usuario(usuario, usuario_id)
+    if not _notificacao_visivel_para_usuario(notificacao, usuario):
         raise NotFoundError("Notificacao", str(notificacao_id))
     return _formatar_notificacao_publica(
-        _anexar_estado(get_supabase_client(), [notificacao], usuario_id=usuario_id)[0]
+        _anexar_estado(
+            get_supabase_client(),
+            [notificacao],
+            usuario_id=_usuario_id_para_estado(usuario, usuario_id),
+        )[0]
     )
 
 
@@ -89,6 +99,16 @@ def criar_notificacao(requisicao: RequisicaoCriarNotificacao, usuario: dict) -> 
     client = get_supabase_client()
     status = "publicada" if requisicao.publicar_agora else "rascunho"
     publicado_em = datetime.now(UTC) if requisicao.publicar_agora else None
+    expira_em = _resolver_expiracao(
+        publicado_em=publicado_em,
+        expira_em=requisicao.expira_em,
+        expira_em_dias=requisicao.expira_em_dias,
+    )
+    _validar_alvo_notificacao(
+        publico=requisicao.publico,
+        planos_alvo=requisicao.planos_alvo,
+        usuario_alvo_id=requisicao.usuario_alvo_id,
+    )
     linha = (
         client.table("notificacoes")
         .insert(
@@ -97,13 +117,16 @@ def criar_notificacao(requisicao: RequisicaoCriarNotificacao, usuario: dict) -> 
                     "titulo": requisicao.titulo,
                     "corpo": requisicao.corpo,
                     "publico": requisicao.publico,
+                    "planos_alvo": _normalizar_planos_alvo(requisicao.planos_alvo),
+                    "usuario_alvo_id": requisicao.usuario_alvo_id,
                     "prioridade": requisicao.prioridade,
                     "status": status,
                     "midias": [midia.model_dump() for midia in requisicao.midias],
                     "metadados": requisicao.metadados,
                     "criado_por_usuario_id": usuario.get("id"),
                     "publicado_em": publicado_em,
-                    "expira_em": requisicao.expira_em,
+                    "expira_em": expira_em,
+                    "expira_em_dias": requisicao.expira_em_dias,
                 }
             )
         )
@@ -117,19 +140,20 @@ def atualizar_notificacao(
     notificacao_id: UUID,
     requisicao: RequisicaoAtualizarNotificacao,
 ) -> dict:
-    buscar_notificacao(notificacao_id)
+    atual = buscar_notificacao(notificacao_id)
     dados = requisicao.model_dump(exclude_unset=True)
     if "midias" in dados and dados["midias"] is not None:
         dados["midias"] = [
             midia.model_dump() if hasattr(midia, "model_dump") else midia
             for midia in dados["midias"]
         ]
+    dados = _normalizar_payload_de_atualizacao(atual, dados)
     if not dados:
         return buscar_notificacao(notificacao_id)
     client = get_supabase_client()
     linha = (
         client.table("notificacoes")
-        .update(to_db_payload(dados))
+        .update(_payload_com_nulos(dados))
         .eq("id", str(notificacao_id))
         .execute()
         .data[0]
@@ -138,11 +162,25 @@ def atualizar_notificacao(
 
 
 def publicar_notificacao(notificacao_id: UUID) -> dict:
-    buscar_notificacao(notificacao_id)
+    notificacao = buscar_notificacao(notificacao_id)
     client = get_supabase_client()
+    publicado_em = datetime.now(UTC)
+    expira_em = _resolver_expiracao(
+        publicado_em=publicado_em,
+        expira_em=_parse_datetime(notificacao.get("expira_em")),
+        expira_em_dias=notificacao.get("expira_em_dias"),
+    )
     linha = (
         client.table("notificacoes")
-        .update({"status": "publicada", "publicado_em": datetime.now(UTC).isoformat()})
+        .update(
+            _payload_com_nulos(
+                {
+                    "status": "publicada",
+                    "publicado_em": publicado_em,
+                    "expira_em": expira_em,
+                }
+            )
+        )
         .eq("id", str(notificacao_id))
         .execute()
         .data[0]
@@ -161,6 +199,40 @@ def arquivar_notificacao(notificacao_id: UUID) -> dict:
         .data[0]
     )
     return _anexar_midias(client, [linha])[0]
+
+
+def excluir_notificacao(notificacao_id: UUID) -> None:
+    buscar_notificacao(notificacao_id)
+    client = get_supabase_client()
+    (
+        client.table("midias")
+        .delete()
+        .eq("tipo_entidade", "notificacao")
+        .eq("entidade_id", str(notificacao_id))
+        .execute()
+    )
+    client.table("notificacoes").delete().eq("id", str(notificacao_id)).execute()
+
+
+def limpar_notificacoes_expiradas(*, agora: datetime | None = None) -> dict:
+    client = get_supabase_client()
+    referencia = agora or datetime.now(UTC)
+    expiradas = (
+        client.table("notificacoes")
+        .select("id")
+        .lt("expira_em", referencia.isoformat())
+        .execute()
+        .data
+    )
+    ids = [str(linha["id"]) for linha in expiradas]
+    if not ids:
+        return {"removidas": 0}
+
+    client.table("midias").delete().eq("tipo_entidade", "notificacao").in_(
+        "entidade_id", ids
+    ).execute()
+    client.table("notificacoes").delete().in_("id", ids).execute()
+    return {"removidas": len(ids)}
 
 
 async def anexar_upload(
@@ -184,10 +256,13 @@ async def anexar_upload(
 def marcar_notificacao_lida(
     notificacao_id: UUID,
     *,
-    usuario_id: UUID | str | None,
+    usuario: dict | None = None,
+    usuario_id: UUID | str | None = None,
 ) -> dict:
-    buscar_notificacao_publica(notificacao_id)
-    if not usuario_id:
+    usuario = _normalizar_usuario(usuario, usuario_id)
+    buscar_notificacao_publica(notificacao_id, usuario=usuario)
+    usuario_id_estado = _usuario_id_para_estado(usuario, usuario_id)
+    if not usuario_id_estado:
         return _estado_sem_persistencia(notificacao_id, lida=True)
 
     client = get_supabase_client()
@@ -196,23 +271,26 @@ def marcar_notificacao_lida(
             client,
             tabela="notificacao_visualizacoes",
             notificacao_id=notificacao_id,
-            usuario_id=usuario_id,
+            usuario_id=usuario_id_estado,
             campo_data="visualizado_em",
         )
     except Exception as exc:
         if _erro_tabela_ausente(exc):
             return _estado_sem_persistencia(notificacao_id, lida=True)
         raise
-    return _buscar_estado_notificacao(client, notificacao_id, usuario_id=usuario_id)
+    return _buscar_estado_notificacao(client, notificacao_id, usuario_id=usuario_id_estado)
 
 
 def desmarcar_notificacao_lida(
     notificacao_id: UUID,
     *,
-    usuario_id: UUID | str | None,
+    usuario: dict | None = None,
+    usuario_id: UUID | str | None = None,
 ) -> dict:
-    buscar_notificacao_publica(notificacao_id)
-    if not usuario_id:
+    usuario = _normalizar_usuario(usuario, usuario_id)
+    buscar_notificacao_publica(notificacao_id, usuario=usuario)
+    usuario_id_estado = _usuario_id_para_estado(usuario, usuario_id)
+    if not usuario_id_estado:
         return _estado_sem_persistencia(notificacao_id, lida=False)
 
     client = get_supabase_client()
@@ -221,23 +299,26 @@ def desmarcar_notificacao_lida(
             client.table("notificacao_visualizacoes")
             .delete()
             .eq("notificacao_id", str(notificacao_id))
-            .eq("usuario_id", str(usuario_id))
+            .eq("usuario_id", str(usuario_id_estado))
             .execute()
         )
     except Exception as exc:
         if _erro_tabela_ausente(exc):
             return _estado_sem_persistencia(notificacao_id, lida=False)
         raise
-    return _buscar_estado_notificacao(client, notificacao_id, usuario_id=usuario_id)
+    return _buscar_estado_notificacao(client, notificacao_id, usuario_id=usuario_id_estado)
 
 
 def ocultar_notificacao(
     notificacao_id: UUID,
     *,
-    usuario_id: UUID | str | None,
+    usuario: dict | None = None,
+    usuario_id: UUID | str | None = None,
 ) -> dict:
-    buscar_notificacao_publica(notificacao_id)
-    if not usuario_id:
+    usuario = _normalizar_usuario(usuario, usuario_id)
+    buscar_notificacao_publica(notificacao_id, usuario=usuario)
+    usuario_id_estado = _usuario_id_para_estado(usuario, usuario_id)
+    if not usuario_id_estado:
         return _estado_sem_persistencia(notificacao_id, oculta=True)
 
     client = get_supabase_client()
@@ -246,26 +327,40 @@ def ocultar_notificacao(
             client,
             tabela="notificacao_ocultacoes",
             notificacao_id=notificacao_id,
-            usuario_id=usuario_id,
+            usuario_id=usuario_id_estado,
             campo_data="ocultado_em",
         )
     except Exception as exc:
         if _erro_tabela_ausente(exc):
             return _estado_sem_persistencia(notificacao_id, oculta=True)
         raise
-    return _buscar_estado_notificacao(client, notificacao_id, usuario_id=usuario_id)
+    return _buscar_estado_notificacao(client, notificacao_id, usuario_id=usuario_id_estado)
 
 
-def contar_notificacoes_nao_lidas(*, usuario_id: UUID | str | None) -> dict:
+def contar_notificacoes_nao_lidas(
+    *,
+    usuario: dict | None = None,
+    usuario_id: UUID | str | None = None,
+) -> dict:
     client = get_supabase_client()
-    linhas = _consultar_notificacoes_publicas(client, campos="id")
-    if not usuario_id:
+    usuario = _normalizar_usuario(usuario, usuario_id)
+    usuario_id_estado = _usuario_id_para_estado(usuario, usuario_id)
+    linhas = _consultar_notificacoes_publicas(
+        client,
+        campos="id,status,publico,planos_alvo,usuario_alvo_id,publicado_em,expira_em",
+    )
+    linhas = [
+        notificacao
+        for notificacao in linhas
+        if _notificacao_visivel_para_usuario(notificacao, usuario)
+    ]
+    if not usuario_id_estado:
         return {"total": len(linhas), "persistida": False}
 
     estados = _buscar_estados(
         client,
         [linha["id"] for linha in linhas],
-        usuario_id=usuario_id,
+        usuario_id=usuario_id_estado,
     )
     total = 0
     for linha in linhas:
@@ -286,7 +381,6 @@ def _consultar_notificacoes_publicas(
         client.table("notificacoes")
         .select(campos)
         .eq("status", "publicada")
-        .eq("publico", "todos")
         .lte("publicado_em", agora)
         .or_(f"expira_em.is.null,expira_em.gte.{agora}")
         .order("publicado_em", desc=True)
@@ -297,10 +391,10 @@ def _consultar_notificacoes_publicas(
     return consulta.execute().data
 
 
-def _limite_consulta_estado(limite: int, usuario_id: UUID | str | None) -> int:
-    if not usuario_id:
+def _limite_consulta_publica(limite: int, usuario: dict | None) -> int:
+    if not usuario:
         return limite
-    return min(max(limite * 3, limite), 300)
+    return min(max(limite * 5, limite), 500)
 
 
 def _anexar_midias(
@@ -363,6 +457,7 @@ def _formatar_notificacao_publica(notificacao: dict) -> dict:
         "titulo": notificacao["titulo"],
         "corpo": notificacao["corpo"],
         "publicado_em": notificacao.get("publicado_em"),
+        "expira_em": notificacao.get("expira_em"),
         "criado_em": notificacao.get("criado_em"),
         "lida": notificacao.get("lida", False),
         "lida_em": notificacao.get("lida_em"),
@@ -522,10 +617,159 @@ def _inferir_tipo_midia(tipo_conteudo: str | None) -> str:
     return "arquivo"
 
 
-def _parse_datetime(valor: str | None) -> datetime | None:
+def _parse_datetime(valor: datetime | str | None) -> datetime | None:
     if not valor:
         return None
-    return datetime.fromisoformat(valor.replace("Z", "+00:00"))
+    if isinstance(valor, datetime):
+        return _datetime_com_timezone(valor)
+    return _datetime_com_timezone(datetime.fromisoformat(valor.replace("Z", "+00:00")))
+
+
+def _datetime_com_timezone(valor: datetime) -> datetime:
+    if valor.tzinfo is None:
+        return valor.replace(tzinfo=UTC)
+    return valor
+
+
+def _normalizar_usuario(
+    usuario: dict | None,
+    usuario_id: UUID | str | None = None,
+) -> dict | None:
+    if usuario:
+        return usuario
+    if usuario_id:
+        return {"id": str(usuario_id)}
+    return None
+
+
+def _usuario_id_para_estado(
+    usuario: dict | None,
+    usuario_id: UUID | str | None = None,
+) -> str | None:
+    identificador = usuario_id or (usuario or {}).get("id")
+    if not identificador:
+        return None
+    identificador = str(identificador)
+    if identificador == "00000000-0000-0000-0000-000000000001":
+        return None
+    return identificador
+
+
+def _notificacao_visivel_para_usuario(notificacao: dict, usuario: dict | None) -> bool:
+    if not _notificacao_ativa(notificacao):
+        return False
+
+    publico = str(notificacao.get("publico") or "todos")
+    if publico == "todos":
+        return True
+    if publico == "admins":
+        return bool(usuario and usuario_tem_capacidade(usuario, "notificacoes.admin"))
+    if publico == "usuario":
+        return bool(usuario and str(notificacao.get("usuario_alvo_id")) == str(usuario.get("id")))
+    if publico == "plano":
+        plano = str((usuario or {}).get("plano") or "").strip().lower()
+        return plano in _normalizar_planos_alvo(notificacao.get("planos_alvo") or [])
+    return False
+
+
+def _notificacao_ativa(notificacao: dict) -> bool:
+    agora = datetime.now(UTC)
+    publicado_em = _parse_datetime(notificacao.get("publicado_em"))
+    expira_em = _parse_datetime(notificacao.get("expira_em"))
+    return bool(
+        notificacao.get("status") == "publicada"
+        and publicado_em
+        and publicado_em <= agora
+        and (not expira_em or expira_em >= agora)
+    )
+
+
+def _normalizar_planos_alvo(planos: list[str] | None) -> list[str]:
+    vistos = set()
+    normalizados = []
+    for plano in planos or []:
+        valor = str(plano).strip().lower()
+        if valor and valor not in vistos:
+            vistos.add(valor)
+            normalizados.append(valor)
+    return normalizados
+
+
+def _validar_alvo_notificacao(
+    *,
+    publico: str,
+    planos_alvo: list[str] | None,
+    usuario_alvo_id: UUID | str | None,
+) -> None:
+    planos = _normalizar_planos_alvo(planos_alvo)
+    if publico == "plano" and not planos:
+        raise BadRequestError("Informe ao menos um plano em planos_alvo.")
+    if publico != "plano" and planos:
+        raise BadRequestError("planos_alvo so pode ser usado com publico plano.")
+    if publico == "usuario" and not usuario_alvo_id:
+        raise BadRequestError("Informe usuario_alvo_id para notificacao individual.")
+    if publico != "usuario" and usuario_alvo_id:
+        raise BadRequestError("usuario_alvo_id so pode ser usado com publico usuario.")
+
+
+def _resolver_expiracao(
+    *,
+    publicado_em: datetime | None,
+    expira_em: datetime | None,
+    expira_em_dias: int | None,
+) -> datetime | None:
+    publicado_em = _parse_datetime(publicado_em)
+    expira_em = _parse_datetime(expira_em)
+    if expira_em and expira_em_dias:
+        raise BadRequestError("Use expira_em ou expira_em_dias, nao os dois.")
+    if expira_em_dias and publicado_em:
+        return publicado_em + timedelta(days=expira_em_dias)
+    if expira_em and publicado_em and expira_em <= publicado_em:
+        raise BadRequestError("expira_em precisa ser posterior a publicado_em.")
+    return expira_em
+
+
+def _normalizar_payload_de_atualizacao(atual: dict, dados: dict) -> dict:
+    dados = dict(dados)
+    publico = dados.get("publico", atual.get("publico", "todos"))
+
+    if "planos_alvo" in dados and dados["planos_alvo"] is not None:
+        dados["planos_alvo"] = _normalizar_planos_alvo(dados["planos_alvo"])
+    elif publico != "plano":
+        dados["planos_alvo"] = []
+
+    if publico != "usuario" and "usuario_alvo_id" not in dados:
+        dados["usuario_alvo_id"] = None
+
+    planos = dados.get("planos_alvo", atual.get("planos_alvo") or [])
+    usuario_alvo_id = dados.get("usuario_alvo_id", atual.get("usuario_alvo_id"))
+    _validar_alvo_notificacao(
+        publico=publico,
+        planos_alvo=planos,
+        usuario_alvo_id=usuario_alvo_id,
+    )
+
+    publicado_em = _parse_datetime(dados.get("publicado_em") or atual.get("publicado_em"))
+    if "expira_em" in dados:
+        dados["expira_em_dias"] = None
+        if dados["expira_em"] is not None:
+            dados["expira_em"] = _resolver_expiracao(
+                publicado_em=publicado_em,
+                expira_em=_parse_datetime(dados["expira_em"]),
+                expira_em_dias=None,
+            )
+    elif "expira_em_dias" in dados:
+        if dados["expira_em_dias"] is None:
+            dados["expira_em"] = None
+        elif publicado_em:
+            dados["expira_em"] = datetime.now(UTC) + timedelta(days=dados["expira_em_dias"])
+        else:
+            dados["expira_em"] = None
+    return dados
+
+
+def _payload_com_nulos(dados: dict) -> dict:
+    return {key: encode_value(value) for key, value in dados.items()}
 
 
 # Helpers centralizados em infra; aliases preservam os nomes locais.

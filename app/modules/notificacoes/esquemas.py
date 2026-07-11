@@ -2,12 +2,13 @@ from datetime import datetime
 from typing import Literal
 from uuid import UUID
 
-from pydantic import Field
+from pydantic import Field, model_validator
 
 from app.shared.esquemas import ApiModel
 
 TipoMidiaNotificacao = Literal["imagem", "video", "gif", "arquivo", "link"]
-PublicoNotificacao = Literal["todos", "admins"]
+PublicoNotificacao = Literal["todos", "admins", "plano", "usuario"]
+PlanoAlvoNotificacao = Literal["basico", "analitico", "ia", "admin"]
 PrioridadeNotificacao = Literal["baixa", "normal", "alta"]
 StatusNotificacao = Literal["rascunho", "publicada", "arquivada"]
 
@@ -35,21 +36,47 @@ class RequisicaoCriarNotificacao(ApiModel):
     titulo: str = Field(min_length=1, max_length=160)
     corpo: str = Field(min_length=1, max_length=8000)
     publico: PublicoNotificacao = "todos"
+    planos_alvo: list[PlanoAlvoNotificacao] = Field(default_factory=list)
+    usuario_alvo_id: UUID | None = None
     prioridade: PrioridadeNotificacao = "normal"
     midias: list[MidiaNotificacaoEntrada] = Field(default_factory=list)
     metadados: dict = Field(default_factory=dict)
     publicar_agora: bool = False
     expira_em: datetime | None = None
+    expira_em_dias: int | None = Field(default=None, ge=1, le=3650)
+
+    @model_validator(mode="after")
+    def validar_alvo_e_expiracao(self):
+        if self.expira_em and self.expira_em_dias:
+            raise ValueError("Use expira_em ou expira_em_dias, nao os dois.")
+        if self.publico == "plano" and not self.planos_alvo:
+            raise ValueError("Informe planos_alvo quando publico for plano.")
+        if self.publico != "plano" and self.planos_alvo:
+            raise ValueError("planos_alvo so pode ser usado com publico plano.")
+        if self.publico == "usuario" and not self.usuario_alvo_id:
+            raise ValueError("Informe usuario_alvo_id quando publico for usuario.")
+        if self.publico != "usuario" and self.usuario_alvo_id:
+            raise ValueError("usuario_alvo_id so pode ser usado com publico usuario.")
+        return self
 
 
 class RequisicaoAtualizarNotificacao(ApiModel):
     titulo: str | None = Field(default=None, min_length=1, max_length=160)
     corpo: str | None = Field(default=None, min_length=1, max_length=8000)
     publico: PublicoNotificacao | None = None
+    planos_alvo: list[PlanoAlvoNotificacao] | None = None
+    usuario_alvo_id: UUID | None = None
     prioridade: PrioridadeNotificacao | None = None
     midias: list[MidiaNotificacaoEntrada] | None = None
     metadados: dict | None = None
     expira_em: datetime | None = None
+    expira_em_dias: int | None = Field(default=None, ge=1, le=3650)
+
+    @model_validator(mode="after")
+    def validar_expiracao(self):
+        if self.expira_em and self.expira_em_dias:
+            raise ValueError("Use expira_em ou expira_em_dias, nao os dois.")
+        return self
 
 
 class NotificacaoSaida(ApiModel):
@@ -57,6 +84,8 @@ class NotificacaoSaida(ApiModel):
     titulo: str
     corpo: str
     publico: PublicoNotificacao
+    planos_alvo: list[PlanoAlvoNotificacao] = Field(default_factory=list)
+    usuario_alvo_id: UUID | None = None
     prioridade: PrioridadeNotificacao
     status: StatusNotificacao
     midias: list[MidiaNotificacaoSaida] = Field(default_factory=list)
@@ -64,6 +93,7 @@ class NotificacaoSaida(ApiModel):
     criado_por_usuario_id: UUID | None = None
     publicado_em: datetime | None = None
     expira_em: datetime | None = None
+    expira_em_dias: int | None = None
     lida: bool = False
     lida_em: datetime | None = None
     oculta: bool = False
@@ -77,6 +107,7 @@ class NotificacaoPublicaSaida(ApiModel):
     titulo: str
     corpo: str
     publicado_em: datetime | None = None
+    expira_em: datetime | None = None
     criado_em: datetime | None = None
     lida: bool = False
     lida_em: datetime | None = None
@@ -95,3 +126,7 @@ class EstadoNotificacaoSaida(ApiModel):
 class ContagemNotificacoesNaoLidasSaida(ApiModel):
     total: int
     persistida: bool = True
+
+
+class LimpezaNotificacoesSaida(ApiModel):
+    removidas: int

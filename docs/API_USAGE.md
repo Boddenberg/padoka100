@@ -743,10 +743,10 @@ Contrato detalhado para o front: `docs/CUSTEIO_ASSISTIDO_FRONT.md`.
 
 ## 15. Notificacoes
 
-As notificacoes publicas continuam acessiveis sem Bearer token. Quando o front
-manda `Authorization: Bearer ...`, a API devolve e persiste estado por usuario.
-Sem login, `persistida` volta `false` nas rotas de acao para o front usar
-fallback local.
+Contrato detalhado para o front: `docs/NOTIFICACOES_FRONT.md`.
+
+As notificacoes exigem `Authorization: Bearer ...`; a API filtra o feed pelo
+usuario logado, plano de acesso e alvo especifico, e persiste estado por usuario.
 
 Listar:
 
@@ -763,6 +763,7 @@ Resposta publica enxuta:
     "titulo": "Aviso",
     "corpo": "Texto da notificacao",
     "publicado_em": "2026-07-10T10:00:00Z",
+    "expira_em": null,
     "criado_em": "2026-07-10T09:50:00Z",
     "lida": false,
     "lida_em": null,
@@ -789,6 +790,47 @@ As rotas de acao devolvem o estado completo (`lida`, `lida_em`, `oculta`,
 `oculta_em`, `persistida`). A lista publica nao devolve campos internos/admin,
 como `publico`, `prioridade`, `status`, `metadados`, `expira_em` ou usuario
 criador.
+
+Criacao admin com alvo por plano e expiracao em dias:
+
+```bash
+curl -X POST http://localhost:8000/api/v1/admin/notificacoes \
+  -H "Authorization: Bearer TOKEN_ADMIN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "titulo": "Novidade do plano IA",
+    "corpo": "Mensagem para clientes do plano IA.",
+    "publico": "plano",
+    "planos_alvo": ["ia"],
+    "publicar_agora": true,
+    "expira_em_dias": 7
+  }'
+```
+
+Criacao admin para uma pessoa:
+
+```bash
+curl -X POST http://localhost:8000/api/v1/admin/notificacoes \
+  -H "Authorization: Bearer TOKEN_ADMIN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "titulo": "Aviso individual",
+    "corpo": "Mensagem exclusiva para esta conta.",
+    "publico": "usuario",
+    "usuario_alvo_id": "USUARIO_ID",
+    "publicar_agora": true
+  }'
+```
+
+Excluir uma notificacao ou limpar expiradas:
+
+```bash
+curl -X DELETE http://localhost:8000/api/v1/admin/notificacoes/NOTIFICACAO_ID \
+  -H "Authorization: Bearer TOKEN_ADMIN"
+
+curl -X DELETE http://localhost:8000/api/v1/admin/notificacoes/expiradas \
+  -H "Authorization: Bearer TOKEN_ADMIN"
+```
 
 Contagem de nao lidas:
 

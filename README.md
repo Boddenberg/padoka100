@@ -122,6 +122,8 @@ A documentacao interativa fica em:
 - `POST /api/v1/notificacoes/{notificacao_id}/ler`
 - `POST /api/v1/notificacoes/{notificacao_id}/nao-lida`
 - `POST /api/v1/notificacoes/{notificacao_id}/ocultar`
+- `DELETE /api/v1/admin/notificacoes/{notificacao_id}`
+- `DELETE /api/v1/admin/notificacoes/expiradas`
 
 Exemplos de uso ficam em `docs/API_USAGE.md`.
 
@@ -223,11 +225,13 @@ Ja existe:
   confirmacao final e atualizacao do custo vigente do produto;
 - login com token do Supabase Auth e sincronizacao do perfil local;
 - planos de acesso (`basico`, `analitico`, `ia`, `admin`) com capacidades por rota;
+- notificacoes com alvo por todos, plano ou usuario especifico, expiracao opcional
+  e limpeza de expiradas;
 - isolamento completo por usuario em todas as entidades de negocio;
 - reaproveitamento seletivo de sobras (somente itens explicitamente decididos
   entram no dia atual);
 - suite pytest com dominio puro + testes de integracao multiusuario com
-  Supabase fake em memoria (202 casos) e lint com ruff.
+  Supabase fake em memoria (205 casos) e lint com ruff.
 
 Ainda nao existe como funcionalidade completa:
 
