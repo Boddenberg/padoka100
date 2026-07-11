@@ -24,14 +24,14 @@ def obter_sessao_autenticada(
             "via_api_key": True,
         }
 
-    if not authorization or not authorization.lower().startswith("bearer "):
+    token = _extrair_token_bearer(authorization)
+    if not token:
         return {
             "usuario": servico.usuario_sem_token(),
             "sessao_id": None,
             "via_api_key": False,
             "sem_token": True,
         }
-    token = authorization.split(" ", 1)[1].strip()
     usuario, sessao = servico.buscar_usuario_por_token(token)
     return {"usuario": usuario, "sessao_id": sessao["id"], "via_api_key": False, "sem_token": False}
 
@@ -63,12 +63,19 @@ def exigir_sessao_de_usuario(
 def obter_sessao_opcional(
     authorization: Annotated[str | None, Header()] = None,
 ) -> dict | None:
-    if not authorization or not authorization.lower().startswith("bearer "):
+    token = _extrair_token_bearer(authorization)
+    if not token:
         return None
 
-    token = authorization.split(" ", 1)[1].strip()
     usuario, sessao = servico.buscar_usuario_por_token(token)
     return {"usuario": usuario, "sessao_id": sessao["id"], "via_api_key": False, "sem_token": False}
+
+
+def _extrair_token_bearer(authorization: str | None) -> str | None:
+    if not authorization or not authorization.lower().startswith("bearer "):
+        return None
+    token = authorization.split(" ", 1)[1].strip()
+    return token or None
 
 
 def exigir_capacidade(capacidade: str):
