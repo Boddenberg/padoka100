@@ -163,6 +163,90 @@ def test_estado_converte_medida_caseira_para_massa_quando_compra_e_kg(monkeypatc
     assert farinha["calculo_estimado"] is True
 
 
+def test_simulacao_recalcula_custo_de_insumo_com_custo_gravado_em_semantica_antiga(monkeypatch):
+    # Linha real do banco: 6 litros de leite por R$ 32,94, mas custo_por_unidade
+    # gravado como 5.49 (R$/litro, semantica antiga) em vez de 0.00549 (R$/ml).
+    # A conta deve sair do preco pago, nunca do custo gravado.
+    insumo_id = UUID("33333333-3333-3333-3333-333333333333")
+    monkeypatch.setattr(
+        assistente_servico.servico_de_custos,
+        "buscar_insumo",
+        lambda *args, **kwargs: {
+            "id": str(insumo_id),
+            "nome": "leite integral",
+            "unidade_compra": "l",
+            "quantidade_comprada": "6",
+            "preco_total": "32.94",
+            "custo_por_unidade": "5.490000",
+            "status": "CONFIRMADO",
+        },
+    )
+
+    custo_total, custo_unitario, pendencia, _ = assistente_servico._simular_ingrediente(
+        {
+            "insumo_id": str(insumo_id),
+            "nome": "leite integral",
+            "quantidade_usada": "250",
+            "unidade_usada": "ml",
+        }
+    )
+
+    assert pendencia is None
+    assert custo_unitario == Decimal("0.005490")
+    assert custo_total == Decimal("1.37")
+
+
+def test_simulacao_usa_custo_gravado_quando_nao_da_para_recalcular(monkeypatch):
+    insumo_id = UUID("33333333-3333-3333-3333-333333333333")
+    monkeypatch.setattr(
+        assistente_servico.servico_de_custos,
+        "buscar_insumo",
+        lambda *args, **kwargs: {
+            "id": str(insumo_id),
+            "nome": "ovos",
+            "unidade_compra": "un",
+            "quantidade_comprada": None,
+            "preco_total": None,
+            "custo_por_unidade": "0.90",
+            "status": "CONFIRMADO",
+        },
+    )
+
+    custo_total, custo_unitario, pendencia, _ = assistente_servico._simular_ingrediente(
+        {
+            "insumo_id": str(insumo_id),
+            "nome": "ovos",
+            "quantidade_usada": "12",
+            "unidade_usada": "un",
+        }
+    )
+
+    assert pendencia is None
+    assert custo_unitario == Decimal("0.90")
+    assert custo_total == Decimal("10.80")
+
+
+def test_embalagem_sem_dado_deterministico_usa_equivalencia_da_ia(monkeypatch):
+    from app.modules.custos import conversao_ia
+
+    monkeypatch.setattr(
+        conversao_ia,
+        "_consultar_llm",
+        lambda **kwargs: {"quantidade": 500, "unidade": "g", "confianca": 0.9},
+    )
+
+    inferencia = assistente_servico._inferir_unidade_da_embalagem_do_ingrediente(
+        {
+            "nome": "mistura para pao caseiro",
+            "unidade_compra": "pacote",
+        }
+    )
+
+    assert inferencia is not None
+    assert inferencia["unidade"] == "500g"
+    assert "estimada por IA" in inferencia["descricao"]
+
+
 def test_consolidar_pendencia_legada_de_unidade_incompativel_nao_vira_compra_generica():
     pendencia = (
         "Ingrediente 1: leite integral: Unidade do ingrediente incompativel "

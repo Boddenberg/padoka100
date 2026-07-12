@@ -13,6 +13,7 @@ from app.core.errors import BadRequestError, MissingConfigurationError, NotFound
 from app.db.openai import get_openai_client
 from app.db.supabase import get_supabase_client
 from app.infra.supabase.result import executar_lista_opcional, tabela_ausente
+from app.modules.custos import conversao_ia
 from app.modules.custos.domain import (
     ingredientes as _ingredientes,
 )
@@ -984,7 +985,7 @@ def _calcular_item_lista_compras(
 ) -> dict | None:
     nome = ingrediente["nome_insumo_no_momento"]
     if preco:
-        unidade_compra = _unidade_compra_para_calculo_de_ingrediente(
+        unidade_compra, aviso_ia = _unidade_compra_para_calculo_de_ingrediente(
             unidade_compra=preco["unidade_compra"],
             nome=nome,
             observacoes=ingrediente.get("observacoes"),
@@ -1004,8 +1005,8 @@ def _calcular_item_lista_compras(
             "tipo_unidade": _tipo_unidade_flexivel(unidade_compra),
             "quantidade_base": Decimal(str(estimativa["quantidade_base"])),
             "custo_unitario_base": custo_unitario_base,
-            "aproximado": estimativa["aproximado"],
-            "avisos": estimativa["avisos"],
+            "aproximado": estimativa["aproximado"] or bool(aviso_ia),
+            "avisos": ([aviso_ia] if aviso_ia else []) + estimativa["avisos"],
         }
 
     try:
@@ -1088,15 +1089,34 @@ def _unidade_compra_para_calculo_de_ingrediente(
     unidade_compra: str,
     nome: str | None,
     observacoes: str | None,
-) -> str:
+) -> tuple[str, str | None]:
+    """Resolve a unidade de compra usada na conta e o aviso quando ela vem de IA.
+
+    Ordem: dado deterministico (equivalencia explicita no texto ou embalagem
+    padrao conhecida) -> equivalencia estimada por LLM (somente a conversao;
+    a matematica continua local) -> mantem a unidade generica.
+    """
     if not _unidade_compra_generica_de_embalagem(unidade_compra):
-        return unidade_compra
+        return unidade_compra, None
 
     for texto in (observacoes, nome):
         unidade_inferida = _inferir_unidade_compra_de_texto(texto)
         if unidade_inferida:
-            return unidade_inferida
-    return unidade_compra
+            return unidade_inferida, None
+
+    unidade_ia = conversao_ia.estimar_equivalencia_de_embalagem(
+        nome=nome,
+        unidade_compra=unidade_compra,
+        observacoes=observacoes,
+    )
+    if unidade_ia:
+        aviso = (
+            f"{nome or 'ingrediente'}: considerei 1 {unidade_compra} = "
+            f"{unidade_ia} (equivalencia estimada por IA). Confirme o tamanho "
+            "da embalagem."
+        )
+        return unidade_ia, aviso
+    return unidade_compra, None
 
 
 def _unidade_compra_generica_de_embalagem(unidade: str | None) -> bool:
@@ -1265,7 +1285,7 @@ def _montar_linha_ingrediente(
         nome = insumo["nome"]
         preco_vigente = buscar_preco_vigente_insumo(insumo["id"], date.today(), obrigatorio=False)
         preco_para_calculo = preco_vigente or insumo
-        unidade_compra = _unidade_compra_para_calculo_de_ingrediente(
+        unidade_compra, aviso_ia = _unidade_compra_para_calculo_de_ingrediente(
             unidade_compra=preco_para_calculo["unidade_compra"],
             nome=nome,
             observacoes=observacoes,
@@ -1283,9 +1303,10 @@ def _montar_linha_ingrediente(
         )
         custo_total = estimativa["custo"]
         statuses = [status, insumo["status"]]
-        if estimativa["aproximado"]:
+        if estimativa["aproximado"] or aviso_ia:
             statuses.append("ESTIMADO")
-            observacoes = _juntar_observacoes(observacoes, estimativa["avisos"])
+            avisos = ([aviso_ia] if aviso_ia else []) + estimativa["avisos"]
+            observacoes = _juntar_observacoes(observacoes, avisos)
         status = _consolidar_status(statuses)
     return to_db_payload(
         {
@@ -1334,7 +1355,7 @@ def _ingredientes_com_custo_vigente(ingredientes: list[dict], data_referencia: d
             item["preco_insumo_vigente"] = None
             recalculados.append(item)
             continue
-        unidade_compra = _unidade_compra_para_calculo_de_ingrediente(
+        unidade_compra, aviso_ia = _unidade_compra_para_calculo_de_ingrediente(
             unidade_compra=preco["unidade_compra"],
             nome=item.get("nome_insumo_no_momento"),
             observacoes=item.get("observacoes"),
@@ -1350,10 +1371,10 @@ def _ingredientes_com_custo_vigente(ingredientes: list[dict], data_referencia: d
         item["custo_unitario_no_momento"] = custo_unitario
         item["custo_total_estimado"] = estimativa["custo"]
         item["preco_insumo_vigente"] = preco
-        if estimativa["aproximado"]:
+        if estimativa["aproximado"] or aviso_ia:
             item["status"] = _consolidar_status([item["status"], "ESTIMADO"])
             item["calculo_aproximado"] = True
-            item["avisos_calculo"] = estimativa["avisos"]
+            item["avisos_calculo"] = ([aviso_ia] if aviso_ia else []) + estimativa["avisos"]
         recalculados.append(item)
     return recalculados
 

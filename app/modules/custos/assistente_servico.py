@@ -3,7 +3,7 @@ import io
 import json
 import re
 from datetime import UTC, date, datetime
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 from uuid import UUID
 
 from fastapi import UploadFile
@@ -12,6 +12,7 @@ from app.core.config import get_settings
 from app.core.errors import BadRequestError, ConflictError, MissingConfigurationError, NotFoundError
 from app.db.openai import get_openai_client
 from app.db.supabase import get_supabase_client
+from app.modules.custos import conversao_ia
 from app.modules.custos import servico as servico_de_custos
 from app.modules.custos.assistant import ingredientes as assistant_ingredientes
 from app.modules.custos.assistant import rascunho as assistant_rascunho
@@ -955,10 +956,9 @@ def _simular_ingrediente(
                 ingrediente,
                 insumo["unidade_compra"],
             )
-            custo_unitario = _ajustar_custo_unitario_para_unidade_compra_calculo(
-                Decimal(str(insumo["custo_por_unidade"])),
-                unidade_original=insumo["unidade_compra"],
-                unidade_calculo=compra_calculo["unidade"],
+            custo_unitario = _custo_unitario_do_insumo_para_calculo(
+                insumo,
+                compra_calculo["unidade"],
             )
             quantidade_calculo, unidade_usada_calculo, metadados_calculo = (
                 _resolver_uso_do_ingrediente_para_calculo(
@@ -996,10 +996,9 @@ def _simular_ingrediente(
                 ingrediente,
                 insumo_existente["unidade_compra"],
             )
-            custo_unitario = _ajustar_custo_unitario_para_unidade_compra_calculo(
-                Decimal(str(insumo_existente["custo_por_unidade"])),
-                unidade_original=insumo_existente["unidade_compra"],
-                unidade_calculo=compra_calculo["unidade"],
+            custo_unitario = _custo_unitario_do_insumo_para_calculo(
+                insumo_existente,
+                compra_calculo["unidade"],
             )
             quantidade_calculo, unidade_usada_calculo, metadados_calculo = (
                 _resolver_uso_do_ingrediente_para_calculo(
@@ -1147,6 +1146,27 @@ def _resolver_compra_do_ingrediente_para_calculo(
     }
 
 
+def _custo_unitario_do_insumo_para_calculo(insumo: dict, unidade_calculo: str) -> Decimal:
+    """Recalcula o custo por unidade base a partir do preco realmente pago.
+
+    O custo_por_unidade gravado no banco tem historico com semantica mista
+    (R$ por unidade de compra x R$ por unidade base), entao a conta so confia
+    nele quando nao ha preco_total/quantidade_comprada para recalcular.
+    """
+    try:
+        return servico_de_custos._calcular_custo_por_unidade(
+            Decimal(str(insumo["preco_total"])),
+            Decimal(str(insumo["quantidade_comprada"])),
+            unidade_calculo,
+        )
+    except (BadRequestError, InvalidOperation, KeyError, TypeError, ValueError):
+        return _ajustar_custo_unitario_para_unidade_compra_calculo(
+            Decimal(str(insumo["custo_por_unidade"])),
+            unidade_original=insumo["unidade_compra"],
+            unidade_calculo=unidade_calculo,
+        )
+
+
 def _ajustar_custo_unitario_para_unidade_compra_calculo(
     custo_unitario: Decimal,
     *,
@@ -1219,6 +1239,23 @@ def _inferir_unidade_da_embalagem_do_ingrediente(ingrediente: dict) -> dict | No
         if tokens & regra.get("excluir", set()):
             continue
         return {"unidade": regra["unidade"], "descricao": regra["descricao"]}
+
+    # Sem dado deterministico: o LLM ve apenas a conversao da embalagem
+    # (nunca o custo) e o backend segue fazendo a matematica.
+    equivalencia_ia = conversao_ia.estimar_equivalencia_de_embalagem(
+        nome=ingrediente.get("nome"),
+        unidade_compra=ingrediente.get("unidade_compra"),
+        observacoes=ingrediente.get("observacoes"),
+    )
+    if equivalencia_ia:
+        descricao = (
+            servico_de_custos.descrever_unidade_aproximada(equivalencia_ia)
+            or equivalencia_ia
+        )
+        return {
+            "unidade": equivalencia_ia,
+            "descricao": f"{descricao} (equivalencia estimada por IA)",
+        }
     return None
 
 

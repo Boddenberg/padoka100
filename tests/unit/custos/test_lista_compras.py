@@ -101,6 +101,66 @@ def test_lista_corrige_preco_antigo_salvo_como_unidade_generica(monkeypatch):
     assert item["custo_estimado"] == Decimal("1.37")
 
 
+def test_lista_usa_equivalencia_da_ia_quando_nao_ha_dado_deterministico(monkeypatch):
+    from app.modules.custos import conversao_ia
+
+    monkeypatch.setattr(
+        conversao_ia,
+        "_consultar_llm",
+        lambda **kwargs: {"quantidade": 500, "unidade": "g", "confianca": 0.9},
+    )
+    resposta = _preparar_lista(
+        monkeypatch,
+        {
+            "insumo_id": str(INSUMO_ID),
+            "nome_insumo_no_momento": "mistura para pao caseiro",
+            "quantidade_usada": Decimal("250"),
+            "unidade": "g",
+        },
+        {
+            "quantidade_comprada": Decimal("2"),
+            "unidade_compra": "pacote",
+            "preco_total": Decimal("20.00"),
+            "custo_por_unidade": Decimal("10.00"),
+        },
+    )
+
+    (item,) = resposta["itens"]
+    # 2 pacotes de 500 g por R$ 20,00 => R$ 0,02/g; 250 g usados => R$ 5,00.
+    assert item["custo_unitario_base"] == Decimal("0.020000")
+    assert item["custo_estimado"] == Decimal("5.00")
+    assert item["status"] == "ESTIMADO"
+    assert "estimada por IA" in (item["observacoes"] or "")
+
+
+def test_lista_nao_consulta_ia_quando_ha_equivalencia_explicita(monkeypatch):
+    from app.modules.custos import conversao_ia
+
+    def nao_pode_chamar(**kwargs):
+        raise AssertionError("LLM nao deveria ser consultado com equivalencia explicita")
+
+    monkeypatch.setattr(conversao_ia, "_consultar_llm", nao_pode_chamar)
+    resposta = _preparar_lista(
+        monkeypatch,
+        {
+            "insumo_id": str(INSUMO_ID),
+            "nome_insumo_no_momento": "mistura para pao caseiro",
+            "quantidade_usada": Decimal("250"),
+            "unidade": "g",
+            "observacoes": "Embalagem informada: 1 pacote de 500g.",
+        },
+        {
+            "quantidade_comprada": Decimal("2"),
+            "unidade_compra": "pacote",
+            "preco_total": Decimal("20.00"),
+            "custo_por_unidade": Decimal("10.00"),
+        },
+    )
+
+    (item,) = resposta["itens"]
+    assert item["custo_estimado"] == Decimal("5.00")
+
+
 def test_lista_converte_pacote_da_receita_para_embalagem_com_equivalencia(monkeypatch):
     resposta = _preparar_lista(
         monkeypatch,

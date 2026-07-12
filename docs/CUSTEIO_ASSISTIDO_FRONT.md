@@ -304,9 +304,20 @@ aplicadas, em ordem de preferencia:
 3. densidade media do ingrediente para volume x massa (ex.: 1 colher de sopa
    de farinha contra compra em kg vira ~8,25 g);
 4. peso tipico para itens contados (ex.: 1 ovo = 50 g, 1 dente de alho = 5 g);
-5. ultimo recurso: sem equivalencia da embalagem, o backend considera que a
+5. embalagem generica (pacote, caixa, un...) sem tamanho conhecido: o backend
+   pergunta ao LLM SOMENTE a equivalencia tipica da embalagem (ex.: 1 pacote
+   de polvilho = 500 g). O LLM nunca calcula custo; a matematica continua no
+   backend. A resposta e validada, cacheada e sinalizada com aviso
+   "equivalencia estimada por IA" e status `ESTIMADO`;
+6. ultimo recurso: sem equivalencia da embalagem, o backend considera que a
    receita consome 1 embalagem inteira, ou que 1 unidade usada equivale a
    1 unidade comprada.
+
+Importante: todo custo unitario usado nas contas e recalculado a partir de
+`preco_total / (quantidade_comprada x fator da unidade)`. O campo
+`custo_por_unidade` gravado no banco so entra como ultimo recurso quando nao
+ha preco para recalcular (ha linhas antigas com semantica mista, ex.: R$/litro
+em vez de R$/ml, que chegaram a inflar o custo em 1000x na simulacao).
 
 Sinalizacao para o front:
 
