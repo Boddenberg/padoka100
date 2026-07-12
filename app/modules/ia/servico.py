@@ -27,6 +27,7 @@ from app.modules.ia.esquemas import (
 from app.modules.ia.prompts.command_interpreter import COMMAND_INTERPRETER_INSTRUCTIONS
 from app.modules.midia.servico import enviar_midia_em_bytes
 from app.modules.produtos import public as produtos_public
+from app.modules.produtos.esquemas import RequisicaoCriarProduto
 from app.modules.relatorios.domain import agregacao
 from app.modules.vendas import servico as servico_de_vendas
 from app.modules.vendas.esquemas import RequisicaoCancelarVenda, RequisicaoRegistrarVenda
@@ -37,6 +38,7 @@ from app.shared.db import encode_value, first_or_none, to_db_payload
 # Mantemos aliases sob os nomes internos ja usados no restante deste servico.
 ACAO_REGISTRAR_VENDA = _acoes.ACAO_REGISTRAR_VENDA
 ACAO_REGISTRAR_PRODUCAO = _acoes.ACAO_REGISTRAR_PRODUCAO
+ACAO_CRIAR_PRODUTO = _acoes.ACAO_CRIAR_PRODUTO
 ACAO_ABRIR_DIA_DE_VENDA = _acoes.ACAO_ABRIR_DIA_DE_VENDA
 ACAO_FECHAR_DIA_DE_VENDA = _acoes.ACAO_FECHAR_DIA_DE_VENDA
 ACAO_CANCELAR_VENDA = _acoes.ACAO_CANCELAR_VENDA
@@ -680,6 +682,7 @@ def _interpretar_com_openai(texto: str, produtos: list[dict]) -> dict:
             "motivo_cancelamento",
             "observacoes",
             "itens",
+            "produto",
             "itens_nao_identificados",
             "mensagem_assistente",
         ],
@@ -708,6 +711,35 @@ def _interpretar_com_openai(texto: str, produtos: list[dict]) -> dict:
                         "nome_produto": {"type": "string"},
                         "quantidade": {"type": "integer", "minimum": 1},
                         "confianca": {"type": "number", "minimum": 0, "maximum": 1},
+                    },
+                },
+            },
+            "produto": {
+                "type": ["object", "null"],
+                "additionalProperties": False,
+                "required": [
+                    "nome",
+                    "descricao",
+                    "descricao_visual",
+                    "url_imagem_principal",
+                    "cor_botao",
+                    "ordem_exibicao",
+                    "preco_venda",
+                    "preco_custo",
+                    "vigente_desde",
+                ],
+                "properties": {
+                    "nome": {"type": ["string", "null"]},
+                    "descricao": {"type": ["string", "null"]},
+                    "descricao_visual": {"type": ["string", "null"]},
+                    "url_imagem_principal": {"type": ["string", "null"]},
+                    "cor_botao": {"type": ["string", "null"]},
+                    "ordem_exibicao": {"type": ["integer", "null"]},
+                    "preco_venda": {"type": ["number", "null"], "minimum": 0},
+                    "preco_custo": {"type": ["number", "null"], "minimum": 0},
+                    "vigente_desde": {
+                        "type": ["string", "null"],
+                        "description": "Data YYYY-MM-DD para inicio do preco, se informada.",
                     },
                 },
             },
@@ -787,6 +819,8 @@ def _montar_dados_confirmacao(
     usuario_id: UUID | str | None = None,
 ) -> dict:
     acao = interpretacao["acao"]
+    if acao == ACAO_CRIAR_PRODUTO:
+        return _montar_confirmacao_de_produto(interpretacao)
     if acao == ACAO_REGISTRAR_VENDA:
         return _montar_confirmacao_de_venda(
             interpretacao=interpretacao,
@@ -830,6 +864,51 @@ def _montar_dados_confirmacao(
         acao,
         "Nao consegui transformar esse comando em uma acao segura. Tente falar de outro jeito.",
     )
+
+
+def _montar_confirmacao_de_produto(interpretacao: dict) -> dict:
+    produto = interpretacao.get("produto") or {}
+    nome = produto.get("nome")
+    preco_venda = produto.get("preco_venda")
+    if not nome:
+        return _dados_sem_confirmacao(
+            ACAO_CRIAR_PRODUTO,
+            "Entendi que voce quer cadastrar um produto, mas nao identifiquei o nome.",
+        )
+    if preco_venda is None:
+        return _dados_sem_confirmacao(
+            ACAO_CRIAR_PRODUTO,
+            f"Entendi que voce quer cadastrar {nome}, mas preciso do preco de venda.",
+        )
+
+    dados_produto = {
+        "nome": nome,
+        "descricao": produto.get("descricao"),
+        "descricao_visual": produto.get("descricao_visual"),
+        "url_imagem_principal": produto.get("url_imagem_principal"),
+        "cor_botao": produto.get("cor_botao"),
+        "ordem_exibicao": produto.get("ordem_exibicao") or 0,
+        "preco_venda": preco_venda,
+        "preco_custo": produto.get("preco_custo") or 0,
+        "vigente_desde": produto.get("vigente_desde") or data_operacional_hoje().isoformat(),
+        "motivo_preco": "Produto cadastrado via IA",
+        "origem_preco": "ia",
+        "gerado_por_ia": True,
+    }
+    mensagem = (
+        f"Entendi que devo cadastrar {nome} com preco de venda "
+        f"{_formatar_moeda(preco_venda)}. Confirma?"
+    )
+    return {
+        "acao": ACAO_CRIAR_PRODUTO,
+        "precisa_confirmacao": True,
+        "mensagem_confirmacao": mensagem,
+        "produto": dados_produto,
+        "operacao": {
+            "tipo": ACAO_CRIAR_PRODUTO,
+            "produto": dados_produto,
+        },
+    }
 
 
 def _montar_confirmacao_de_venda(
@@ -1261,6 +1340,16 @@ def _executar_operacao_confirmada(
     usuario_id: UUID | str | None = None,
 ) -> dict:
     tipo = operacao.get("tipo")
+    if tipo == ACAO_CRIAR_PRODUTO:
+        dados_produto = operacao.get("produto")
+        if not dados_produto:
+            raise BadRequestError("Essa interacao nao tem dados de produto para executar.")
+        produto = produtos_public.criar_produto(
+            RequisicaoCriarProduto(**dados_produto),
+            usuario_id=usuario_id,
+        )
+        return {"produto": produto}
+
     if tipo == ACAO_REGISTRAR_VENDA:
         dados_venda = dados_confirmacao.get("venda")
         if not dados_venda:
@@ -1628,6 +1717,8 @@ def _mensagem_falha_confirmacao(exc: AppError) -> str:
 
 
 def _mensagem_sucesso_confirmacao(acao: str | None) -> str:
+    if acao == ACAO_CRIAR_PRODUTO:
+        return "Pronto, cadastrei o produto."
     if acao == ACAO_REGISTRAR_VENDA:
         return "Pronto, registrei a venda."
     if acao == ACAO_REGISTRAR_PRODUCAO:

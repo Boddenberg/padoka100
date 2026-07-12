@@ -5,11 +5,13 @@ estruturada (acao + itens + pistas). Puro: nao acessa rede.
 """
 
 import re
+from decimal import Decimal, InvalidOperation
 
 from app.modules.ia.domain.acoes import (
     ACAO_ABRIR_DIA_DE_VENDA,
     ACAO_CANCELAR_ITEM_VENDA,
     ACAO_CANCELAR_VENDA,
+    ACAO_CRIAR_PRODUTO,
     ACAO_DESCONHECIDO,
     ACAO_FECHAR_DIA_DE_VENDA,
     ACAO_REGISTRAR_PRODUCAO,
@@ -39,6 +41,22 @@ from app.modules.ia.domain.vocabulario import (
 
 def interpretar_com_fallback(texto: str, produtos: list[dict]) -> dict:
     texto_normalizado = normalizar(texto)
+    produto = interpretar_produto_com_fallback(texto, texto_normalizado)
+    if produto is not None:
+        return {
+            "acao": ACAO_CRIAR_PRODUTO,
+            "data_venda": extrair_data_do_texto(texto),
+            "nome_local": None,
+            "venda_id": extrair_uuid_do_texto(texto),
+            "usar_ultima_venda": False,
+            "motivo_cancelamento": None,
+            "observacoes": None,
+            "itens": [],
+            "produto": produto,
+            "itens_nao_identificados": [],
+            "mensagem_assistente": mensagem_inicial_da_acao(ACAO_CRIAR_PRODUTO, []),
+        }
+
     itens = interpretar_itens_com_fallback(texto_normalizado, produtos)
     acao = detectar_acao_com_fallback(texto_normalizado, bool(itens))
     itens_nao_identificados = []
@@ -61,12 +79,15 @@ def interpretar_com_fallback(texto: str, produtos: list[dict]) -> dict:
         "motivo_cancelamento": "Cancelado via IA" if acao == ACAO_CANCELAR_VENDA else None,
         "observacoes": None,
         "itens": itens,
+        "produto": None,
         "itens_nao_identificados": itens_nao_identificados,
         "mensagem_assistente": mensagem_inicial_da_acao(acao, itens),
     }
 
 
 def detectar_acao_com_fallback(texto_normalizado: str, tem_itens: bool) -> str:
+    if texto_indica_cadastro_produto(texto_normalizado):
+        return ACAO_CRIAR_PRODUTO
     if "fechar" in texto_normalizado and "dia" in texto_normalizado:
         return ACAO_FECHAR_DIA_DE_VENDA
     if "abrir" in texto_normalizado and "dia" in texto_normalizado:
@@ -108,6 +129,110 @@ def interpretar_itens_com_fallback(texto_normalizado: str, produtos: list[dict])
     return itens
 
 
+def interpretar_produto_com_fallback(
+    texto: str,
+    texto_normalizado: str | None = None,
+) -> dict | None:
+    texto_normalizado = texto_normalizado or normalizar(texto)
+    if not texto_indica_cadastro_produto(texto_normalizado):
+        return None
+
+    return {
+        "nome": extrair_nome_produto_do_texto(texto),
+        "descricao": None,
+        "descricao_visual": None,
+        "url_imagem_principal": None,
+        "cor_botao": None,
+        "ordem_exibicao": None,
+        "preco_venda": extrair_preco_do_texto(texto),
+        "preco_custo": None,
+        "vigente_desde": extrair_data_do_texto(texto),
+    }
+
+
+def texto_indica_cadastro_produto(texto_normalizado: str) -> bool:
+    tokens = set(texto_normalizado.split())
+    verbos = {
+        "cadastrar",
+        "cadastre",
+        "cadastra",
+        "criar",
+        "crie",
+        "cria",
+        "adicionar",
+        "adicione",
+        "adiciona",
+        "incluir",
+        "inclua",
+        "inclui",
+    }
+    alvos = {"produto", "produtos", "item", "itens", "sabor", "sabores"}
+    if not tokens & verbos:
+        return bool({"produto", "item", "sabor"} & tokens and {"novo", "nova"} & tokens)
+    if "dia" in tokens:
+        return False
+    if tokens & alvos or {"novo", "nova"} & tokens:
+        return True
+    menciona_venda_sem_preco = bool({"venda", "vendas"} & tokens) and not bool(
+        {"preco", "valor"} & tokens
+    )
+    return not menciona_venda_sem_preco
+
+
+def extrair_nome_produto_do_texto(texto: str) -> str | None:
+    texto_sem_prefixo = re.sub(
+        r"^\s*(?:cadastre|cadastra|cadastrar|crie|cria|criar|adicione|adiciona|"
+        r"adicionar|inclua|inclui|incluir)\s+",
+        "",
+        texto,
+        flags=re.IGNORECASE,
+    )
+    texto_sem_prefixo = re.sub(
+        r"^\s*(?:(?:um|uma|o|a)\s+)?(?:(?:novo|nova)\s+)?"
+        r"(?:produto|item|sabor)?\s*(?:chamado|chamada|de nome)?\s*",
+        "",
+        texto_sem_prefixo,
+        flags=re.IGNORECASE,
+    )
+    marcador_preco = re.search(
+        r"\s+(?:por|a|pre[cç]o(?:\s+de\s+venda)?|valor|custa|custando|"
+        r"vendendo\s+por|venda\s+por)\s+(?:r\$\s*)?\d",
+        texto_sem_prefixo,
+        flags=re.IGNORECASE,
+    )
+    if marcador_preco:
+        texto_sem_prefixo = texto_sem_prefixo[: marcador_preco.start()]
+    nome = re.sub(r"\s+", " ", texto_sem_prefixo.strip(" .,:;-"))
+    return nome or None
+
+
+def extrair_preco_do_texto(texto: str) -> Decimal | None:
+    padroes = [
+        r"r\$\s*(\d+(?:[,.]\d{1,2})?)",
+        r"\b(?:por|a|pre[cç]o(?:\s+de\s+venda)?|valor|custa|custando|"
+        r"vendendo\s+por|venda\s+por)\s*(?:r\$\s*)?(\d+(?:[,.]\d{1,2})?)",
+        r"\b(\d+(?:[,.]\d{1,2})?)\s*reais?\b",
+    ]
+    for padrao in padroes:
+        resultado = re.search(padrao, texto, flags=re.IGNORECASE)
+        if resultado:
+            return normalizar_decimal_monetario(resultado.group(1))
+    return None
+
+
+def normalizar_decimal_monetario(valor) -> Decimal | None:
+    if valor is None:
+        return None
+    texto = str(valor).strip().replace(",", ".")
+    try:
+        decimal = Decimal(texto)
+    except (InvalidOperation, ValueError):
+        return None
+    if decimal < 0:
+        return None
+    return decimal.quantize(Decimal("0.01"))
+
+
 def agrupar_itens_por_produto(itens: list[dict]) -> list[dict]:
     itens_por_produto = {}
     for item in itens:
@@ -138,6 +263,8 @@ def corrigir_acao_pelo_texto(
         return ACAO_FECHAR_DIA_DE_VENDA
     if "abrir" in texto_normalizado and "dia" in texto_normalizado:
         return ACAO_ABRIR_DIA_DE_VENDA
+    if texto_indica_cadastro_produto(texto_normalizado):
+        return ACAO_CRIAR_PRODUTO
     if texto_indica_cancelamento(texto_normalizado):
         return ACAO_CANCELAR_ITEM_VENDA if tem_itens else ACAO_CANCELAR_VENDA
 
@@ -219,13 +346,41 @@ def normalizar_interpretacao(
         "motivo_cancelamento": normalizar_texto_opcional(interpretacao.get("motivo_cancelamento")),
         "observacoes": normalizar_texto_opcional(interpretacao.get("observacoes")),
         "itens": itens,
+        "produto": normalizar_produto_interpretado(interpretacao.get("produto")),
         "itens_nao_identificados": itens_nao_identificados,
         "mensagem_assistente": normalizar_texto_opcional(interpretacao.get("mensagem_assistente"))
         or mensagem_inicial_da_acao(acao, itens),
     }
 
 
+def normalizar_produto_interpretado(produto: dict | None) -> dict | None:
+    if not isinstance(produto, dict):
+        return None
+    return {
+        "nome": normalizar_texto_opcional(produto.get("nome")),
+        "descricao": normalizar_texto_opcional(produto.get("descricao")),
+        "descricao_visual": normalizar_texto_opcional(produto.get("descricao_visual")),
+        "url_imagem_principal": normalizar_texto_opcional(produto.get("url_imagem_principal")),
+        "cor_botao": normalizar_texto_opcional(produto.get("cor_botao")),
+        "ordem_exibicao": normalizar_inteiro_opcional(produto.get("ordem_exibicao")),
+        "preco_venda": normalizar_decimal_monetario(produto.get("preco_venda")),
+        "preco_custo": normalizar_decimal_monetario(produto.get("preco_custo")),
+        "vigente_desde": normalizar_data(produto.get("vigente_desde")),
+    }
+
+
+def normalizar_inteiro_opcional(valor) -> int | None:
+    if valor is None or valor == "":
+        return None
+    try:
+        return int(valor)
+    except (TypeError, ValueError):
+        return None
+
+
 def mensagem_inicial_da_acao(acao: str, itens: list[dict]) -> str:
+    if acao == ACAO_CRIAR_PRODUTO:
+        return "Confira antes de cadastrar o produto."
     if acao == ACAO_REGISTRAR_VENDA and itens:
         return f"Confira a venda: {formatar_itens(itens)}."
     if acao == ACAO_REGISTRAR_PRODUCAO and itens:

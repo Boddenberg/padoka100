@@ -1,7 +1,10 @@
+from decimal import Decimal
+
 from app.modules.ia.domain import fallback
 from app.modules.ia.domain.acoes import (
     ACAO_ABRIR_DIA_DE_VENDA,
     ACAO_CANCELAR_VENDA,
+    ACAO_CRIAR_PRODUTO,
     ACAO_DESCONHECIDO,
     ACAO_FECHAR_DIA_DE_VENDA,
     ACAO_REGISTRAR_PRODUCAO,
@@ -25,6 +28,39 @@ def test_fallback_producao():
     resultado = fallback.interpretar_com_fallback("produzi 5 croissant", PRODUTOS)
     assert resultado["acao"] == ACAO_REGISTRAR_PRODUCAO
     assert resultado["itens"][0]["quantidade"] == 5
+
+
+def test_fallback_cadastro_de_produto_com_preco():
+    resultado = fallback.interpretar_com_fallback(
+        "cadastre produto Pao Australiano por R$ 12,50",
+        PRODUTOS,
+    )
+
+    assert resultado["acao"] == ACAO_CRIAR_PRODUTO
+    assert resultado["itens"] == []
+    assert resultado["produto"]["nome"] == "Pao Australiano"
+    assert resultado["produto"]["preco_venda"] == Decimal("12.50")
+
+
+def test_normalizar_interpretacao_nao_transforma_cadastro_em_venda():
+    interpretacao = {
+        "acao": ACAO_CRIAR_PRODUTO,
+        "produto": {
+            "nome": "Broa de Milho",
+            "preco_venda": "7,50",
+        },
+        "itens": [],
+    }
+
+    resultado = fallback.normalizar_interpretacao(
+        interpretacao,
+        PRODUTOS,
+        texto_original="cadastre Broa de Milho com preco de venda 7,50",
+    )
+
+    assert resultado["acao"] == ACAO_CRIAR_PRODUTO
+    assert resultado["produto"]["nome"] == "Broa de Milho"
+    assert resultado["produto"]["preco_venda"] == Decimal("7.50")
 
 
 def test_fallback_fechar_e_abrir_dia():

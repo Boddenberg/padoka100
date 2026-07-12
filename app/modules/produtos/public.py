@@ -2,6 +2,7 @@ from datetime import date
 from uuid import UUID
 
 from app.modules.produtos import servico
+from app.modules.produtos.esquemas import RequisicaoCriarProduto
 
 
 def listar_produtos_ativos(
@@ -14,6 +15,14 @@ def listar_produtos_ativos(
         data_preco=data_preco,
         usuario_id=usuario_id,
     )
+
+
+def criar_produto(
+    requisicao: RequisicaoCriarProduto,
+    *,
+    usuario_id: UUID | str | None = None,
+) -> dict:
+    return servico.criar_produto(requisicao, usuario_id=usuario_id)
 
 
 def buscar_produto(
