@@ -1,602 +1,549 @@
-# Padoka 100
+<div align="center">
 
-Backend em Python/FastAPI para apoiar a rotina de uma pequena padaria familiar.
+<img src="https://capsule-render.vercel.app/api?type=waving&height=190&color=0:111827,45:F97316,100:22C55E&text=Padoka%20100&fontColor=FFFFFF&fontSize=62&desc=API%20FastAPI%20para%20vender,%20produzir,%20analisar%20e%20precificar%20sem%20perder%20o%20historico&descSize=15&descAlignY=67&animation=fadeIn" alt="Padoka 100" />
 
-O sistema deve ser simples para quem vende no dia a dia e bem estruturado por
-dentro para evoluir com seguranca. A API guarda catalogo, venda do dia,
-historico, relatorios, midia, comandos por IA e bases futuras para perfil,
-permissoes, analises e custos reais de produtos.
+<br />
 
-Este README e a referencia atual do produto e da arquitetura. Antes de criar
-novas funcionalidades grandes, alinhe aqui o plano geral, as regras de negocio e
-os contratos esperados.
+<a href="#modo-90-segundos">
+  <img alt="tour" src="https://img.shields.io/badge/tour-90s-22C55E?style=for-the-badge" />
+</a>
+<a href="#stack">
+  <img alt="stack" src="https://img.shields.io/badge/stack-FastAPI%20%2B%20Supabase%20%2B%20OpenAI-F97316?style=for-the-badge" />
+</a>
+<a href="#rodando-local">
+  <img alt="run" src="https://img.shields.io/badge/run-uvicorn-0EA5E9?style=for-the-badge" />
+</a>
+<a href="#testes-e-qualidade">
+  <img alt="quality" src="https://img.shields.io/badge/quality-pytest%20%2B%20ruff-8B5CF6?style=for-the-badge" />
+</a>
 
-## Tecnologias reais do projeto
+<br />
+<br />
 
-- Linguagem: Python 3.12+
-- Framework: FastAPI
-- Banco de dados: Supabase Postgres
-- Storage: Supabase Storage, bucket `padoka-midia`
-- ORM/ODM: nenhum no momento; acesso via cliente oficial `supabase-py`
-- Validacao/DTOs: Pydantic
-- Autenticacao: sessao local com senha PBKDF2 + Bearer token, tokens do Supabase Auth
-  (ver [docs/SUPABASE_AUTH.md](docs/SUPABASE_AUTH.md)) e API key opcional via `X-API-Key`
-- Autorizacao: papeis (`usuario`/`administrador`/`dono`) + planos de acesso por
-  capacidade (ver [docs/ACCESS_PLANS.md](docs/ACCESS_PLANS.md))
-- IA: OpenAI API para interpretar comandos de texto/audio e, futuramente, analises
-- Testes: `pytest` cobrindo o dominio puro (`python -m pytest`); `ruff` para lint
-  (ver [docs/ARQUITETURA_ATUAL.md](docs/ARQUITETURA_ATUAL.md))
-- Gerenciador/empacotamento: `pip`, `pyproject.toml`, Hatchling
-- Ambiente: variaveis em `.env` via `pydantic-settings`
-- Deploy: configuracoes para Render (`render.yaml`) e Railway (`railway.json`)
+<img alt="Python" src="https://img.shields.io/badge/Python-3.12-3776AB?style=flat-square&logo=python&logoColor=white" />
+<img alt="FastAPI" src="https://img.shields.io/badge/FastAPI-0.116+-009688?style=flat-square&logo=fastapi&logoColor=white" />
+<img alt="Supabase" src="https://img.shields.io/badge/Supabase-Postgres%20%2B%20Auth%20%2B%20Storage-3ECF8E?style=flat-square&logo=supabase&logoColor=white" />
+<img alt="OpenAI" src="https://img.shields.io/badge/OpenAI-commands%20%2B%20audio%20%2B%20vision-111827?style=flat-square&logo=openai&logoColor=white" />
+<img alt="Pydantic" src="https://img.shields.io/badge/Pydantic-settings-E92063?style=flat-square" />
+<img alt="Railway" src="https://img.shields.io/badge/Railway-ready-0B0D0E?style=flat-square&logo=railway&logoColor=white" />
+<img alt="Render" src="https://img.shields.io/badge/Render-ready-46E3B7?style=flat-square&logo=render&logoColor=111827" />
 
-## Rodando localmente
+<br />
+<br />
+
+<strong>Padoka 100</strong> e o backend de uma padaria pequena com ambicao grande:
+operacao diaria simples por fora, dominio organizado por dentro, historico
+preservado e IA entrando sempre como assistente, nunca como dona da verdade.
+
+</div>
+
+---
+
+## Sumario
+
+<table>
+  <tr>
+    <td><a href="#modo-90-segundos">Modo 90 segundos</a></td>
+    <td><a href="#o-que-ele-resolve">O que ele resolve</a></td>
+    <td><a href="#stack">Stack</a></td>
+  </tr>
+  <tr>
+    <td><a href="#tour-do-produto">Tour do produto</a></td>
+    <td><a href="#arquitetura">Arquitetura</a></td>
+    <td><a href="#rodando-local">Rodando local</a></td>
+  </tr>
+  <tr>
+    <td><a href="#mapa-da-api">Mapa da API</a></td>
+    <td><a href="#testes-e-qualidade">Testes e qualidade</a></td>
+    <td><a href="#deploy">Deploy</a></td>
+  </tr>
+</table>
+
+---
+
+## Modo 90 Segundos
+
+```txt
+Padoka 100
+  -> cadastra produtos, fotos, locais e precos versionados
+  -> abre o dia de venda, registra producao, venda, sobra e fechamento
+  -> preserva snapshots: nome, imagem, preco e custo do momento
+  -> calcula relatorios por dia, periodo e produto
+  -> aceita comandos por texto/audio com confirmacao antes de gravar
+  -> ajuda a montar custo real com texto, formulario, audio, imagem ou print
+  -> isola cada conta por usuario_id vindo da sessao
+  -> libera features por plano: basico, analitico, ia e admin
+```
+
+**Leitura recomendada:** se voce quer usar a API, va para
+[Rodando local](#rodando-local). Se quer entender a cabeca do sistema, abra
+[Arquitetura](#arquitetura). Se quer integrar front, pule para
+[Mapa da API](#mapa-da-api).
+
+---
+
+## O Que Ele Resolve
+
+Padaria pequena normalmente vive em uma mistura de caderno, memoria, foto de
+balcao, conversa de WhatsApp e planilha que ninguem quer abrir no fim do dia.
+Este backend transforma isso em fluxo:
+
+| Dor real | Resposta do Padoka 100 |
+| --- | --- |
+| "Quanto vendemos hoje?" | Resumo do dia, vendas por produto e fechamento |
+| "Esse preco mudou. E o passado?" | Precos versionados e snapshots nas vendas |
+| "Sobrou produto ontem. Levo para hoje?" | Virada de dia com decisao explicita de sobra |
+| "Foi vendido errado, mas o dia ja fechou." | Correcao retroativa com rastro estruturado |
+| "Quanto custa produzir isso de verdade?" | Insumos, receitas, custos extras e calculo por unidade |
+| "Tenho uma notinha/foto/audio, extrai isso pra mim." | Assistente de custeio com OpenAI, fallback e revisao |
+| "Cada cliente precisa ver so os proprios dados." | Multiusuario por sessao, nao por payload |
+| "Quero liberar recursos por plano." | Matriz de capacidades por plano e rota |
+
+---
+
+## Stack
+
+| Camada | Tecnologia | Papel no projeto |
+| --- | --- | --- |
+| API | FastAPI | HTTP, OpenAPI, routers e dependencias |
+| Linguagem | Python 3.12+ | Dominio, casos de uso, adapters e scripts |
+| Config | pydantic-settings | `.env`, CORS, API prefix, chaves externas |
+| Banco | Supabase Postgres | Persistencia principal e migrations SQL |
+| Auth | Supabase Auth + sessao local | Bearer token, perfil local e transicao segura |
+| Storage | Supabase Storage | Fotos de produto, perfil, midias e arquivos |
+| IA | OpenAI | Comandos, audio, vision, analises e custeio assistido |
+| Qualidade | pytest + ruff | Regressao de dominio, integracao fake e lint |
+| Deploy | Railway / Render | Configuracoes prontas na raiz |
+
+<details>
+<summary><strong>Variaveis de ambiente</strong></summary>
+
+```env
+APP_NAME="Padoka 100 API"
+APP_ENV="local"
+API_PREFIX="/api/v1"
+CORS_ORIGINS="http://localhost:3000,http://localhost:5173"
+API_KEY=""
+
+SUPABASE_URL=""
+SUPABASE_KEY=""
+SUPABASE_SERVICE_ROLE_KEY=""
+SUPABASE_STORAGE_BUCKET="padoka-midia"
+
+OPENAI_API_KEY=""
+OPENAI_CHAT_MODEL=""
+OPENAI_TEXT_MODEL="gpt-5.4-mini"
+OPENAI_TRANSCRIPTION_MODEL="gpt-4o-transcribe"
+```
+
+Em producao, configure `API_KEY`, `SUPABASE_SERVICE_ROLE_KEY` e
+`OPENAI_API_KEY` fora do repositorio.
+
+</details>
+
+---
+
+## Tour Do Produto
+
+<details open>
+<summary><strong>1. Operacao de balcao</strong></summary>
+
+- Catalogo com produto, preco vigente, imagem e historico.
+- Locais de venda para separar retirada, balcao, feira ou entrega.
+- Dia de venda com abertura, producao, venda manual, cancelamento e fechamento.
+- Regra importante: produto so aparece na venda do dia se participou daquele dia.
+
+</details>
+
+<details>
+<summary><strong>2. Historico que nao esquece</strong></summary>
+
+O sistema salva snapshots no momento do fato. Se o preco muda na quinta, a venda
+de segunda continua com o nome, imagem, preco e custo que existiam na segunda.
+
+```txt
+produto hoje
+  nome: Pao de Queijo
+  preco vigente: 10.00
+
+venda antiga
+  nome_snapshot: Pao de Queijo
+  preco_unitario_snapshot: 8.00
+```
+
+</details>
+
+<details>
+<summary><strong>3. Multiusuario e planos</strong></summary>
+
+Todo dado de negocio recebe `usuario_id` a partir da sessao autenticada. O
+cliente nao manda dono no payload. Consultas por id filtram direto no banco e
+registro de outra conta responde como nao encontrado.
+
+Planos atuais:
+
+| Plano | Libera |
+| --- | --- |
+| `basico` | perfil, notificacoes, catalogo, dias, vendas, relatorios basicos e midia |
+| `analitico` | historico, relatorios avancados, compras e custos |
+| `ia` | IA operacional, IA analitica e assistente de custeio |
+| `admin` | usuarios, notificacoes admin, RAG e seed |
+
+</details>
+
+<details>
+<summary><strong>4. IA com cinto de seguranca</strong></summary>
+
+A IA interpreta comandos e ajuda em analises, mas a gravacao passa por
+confirmacao e por casos de uso reais.
+
+```txt
+texto/audio/imagem
+  -> interpretacao
+  -> rascunho estruturado
+  -> perguntas, avisos e pendencias
+  -> confirmacao do usuario
+  -> escrita no dominio
+```
+
+Quando OpenAI nao esta configurada, partes do sistema usam fallback local para
+continuar testaveis e previsiveis.
+
+</details>
+
+<details>
+<summary><strong>5. Custeio assistido</strong></summary>
+
+O modulo de custos aceita insumos, receitas, custos adicionais, lista de compras
+e uma sessao guiada para montar custo real de produto.
+
+Entradas aceitas pelo assistente:
+
+```txt
+texto -> "usei 800g de farinha, pacote de 5kg saiu por 22 reais"
+formulario -> dados estruturados do front
+audio -> transcricao + interpretacao
+imagem/print -> leitura por vision quando configurado
+```
+
+O backend simula custo, marca estimativas, mostra avisos de conversao e so grava
+quando a sessao e confirmada.
+
+</details>
+
+<details>
+<summary><strong>6. Notificacoes, RAG e admin</strong></summary>
+
+- Feed de notificacoes por `todos`, `plano` ou `usuario`.
+- Estado por usuario: lida, nao lida, oculta, expirada.
+- Rotas admin para criar, publicar, arquivar, excluir e limpar expiradas.
+- Base RAG administrativa para documentos internos.
+- Seed de vendas fake para ambientes controlados.
+
+</details>
+
+---
+
+## Arquitetura
+
+O projeto passou por uma rearquitetura para tirar regra de negocio de arquivos
+gigantes e mover logica testavel para `domain/` e `use_cases/`.
+
+```mermaid
+flowchart LR
+    Client["Cliente / Front"] --> Router["FastAPI router"]
+    Router --> Service["servico.py fachada"]
+    Service --> UseCase["use_cases"]
+    UseCase --> Domain["domain puro"]
+    UseCase --> Adapter["adapters"]
+    Service --> Infra["infra"]
+    Adapter --> Supabase["Supabase"]
+    Infra --> OpenAI["OpenAI"]
+    Infra --> Storage["Storage"]
+
+    classDef api fill:#0EA5E9,color:#fff,stroke:#0369A1;
+    classDef core fill:#22C55E,color:#052E16,stroke:#15803D;
+    classDef ext fill:#F97316,color:#111827,stroke:#C2410C;
+    class Router,Service api;
+    class UseCase,Domain core;
+    class Adapter,Infra,Supabase,OpenAI,Storage ext;
+```
+
+Regras de dependencia:
+
+```txt
+router -> servico -> use_cases -> domain
+                  -> adapters/infra -> Supabase/OpenAI/Storage
+```
+
+- `domain/` nao importa FastAPI, Supabase ou OpenAI.
+- `use_cases/` representa uma acao de negocio por arquivo.
+- `adapters/` e `infra/` concentram efeitos externos.
+- `public.py` e o contrato preferido entre modulos.
+- `servico.py` ainda existe como fachada de compatibilidade enquanto os fluxos
+  maiores terminam de ser fatiados.
+
+<details>
+<summary><strong>Mapa de pastas</strong></summary>
+
+```txt
+app/
+  main.py                  # app FastAPI, CORS, health e routers
+  api/router.py            # agrega os modulos
+  core/                    # config, errors, security, clock
+  infra/                   # clientes e helpers Supabase/OpenAI
+  modules/
+    produtos/              # catalogo, preco vigente, snapshots
+    vendas/                # registro, listagem, cancelamento
+    dias_de_venda/         # abertura, fechamento, sobras, correcoes
+    relatorios/            # agregacao por dia e periodo
+    custos/                # insumos, receitas, compras, assistente
+    ia/                    # comandos, audio, analises e fallback
+    auth/                  # usuarios, perfil, papeis, planos
+    notificacoes/          # feed, leitura, admin
+    midia/                 # uploads e propriedade
+    historico/             # linha do tempo
+    rag/                   # documentos admin
+    admin/                 # seed operacional
+supabase/migrations/       # SQLs aplicados em ordem
+tests/                     # unitarios + integracao com Supabase fake
+docs/                      # contratos, planos, deploy e guias de front
+```
+
+</details>
+
+<details>
+<summary><strong>Status honesto da arquitetura</strong></summary>
+
+Partes ja bem separadas:
+
+- `produtos`
+- `vendas`
+- `dias_de_venda`
+- `relatorios`
+- dominios puros de `ia`, `custos` e `custos.assistant`
+
+Partes que ainda merecem fatiamento:
+
+- `custos/assistente_servico.py`
+- `ia/servico.py`
+- `custos/servico.py`
+- `admin/seed_servico.py`
+- `notificacoes/servico.py`
+
+O script `scripts/architecture_report.py` mostra os arquivos grandes, funcoes
+longas e imports cruzados que ainda precisam de poda.
+
+</details>
+
+---
+
+## Rodando Local
 
 ```bash
 python -m venv .venv
 .venv\Scripts\activate
-pip install -e .
+pip install -e ".[dev]"
 copy .env.example .env
 uvicorn app.main:app --reload
 ```
 
-Depois de configurar as chaves no `.env`, aplique os SQLs de
-`supabase/migrations` em ordem no projeto Supabase.
-
-A documentacao interativa fica em:
-
-- `http://localhost:8000/docs`
-- `http://localhost:8000/redoc`
-
-## Endpoints principais
-
-- `GET /health`
-- `GET /api/v1/produtos`
-- `POST /api/v1/produtos`
-- `GET /api/v1/produtos/{produto_id}`
-- `PATCH /api/v1/produtos/{produto_id}`
-- `GET /api/v1/produtos/{produto_id}/precos`
-- `POST /api/v1/produtos/{produto_id}/precos`
-- `POST /api/v1/produtos/{produto_id}/midia`
-- `GET /api/v1/locais`
-- `POST /api/v1/locais`
-- `GET /api/v1/locais/{local_id}`
-- `PATCH /api/v1/locais/{local_id}`
-- `GET /api/v1/dias-de-venda`
-- `POST /api/v1/dias-de-venda`
-- `GET /api/v1/dias-de-venda/atual`
-- `POST /api/v1/dias-de-venda/iniciar-hoje`
-- `GET /api/v1/dias-de-venda/{dia_de_venda_id}`
-- `PATCH /api/v1/dias-de-venda/{dia_de_venda_id}`
-- `POST /api/v1/dias-de-venda/{dia_de_venda_id}/itens-producao`
-- `POST /api/v1/dias-de-venda/{dia_de_venda_id}/fechar`
-- `POST /api/v1/dias-de-venda/{dia_de_venda_id}/correcoes`
-- `POST /api/v1/vendas`
-- `GET /api/v1/vendas/por-dia/{dia_de_venda_id}`
-- `GET /api/v1/vendas/{venda_id}`
-- `POST /api/v1/vendas/{venda_id}/cancelar`
-- `GET /api/v1/relatorios/dias/{dia_de_venda_id}/resumo`
-- `GET /api/v1/relatorios/dias/por-data/{data_venda}/resumo`
-- `GET /api/v1/relatorios/dias/{dia_de_venda_id}/produtos-venda`
-- `GET /api/v1/relatorios/periodo`
-- `GET /api/v1/relatorios/periodo/resumo`
-- `GET /api/v1/historico/linha-do-tempo`
-- `POST /api/v1/midia/{tipo_entidade}/{entidade_id}`
-- `POST /api/v1/ia/interpretar-comando`
-- `POST /api/v1/ia/transcrever-audio`
-- `POST /api/v1/ia/interacoes/{interacao_ia_id}/confirmar`
-- `POST /api/v1/ia/interpretar-comando-de-venda`
-- `POST /api/v1/ia/transcrever-audio-de-venda`
-- `POST /api/v1/ia/interacoes/{interacao_ia_id}/confirmar-venda`
-- `GET /api/v1/ia/dados-estruturados/periodo`
-- `POST /api/v1/ia/analises/padrao`
-- `POST /api/v1/ia/analises/especifica`
-- `POST /api/v1/auth/registrar`
-- `POST /api/v1/auth/login`
-- `POST /api/v1/auth/logout`
-- `POST /api/v1/auth/trocar-senha`
-- `GET /api/v1/auth/usuarios`
-- `PATCH /api/v1/auth/usuarios/{usuario_id}/papel`
-- `GET /api/v1/perfil/me`
-- `PATCH /api/v1/perfil/me`
-- `POST /api/v1/perfil/me/foto`
-- `GET /api/v1/custos/insumos`
-- `POST /api/v1/custos/insumos`
-- `PATCH /api/v1/custos/insumos/{insumo_id}`
-- `GET /api/v1/custos/produtos-com-receita`
-- `GET /api/v1/custos/produtos/{produto_id}/receitas`
-- `POST /api/v1/custos/produtos/{produto_id}/receitas`
-- `POST /api/v1/custos/produtos/{produto_id}/custos-adicionais`
-- `GET /api/v1/custos/produtos/{produto_id}/calculo`
-- `POST /api/v1/custos/assistente/sessoes`
-- `GET /api/v1/custos/assistente/sessoes/{sessao_id}`
-- `POST /api/v1/custos/assistente/sessoes/{sessao_id}/entradas/texto`
-- `POST /api/v1/custos/assistente/sessoes/{sessao_id}/entradas/formulario`
-- `POST /api/v1/custos/assistente/sessoes/{sessao_id}/entradas/arquivo`
-- `PATCH /api/v1/custos/assistente/sessoes/{sessao_id}/rascunho`
-- `POST /api/v1/custos/assistente/sessoes/{sessao_id}/confirmar`
-- `POST /api/v1/custos/assistente/sessoes/{sessao_id}/descartar`
-- `GET /api/v1/notificacoes`
-- `GET /api/v1/notificacoes/feed`
-- `GET /api/v1/notificacoes/nao-lidas/contagem`
-- `POST /api/v1/notificacoes/{notificacao_id}/lida`
-- `POST /api/v1/notificacoes/{notificacao_id}/ler`
-- `POST /api/v1/notificacoes/{notificacao_id}/nao-lida`
-- `POST /api/v1/notificacoes/{notificacao_id}/ocultar`
-- `DELETE /api/v1/admin/notificacoes/{notificacao_id}`
-- `DELETE /api/v1/admin/notificacoes/expiradas`
-
-Exemplos de uso ficam em `docs/API_USAGE.md`.
-
-Autenticacao atual: **toda rota de negocio exige sessao autenticada** (Bearer
-token proprio ou do Supabase Auth) e a capacidade do plano correspondente.
-Requisicoes anonimas recebem 401; sessao via `X-API-Key` opera como usuario de
-servico (id fixo) e nao acessa rotas de perfil.
-
-## Modelo multiusuario (beta)
-
-Todo dado de negocio tem dono explicito (`usuario_id`) obtido da sessao
-autenticada no backend — nunca do payload do cliente:
-
-- produtos, precos, locais, dias de venda, producao, vendas, sobras,
-  correcoes, relatorios, historico, midias, interacoes de IA, insumos,
-  receitas, listas de compras e sessoes de custeio sao isolados por conta;
-- listagens e consultas por id filtram por `usuario_id` na propria query
-  (nao ha validacao tardia); registro de outra conta responde 404;
-- dois usuarios podem ter produtos com o mesmo nome (slug unico por usuario);
-- dados legados criados antes da autenticacao sao associados ao primeiro
-  usuario `dono` pela migration `014_multiusuario.sql`; sem dono cadastrado,
-  ficam invisiveis nas consultas normais;
-- **a migration 014 precisa ser aplicada no Supabase antes de implantar esta
-  versao do backend** (as escritas passam a incluir `usuario_id`);
-- para promover uma conta tester de plano sem editar o banco:
-  `PATCH /api/v1/auth/usuarios/{usuario_id}/plano` com `X-API-Key` (ou sessao
-  de administrador real). Usuario comum nao promove o proprio plano.
-
-## Regras de negocio centrais
-
-### Catalogo e venda do dia
-
-O catalogo contem todos os produtos cadastrados.
-
-A venda do dia deve mostrar somente produtos que participaram daquele dia:
-
-- entrou na venda do dia: aparece;
-- entrou e esgotou: continua aparecendo como esgotado;
-- nunca entrou no dia: nao aparece na aba de venda.
-
-### Historico e snapshots
-
-Preco e historico nao devem ser reescritos sem rastro.
-
-Quando o preco de um produto muda, o backend cria uma nova versao de preco.
-Vendas e producoes salvam snapshots do nome, imagem e preco daquele dia. Assim,
-se o pao de calabresa custava R$ 8,00 na segunda e mudou para R$ 10,00 na
-quinta, a segunda continua mostrando R$ 8,00 para sempre.
-
-### Dia fechado e correcao retroativa
-
-Dia fechado pode ser corrigido, mas nao deve ser simplesmente reaberto sem
-controle. Correcoes de dias fechados precisam preservar:
-
-- dado original;
-- dado corrigido;
-- usuario que corrigiu, quando existir autenticacao;
-- data da correcao;
-- motivo opcional;
-- alteracoes em formato estruturado.
-
-### Datas futuras
-
-Consultas, resumos e analises nao devem aceitar periodo futuro. Mesmo que o
-front bloqueie visualmente, a API deve validar a data final no backend.
-
-## Estado atual
-
-Ja existe:
-
-- estrutura FastAPI com `app.main:app`, CORS, healthcheck e configuracao por `.env`;
-- modulos em portugues dentro de `app/modules`;
-- integracao com Supabase e OpenAI;
-- migrations SQL para schema inicial, sobras, correcoes, auth/perfil, custos,
-  midia de usuario e custeio assistido;
-- cadastro, listagem, atualizacao e consulta de produtos;
-- historico de precos por versao;
-- cadastro e atualizacao de locais;
-- abertura, edicao, consulta e fechamento de dias de venda;
-- virada de dia com decisao explicita sobre sobras;
-- registro de producao com snapshot de produto, imagem e preco;
-- registro de vendas manuais com snapshots de nome, imagem, preco e custo;
-- cancelamento de venda sem apagar historico;
-- correcao retroativa de dias fechados;
-- relatorios por dia, data e periodo;
-- consulta de produtos que participaram da venda do dia;
-- bloqueio de datas futuras em consultas sensiveis;
-- historico estruturado para o front;
-- upload de midia;
-- interpretacao de comandos por texto/audio com confirmacao antes de salvar;
-- autenticacao real com senha hash PBKDF2, bearer token e logout;
-- perfil do usuario com foto, upload de foto, nome, nascimento, telefone e e-mail;
-- papeis `usuario`, `administrador` e `dono` em rotas novas sensiveis;
-- dados estruturados para IA por periodo;
-- analise padrao e especifica com secoes estruturadas e resumo local quando OpenAI nao estiver configurada;
-- modulo inicial de custos com insumos, receitas, custos adicionais e calculo por produto;
-- assistente de custeio com sessoes, rascunho revisavel, entrada por texto,
-  formulario, audio e imagem/print, simulacao de custo, perguntas pendentes,
-  confirmacao final e atualizacao do custo vigente do produto;
-- login com token do Supabase Auth e sincronizacao do perfil local;
-- planos de acesso (`basico`, `analitico`, `ia`, `admin`) com capacidades por rota;
-- notificacoes com alvo por todos, plano ou usuario especifico, expiracao opcional
-  e limpeza de expiradas;
-- isolamento completo por usuario em todas as entidades de negocio;
-- reaproveitamento seletivo de sobras (somente itens explicitamente decididos
-  entram no dia atual);
-- suite pytest com dominio puro + testes de integracao multiusuario com
-  Supabase fake em memoria (206 casos) e lint com ruff.
-
-Ainda nao existe como funcionalidade completa:
-
-- integracao fiscal oficial por XML/chave de acesso de nota;
-- rate limiting e bloqueio de forca bruta no login.
-
-## Autenticacao e perfil
-
-Implementado. O backend aceita tres formas de credencial durante a transicao:
-
-- **Sessao local**: cadastro/login com e-mail e senha (hash PBKDF2), Bearer token
-  proprio, logout, troca de senha e expiracao de sessao.
-- **Supabase Auth**: Bearer token emitido pelo Supabase e validado em
-  `/auth/v1/user`; o perfil local em `public.usuarios` e criado/sincronizado
-  automaticamente (ver [docs/SUPABASE_AUTH.md](docs/SUPABASE_AUTH.md)).
-- **API key** (`X-API-Key`): compatibilidade operacional para scripts.
-
-O perfil guarda foto, nome, data de nascimento, telefone e e-mail, com upload de
-foto via Supabase Storage.
-
-## Permissoes e planos de acesso
-
-Implementado em duas camadas (ver [docs/ACCESS_PLANS.md](docs/ACCESS_PLANS.md)):
-
-- **Papeis**: `usuario`, `administrador`, `dono` — rotas administrativas exigem
-  admin real (`exigir_admin_real`).
-- **Planos por capacidade**: `basico`, `analitico`, `ia` e `admin` liberam
-  conjuntos crescentes de capacidades (ex.: `vendas.operar`,
-  `relatorios.avancados`, `ia.analitica`, `custos.assistente`). Cada rota declara
-  a capacidade de que precisa via `exigir_capacidade("...")`; o mapa puro vive em
-  `app/modules/auth/domain/capacidades.py`.
-
-## Dados estruturados para IA
-
-A IA nao deve receber dados crus e baguncados do banco. O backend deve montar
-estruturas por:
-
-- dia;
-- semana;
-- mes;
-- periodo personalizado;
-- produto;
-- categoria, se existir futuramente.
-
-Resumo diario conceitual:
-
-```json
-{
-  "data": "2026-07-08",
-  "faturamentoTotal": 650,
-  "quantidadeTotalProduzida": 46,
-  "quantidadeTotalVendida": 25,
-  "quantidadeTotalSobrando": 21,
-  "produtos": [
-    {
-      "produto": "Pao de Queijo",
-      "quantidadeProduzida": 20,
-      "quantidadeVendida": 20,
-      "quantidadeSobrando": 0,
-      "faturamento": 300
-    }
-  ]
-}
-```
-
-Resumo por periodo conceitual:
-
-```json
-{
-  "periodo": {
-    "inicio": "2026-07-01",
-    "fim": "2026-07-08"
-  },
-  "faturamentoTotal": 3200,
-  "quantidadeTotalVendida": 140,
-  "produtos": [
-    {
-      "produto": "Pao de Queijo",
-      "totalProduzido": 100,
-      "totalVendido": 90,
-      "totalSobrando": 10,
-      "faturamento": 1350
-    }
-  ]
-}
-```
-
-Essas estruturas devem indicar se houve correcoes retroativas, produtos
-esgotados, sobras altas, dias sem venda e dados incompletos.
-
-## Analises com IA
-
-### Analise padrao
-
-O front seleciona um periodo, como julho, e pede uma analise geral. O backend
-deve montar os dados estruturados do periodo e enviar para a IA responder com
-base nos fatos salvos.
-
-A analise padrao deve considerar:
-
-- faturamento;
-- produtos vendidos;
-- produtos produzidos;
-- sobras;
-- produtos esgotados;
-- comparacao entre dias;
-- historico de vendas;
-- correcoes retroativas relevantes.
-
-### Analise especifica
-
-Alem da analise padrao, o backend deve aceitar pedidos especificos do usuario,
-como:
-
-- analise somente abril;
-- ignore os pudins;
-- veja so o pao de calabresa;
-- compare pao de queijo com pao sovado;
-- diga o que mais sobrou;
-- diga o que deveria ser produzido menos.
-
-O backend deve receber periodo, contexto opcional, dados estruturados e filtros
-solicitados. A IA deve responder somente com base nesses dados e deixar claro
-quando algo nao estiver disponivel.
-
-## Custos reais dos produtos
-
-O calculo de custo dos produtos sera uma das partes mais complexas do projeto.
-O sistema precisa permitir que o dono informe dados aos poucos, com status de
-confianca.
-
-Informacoes que o backend deve conseguir guardar:
-
-- insumos comprados;
-- preco dos insumos;
-- quantidade comprada;
-- unidade de medida;
-- receita do produto;
-- quantidade usada na receita;
-- rendimento da receita;
-- custos indiretos;
-- embalagem;
-- transporte;
-- status de confirmacao das informacoes.
-
-Exemplo de insumo:
-
-```json
-{
-  "nome": "Farinha de trigo",
-  "quantidadeComprada": 1,
-  "unidadeCompra": "kg",
-  "precoTotal": 5.0,
-  "custoPorUnidade": 5.0
-}
-```
-
-Exemplo de receita:
-
-```json
-{
-  "produto": "Pao Sovado",
-  "rendimento": 10,
-  "ingredientes": [
-    {
-      "nome": "Farinha de trigo",
-      "quantidadeUsada": 800,
-      "unidade": "g"
-    },
-    {
-      "nome": "Leite",
-      "quantidadeUsada": 300,
-      "unidade": "ml"
-    }
-  ]
-}
-```
-
-Exemplo de custo calculado:
-
-```json
-{
-  "produto": "Pao Sovado",
-  "custoTotalReceita": 28.5,
-  "rendimento": 10,
-  "custoPorUnidade": 2.85,
-  "custosIncluidos": {
-    "ingredientes": true,
-    "embalagem": true,
-    "gas": true,
-    "energia": false,
-    "transporte": false
-  },
-  "status": "CONFIRMADO"
-}
-```
-
-Status possiveis para dados de custo:
-
-- `CONFIRMADO`
-- `ESTIMADO`
-- `PENDENTE`
-- `PRECISA_REVISAR`
-
-Custos que devem poder entrar no calculo:
-
-- ingredientes principais: farinha, leite, ovos, queijo, calabresa, presunto,
-  frango, acucar, manteiga, oleo e fermento;
-- ingredientes pequenos: sal, temperos, oregano, alho, cebola e essencia;
-- custos indiretos: gas, energia eletrica, agua, tempo de forno,
-  geladeira/freezer e desgaste de equipamento futuramente;
-- embalagem: saquinho, bandeja, etiqueta, caixa, papel e plastico filme;
-- transporte: gasolina, estacionamento, frete e taxa de entrega.
-
-A IA pode ajudar a montar custos, mas nao pode inventar dados:
-
-- se nao souber, pergunta;
-- se for estimativa, marca como estimativa;
-- se for confirmado pelo usuario, marca como confirmado;
-- antes de salvar, sempre pede confirmacao.
-
-Entradas podem vir por texto, audio, imagem/print, formulario ou correcao
-posterior via assistente de custeio. Foto ruim ou leitura insegura deve gerar
-pedido de confirmacao manual antes de salvar.
-
-## Arquitetura — como era e como ficou
-
-O projeto passou por uma reestruturacao profunda em julho/2026, guiada pelo
-[PLANO_REARQUITETURA_MODERNA.md](docs/PLANO_REARQUITETURA_MODERNA.md) e
-registrada em [ARQUITETURA_ATUAL.md](docs/ARQUITETURA_ATUAL.md). O objetivo foi
-manter o comportamento externo intacto (endpoints, contratos, schemas, env vars)
-e reorganizar o interior para leitura, teste e manutencao.
-
-### Como era
+Depois:
 
 ```txt
-app/
-  api/router.py
-  core/            # config, errors
-  db/              # clients Supabase/OpenAI
-  modules/
-    <modulo>/
-      router.py    # rotas finas (ok)
-      servico.py   # TUDO: regra de negocio + queries Supabase +
-                   # chamadas OpenAI + prompts + formatacao de resposta
-      esquemas.py
-  shared/          # helpers soltos (datas, db, slugs...)
+API      http://localhost:8000
+Swagger  http://localhost:8000/docs
+ReDoc    http://localhost:8000/redoc
+Health   http://localhost:8000/health
 ```
 
-Sintomas medidos antes da reestruturacao:
+Checklist de primeira subida:
 
-| Problema | Medida |
-| --- | --- |
-| 4 arquivos concentravam 54% do codigo | `assistente_servico.py` 2.686 linhas, `ia/servico.py` 2.262, `custos/servico.py` 1.632, `dias_de_venda/servico.py` 1.052 |
-| Funcoes gigantes | 22 funcoes acima de 70 linhas (maior: 209) |
-| Testes automatizados | **zero** |
-| Acoplamento entre modulos | 18 imports diretos de `servico` de outros modulos |
-| Infra duplicada | `app/db/*`, `app/shared/db.py` e helpers copiados 4x (`_erro_tabela_ausente`) |
-| Prompts de IA | strings e JSON schemas embutidos no meio dos servicos |
-| Seguranca de borda | lista de rotas isentas hardcoded no `main.py` |
+1. Crie/abra um projeto no Supabase.
+2. Aplique os SQLs de `supabase/migrations` em ordem.
+3. Crie o bucket `padoka-midia` no Supabase Storage.
+4. Preencha `.env` com Supabase e OpenAI quando for testar recursos externos.
+5. Abra `/docs` e faca login antes de chamar rotas de negocio.
 
-### Como ficou
-
-```txt
-app/
-  main.py               # so monta o app; regra de API key em core/security.py
-  api/router.py
-  core/                 # config, errors, clock (fonte unica de tempo), security
-  infra/                # DETALHE TECNICO isolado
-    supabase/           #   client, payload (serializacao), result (one_or_none,
-    openai/             #   executar_lista_opcional, tabela/coluna ausente...)
-  db/, shared/db.py     # reexports de compatibilidade para infra (nao crescem)
-  modules/
-    <modulo>/
-      router.py         # HTTP + dependencias de auth/capacidade
-      esquemas.py       # DTOs Pydantic
-      servico.py        # FACHADA fina: delega para use_cases/domain
-      use_cases/        # 1 acao de negocio por arquivo (criar_produto, ...)
-      domain/           # regra PURA: roda sem rede, sem mocks
-      adapters/         # unico lugar que fala com Supabase/OpenAI/HTTP
-      prompts/          # prompts e JSON schemas de IA em arquivos proprios
-      public.py         # contrato para outros modulos (sem tocar internals)
-tests/
-  unit/<modulo>/        # pytest cobrindo o dominio puro (144 casos)
-scripts/
-  architecture_report.py  # guarda-corpo: arquivo <=500 linhas, funcao <=70,
-                          # sem import cruzado de servico entre modulos
-```
-
-Fluxo de dependencia (imposto por convencao + relatorio):
-
-```txt
-router -> servico (fachada) -> use_cases -> domain (puro)
-                    |               |
-                    +---------> adapters/infra (Supabase, OpenAI, storage)
-```
-
-- `domain/` nunca importa FastAPI, Supabase ou OpenAI.
-- IA interpreta e monta intencao; a execucao real passa por caso de uso de negocio.
-- Modulos conversam via `public.py`, nao via helpers privados.
-
-### Antes e depois em numeros
-
-| Indicador | Antes | Depois |
-| --- | --- | --- |
-| Maior arquivo | 2.686 linhas | 1.970 (fatiamento em andamento) |
-| `ia/servico.py` | 2.262 | 1.529 |
-| `dias_de_venda/servico.py` | 1.052 | fachada + `domain/` + `use_cases/` |
-| Funcao mais longa | 209 linhas | < 70 nos modulos tocados (exceto schema JSON de prompt) |
-| Testes | 0 | 144 (dominio puro, sem mocks de rede) |
-| Copias de helpers Supabase | 4 | 1 (em `infra/supabase/result.py`) |
-| Prompts embutidos em servico | sim | arquivos proprios em `prompts/` |
-
-### O que NAO mudou (de proposito)
-
-- Endpoints, verbos, paths e response models — contrato HTTP identico.
-- Migrations SQL e schema do banco (novas migrations so por feature).
-- Variaveis de ambiente e deploy (Render/Railway).
-- Textos de prompts de IA (apenas mudaram de arquivo).
-- Comportamento de negocio: as fachadas `servico.py` mantem as mesmas
-  assinaturas; a mudanca foi de organizacao, nao de regra.
-
-### Validando localmente
+<details>
+<summary><strong>Smoke rapido com curl</strong></summary>
 
 ```bash
-pip install -e ".[dev]"
-python -m pytest                        # dominio puro + integracao multiusuario
-python -m ruff check .                  # lint
-python -m compileall -q app             # smoke de compilacao
-python scripts/architecture_report.py   # limites de tamanho/acoplamento
+curl http://localhost:8000/health
 ```
 
-Ao criar modulos novos, siga o padrao acima: rota fina, caso de uso nomeado por
-acao de negocio, regra pura em `domain/`, Supabase/OpenAI atras de adapter e
-contrato externo em `public.py`. Endpoints novos continuam documentados em
-`docs/API_USAGE.md`.
+```bash
+curl http://localhost:8000/api/v1/produtos ^
+  -H "Authorization: Bearer SEU_TOKEN"
+```
 
-## Panorama futuro
+Com API key operacional:
 
-O backend deve evoluir para uma base simples de apoio a decisao. No futuro, o
-sistema deve ajudar a responder:
+```bash
+curl http://localhost:8000/api/v1/produtos ^
+  -H "X-API-Key: SUA_CHAVE"
+```
 
-- quanto vendemos hoje?
-- quanto vendemos no mes?
-- o que mais vende?
-- o que mais sobra?
-- o que devemos produzir menos?
-- o que devemos produzir mais?
-- qual produto da mais lucro?
-- qual produto custa mais caro para produzir?
-- existe padrao por dia da semana?
-- a producao esta acima ou abaixo do ideal?
+</details>
 
-## Proximos passos recomendados
+---
 
-1. Terminar o fatiamento do assistente de custeio (perguntas, simulacao e
-   confirmacao ainda vivem em `assistente_servico.py`).
-2. Extrair a execucao de comandos confirmados da IA para casos de uso reais
-   de venda/dia (`_executar_operacao_confirmada`).
-3. Mover CRUD/compras/lista de `custos/servico.py` para use_cases + repositorio.
-4. Separar persistencia da geracao no seed e restringir a ambiente nao-producao.
-5. Testes de integracao com Supabase/OpenAI (hoje a suite cobre so dominio puro).
-6. Integracao fiscal oficial por XML/chave de acesso de nota.
+## Mapa Da API
 
-O detalhe do que falta por modulo fica em
-[docs/ARQUITETURA_ATUAL.md](docs/ARQUITETURA_ATUAL.md).
-7. Aplicar as migrations no Supabase real e testar ponta a ponta.
+Base local:
+
+```txt
+/api/v1
+```
+
+| Area | Rotas principais |
+| --- | --- |
+| Auth e perfil | `/auth/registrar`, `/auth/login`, `/perfil/me`, `/perfil/me/foto` |
+| Produtos | `/produtos`, `/produtos/{id}`, `/produtos/{id}/precos`, `/produtos/{id}/midia` |
+| Locais | `/locais`, `/locais/{id}` |
+| Dias de venda | `/dias-de-venda`, `/dias-de-venda/atual`, `/dias-de-venda/iniciar-hoje` |
+| Vendas | `/vendas`, `/vendas/por-dia/{dia_id}`, `/vendas/{id}/cancelar` |
+| Relatorios | `/relatorios/dias/{id}/resumo`, `/relatorios/periodo`, `/relatorios/periodo/resumo` |
+| Historico | `/historico/linha-do-tempo` |
+| Midia | `/midia/{tipo_entidade}/{entidade_id}` |
+| IA | `/ia/interpretar-comando`, `/ia/transcrever-audio`, `/ia/analises/padrao` |
+| Custos | `/custos/insumos`, `/custos/produtos/{id}/receitas`, `/custos/lista-compras` |
+| Custeio assistido | `/custos/assistente/sessoes`, `/entradas/texto`, `/entradas/arquivo`, `/confirmar` |
+| Notificacoes | `/notificacoes/feed`, `/notificacoes/{id}/ler`, `/admin/notificacoes` |
+| RAG admin | `/admin/rag/documentos` |
+| Seed admin | `/admin/seed/vendas-fake` |
+
+Documentos de apoio:
+
+- [Guia rapido da API](docs/API_USAGE.md)
+- [Supabase Auth](docs/SUPABASE_AUTH.md)
+- [Planos de acesso](docs/ACCESS_PLANS.md)
+- [Contrato do custeio assistido](docs/CUSTEIO_ASSISTIDO_FRONT.md)
+- [Contrato de notificacoes](docs/NOTIFICACOES_FRONT.md)
+- [Deploy](docs/DEPLOYMENT.md)
+- [Insomnia collection](docs/padoka100-insomnia-collection.json)
+
+---
+
+## Regras Que Protegem O Negocio
+
+| Regra | Por que existe |
+| --- | --- |
+| Usuario vem da sessao | Evita um cliente escrever ou ler dados de outro |
+| Slug unico por usuario | Duas padarias podem ter produto com o mesmo nome |
+| Snapshot em venda/producao | Historico nao muda quando catalogo muda |
+| Dia fechado so corrige com rastro | Auditoria simples sem apagar passado |
+| Data futura bloqueada em relatorios sensiveis | Analise nao inventa futuro |
+| IA sempre confirma antes de salvar | Modelo sugere, usuario decide |
+| Custo aproximado vem marcado | Estimativa nao se disfarca de numero exato |
+| Plano e capacidade no backend | Front pode esconder feature, mas API e a fonte de verdade |
+
+---
+
+## Testes E Qualidade
+
+```bash
+python -m pytest
+python -m ruff check .
+python -m compileall -q app
+python scripts/architecture_report.py
+```
+
+O que a suite cobre hoje:
+
+- regras puras de produto, preco, slug e formatacao;
+- disponibilidade, venda, escopo e cancelamento;
+- sobras, abertura de dia e correcao;
+- agregacao de relatorios;
+- auth, API key, capacidades e sincronizacao Supabase;
+- custos, unidades, receitas, lista de compras e assistente;
+- IA local, fallback, analise e normalizacao;
+- notificacoes e isolamento multiusuario com Supabase fake em memoria.
+
+<details>
+<summary><strong>Quando mexer em cada area, rode pelo menos isto</strong></summary>
+
+```bash
+# dominio inteiro
+python -m pytest tests/unit
+
+# fluxos com fake Supabase
+python -m pytest tests/integration
+
+# lint
+python -m ruff check .
+
+# fronteiras de arquitetura
+python scripts/architecture_report.py
+```
+
+</details>
+
+---
+
+## Deploy
+
+O projeto esta preparado para Railway e Render.
+
+| Plataforma | Arquivo | Start command |
+| --- | --- | --- |
+| Railway | `railway.json` | `uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000}` |
+| Render | `render.yaml` | `uvicorn app.main:app --host 0.0.0.0 --port $PORT` |
+
+Em producao:
+
+- aplique todas as migrations no Supabase antes do deploy;
+- configure `APP_ENV=production`;
+- use `API_KEY` longa;
+- restrinja `CORS_ORIGINS` ao front real;
+- nunca exponha `SUPABASE_SERVICE_ROLE_KEY` fora do backend;
+- valide `/health`, `/docs` e um login real depois de publicar.
+
+Guia completo em [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md).
+
+---
+
+## Roadmap Vivo
+
+```txt
+agora
+  -> consolidar assistente de custeio em use cases menores
+  -> extrair execucao confirmada da IA para casos de uso reais
+  -> mover CRUD/lista de compras de custos para repositorios/use cases
+  -> separar persistencia do seed admin
+  -> endurecer rate limiting e login contra forca bruta
+
+depois
+  -> integracao fiscal oficial por XML/chave de acesso
+  -> embeddings reais para RAG operacional
+  -> metricas de margem e sugestao de producao por dia da semana
+  -> billing/assinatura usando a matriz de planos ja existente
+```
+
+---
+
+## Filosofia
+
+Padoka 100 nao tenta ser um ERP pesado. A ideia e uma API que respeita a rotina
+de uma padaria pequena:
+
+```txt
+rapida no balcao
+honesta no historico
+rigorosa no custo
+cuidadosa com dados de cada conta
+esperta com IA, mas sempre confirmavel
+```
+
+<div align="center">
+
+<strong>Feito para transformar venda do dia em memoria operacional.</strong>
+
+<br />
+<br />
+
+<a href="#sumario">
+  <img alt="voltar ao topo" src="https://img.shields.io/badge/voltar-ao%20topo-111827?style=for-the-badge" />
+</a>
+
+</div>
