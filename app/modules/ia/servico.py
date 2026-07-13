@@ -2,6 +2,7 @@ import base64
 import io
 import json
 import logging
+import re
 from datetime import date, timedelta
 from decimal import Decimal
 from uuid import UUID
@@ -34,7 +35,11 @@ from app.modules.ia.esquemas import (
     RequisicaoInterpretarComandoDeVenda,
 )
 from app.modules.ia.prompts.command_interpreter import COMMAND_INTERPRETER_INSTRUCTIONS
-from app.modules.ia.prompts.especialista import ESPECIALISTA_INSTRUCTIONS, JORNADAS_ESPECIALISTA
+from app.modules.ia.prompts.especialista import (
+    ESPECIALISTA_INSTRUCTIONS,
+    FRASES_JORNADAS,
+    JORNADAS_ESPECIALISTA,
+)
 from app.modules.midia.servico import enviar_midia_em_bytes
 from app.modules.produtos import public as produtos_public
 from app.modules.produtos.esquemas import RequisicaoCriarProduto
@@ -1428,6 +1433,19 @@ def _normalizar_jornadas(valor) -> list[str]:
     return vistas[:2]
 
 
+def _humanizar_jornadas_no_texto(texto: str) -> str:
+    """Nunca deixa a chave interna da jornada vazar no texto do cliente.
+
+    Se o modelo escapar e escrever "cadastrar_produtos" (com ou sem aspas), a
+    gente troca pela frase amigavel antes de responder. Cinto e suspensario do
+    guardrail que ja pede isso no prompt.
+    """
+    for chave, frase in FRASES_JORNADAS.items():
+        # Casa a chave crua, com aspas opcionais em volta, sem diferenciar caixa.
+        texto = re.sub(rf'["\']?\b{re.escape(chave)}\b["\']?', frase, texto, flags=re.IGNORECASE)
+    return texto
+
+
 def responder_como_especialista(
     texto: str,
     produtos: list[dict],
@@ -1456,7 +1474,7 @@ def responder_como_especialista(
     except Exception:  # noqa: BLE001 - a conversa nunca derruba o fluxo de comando
         logger.exception("Falha ao gerar a resposta do especialista")
         return None
-    texto_resposta = (dados.get("resposta") or "").strip()
+    texto_resposta = _humanizar_jornadas_no_texto((dados.get("resposta") or "").strip())
     if not texto_resposta:
         return None
     return {"resposta": texto_resposta, "jornadas": _normalizar_jornadas(dados.get("jornadas"))}
