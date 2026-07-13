@@ -1,8 +1,11 @@
+import logging
 from typing import Any
 
 import httpx
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
+
+logger = logging.getLogger(__name__)
 
 
 class AppError(Exception):
@@ -103,6 +106,22 @@ def register_exception_handlers(app: FastAPI) -> None:
                     "code": "external_service_unavailable",
                     "message": "Nao foi possivel conectar a um servico externo.",
                     "details": {"type": type(exc).__name__},
+                }
+            },
+        )
+
+    @app.exception_handler(Exception)
+    async def handle_unexpected_error(_: Request, exc: Exception) -> JSONResponse:
+        # Rede de seguranca: nenhum erro vira "500 seco" sem causa. Loga o
+        # traceback completo e devolve o tipo/mensagem reais para diagnostico.
+        logger.exception("Erro nao tratado")
+        return JSONResponse(
+            status_code=500,
+            content={
+                "error": {
+                    "code": "internal_error",
+                    "message": "Algo deu errado no servidor.",
+                    "details": {"type": type(exc).__name__, "detail": str(exc)[:800]},
                 }
             },
         )
