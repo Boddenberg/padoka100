@@ -34,7 +34,7 @@ from app.modules.ia.esquemas import (
     RequisicaoInterpretarComandoDeVenda,
 )
 from app.modules.ia.prompts.command_interpreter import COMMAND_INTERPRETER_INSTRUCTIONS
-from app.modules.ia.prompts.especialista import ESPECIALISTA_INSTRUCTIONS
+from app.modules.ia.prompts.especialista import ESPECIALISTA_INSTRUCTIONS, JORNADAS_ESPECIALISTA
 from app.modules.midia.servico import enviar_midia_em_bytes
 from app.modules.produtos import public as produtos_public
 from app.modules.produtos.esquemas import RequisicaoCriarProduto
@@ -1397,17 +1397,49 @@ def _montar_contexto_do_especialista(
     return {"produtos_cadastrados": catalogo, "resumo_recente": resumo_recente}
 
 
+def _formato_json_resposta_especialista() -> dict:
+    return {
+        "type": "json_schema",
+        "name": "resposta_especialista_padoka",
+        "schema": {
+            "type": "object",
+            "additionalProperties": False,
+            "required": ["resposta", "jornadas"],
+            "properties": {
+                "resposta": {"type": "string"},
+                "jornadas": {
+                    "type": "array",
+                    "items": {"type": "string", "enum": list(JORNADAS_ESPECIALISTA)},
+                },
+            },
+        },
+        "strict": True,
+    }
+
+
+def _normalizar_jornadas(valor) -> list[str]:
+    if not isinstance(valor, list):
+        return []
+    vistas: list[str] = []
+    for item in valor:
+        chave = str(item).strip()
+        if chave in JORNADAS_ESPECIALISTA and chave not in vistas:
+            vistas.append(chave)
+    return vistas[:2]
+
+
 def responder_como_especialista(
     texto: str,
     produtos: list[dict],
     *,
     usuario_id: UUID | str | None = None,
-) -> str | None:
+) -> dict | None:
     """Resposta do Pãozinho como especialista de padaria + guia do app.
 
     Faz uma chamada propria a OpenAI, com contexto do cliente e guardrails de
-    escopo. Devolve None se a IA nao estiver configurada ou falhar — quem chama
-    cai numa mensagem padrao amigavel.
+    escopo, e devolve {"resposta", "jornadas"}. As jornadas sao chaves que o app
+    vira botao (respeitando o plano). Devolve None se a IA nao estiver
+    configurada ou falhar — quem chama cai numa mensagem padrao amigavel.
     """
     settings = get_settings()
     if not settings.openai_text_configured:
@@ -1418,11 +1450,16 @@ def responder_como_especialista(
             model=settings.openai_text_model_resolved,
             instructions=ESPECIALISTA_INSTRUCTIONS,
             input=json.dumps({"pergunta": texto, "contexto": contexto}, ensure_ascii=False),
+            text={"format": _formato_json_resposta_especialista()},
         )
+        dados = json.loads(getattr(resposta, "output_text", "") or "{}")
     except Exception:  # noqa: BLE001 - a conversa nunca derruba o fluxo de comando
         logger.exception("Falha ao gerar a resposta do especialista")
         return None
-    return (getattr(resposta, "output_text", "") or "").strip() or None
+    texto_resposta = (dados.get("resposta") or "").strip()
+    if not texto_resposta:
+        return None
+    return {"resposta": texto_resposta, "jornadas": _normalizar_jornadas(dados.get("jornadas"))}
 
 
 def _montar_conversa_especialista(
@@ -1432,15 +1469,21 @@ def _montar_conversa_especialista(
     produtos: list[dict],
     usuario_id: UUID | str | None = None,
 ) -> dict:
-    resposta = responder_como_especialista(texto, produtos, usuario_id=usuario_id)
-    mensagem = resposta or interpretacao.get("mensagem_assistente") or (
-        "Posso ajudar com a sua padaria: receitas, custos, precos, producao e como "
-        "usar o app. E so me perguntar!"
-    )
+    resultado = responder_como_especialista(texto, produtos, usuario_id=usuario_id)
+    if resultado:
+        mensagem = resultado["resposta"]
+        jornadas = resultado["jornadas"]
+    else:
+        mensagem = interpretacao.get("mensagem_assistente") or (
+            "Posso ajudar com a sua padaria: receitas, custos, precos, producao e como "
+            "usar o app. E so me perguntar!"
+        )
+        jornadas = []
     return {
         "acao": ACAO_CONVERSAR,
         "precisa_confirmacao": False,
         "mensagem_confirmacao": mensagem,
+        "jornadas": jornadas,
         "operacao": None,
     }
 
