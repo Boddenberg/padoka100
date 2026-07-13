@@ -60,6 +60,26 @@ class ConflictError(AppError):
         )
 
 
+class ExternalServiceError(AppError):
+    """Falha de um servico externo (OpenAI, storage...).
+
+    Devolve 502 com uma mensagem amigavel e, em `details`, a causa real
+    (tipo e texto do erro) para diagnostico, em vez de um 500 seco.
+    """
+
+    def __init__(self, service: str, message: str, cause: Exception | None = None) -> None:
+        details: dict[str, Any] = {"service": service}
+        if cause is not None:
+            details["type"] = type(cause).__name__
+            details["detail"] = str(cause)[:800]
+        super().__init__(
+            status_code=502,
+            code="external_service_error",
+            message=message,
+            details=details,
+        )
+
+
 def register_exception_handlers(app: FastAPI) -> None:
     @app.exception_handler(AppError)
     async def handle_app_error(_: Request, exc: AppError) -> JSONResponse:

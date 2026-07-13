@@ -1,6 +1,7 @@
 import base64
 import io
 import json
+import logging
 from datetime import date
 from decimal import Decimal
 from uuid import UUID
@@ -8,7 +9,13 @@ from uuid import UUID
 from fastapi import UploadFile
 
 from app.core.config import get_settings
-from app.core.errors import AppError, BadRequestError, MissingConfigurationError, NotFoundError
+from app.core.errors import (
+    AppError,
+    BadRequestError,
+    ExternalServiceError,
+    MissingConfigurationError,
+    NotFoundError,
+)
 from app.db.openai import get_openai_client
 from app.db.supabase import get_supabase_client
 from app.infra.supabase.result import executar_lista_opcional, tabela_ausente
@@ -35,6 +42,8 @@ from app.modules.vendas import servico as servico_de_vendas
 from app.modules.vendas.esquemas import RequisicaoCancelarVenda, RequisicaoRegistrarVenda
 from app.shared.datas import data_operacional_hoje, validar_periodo
 from app.shared.db import encode_value, first_or_none, to_db_payload
+
+logger = logging.getLogger(__name__)
 
 # Compatibilidade: a logica pura de interpretacao vive em app.modules.ia.domain.
 # Mantemos aliases sob os nomes internos ja usados no restante deste servico.
@@ -669,15 +678,25 @@ def _salvar_imagem_na_interacao(
     descricao: str,
     usuario_id: UUID | str | None,
 ) -> dict:
-    midia = enviar_midia_em_bytes(
-        tipo_entidade="interacao_ia",
-        entidade_id=UUID(str(interacao_id)),
-        conteudo=conteudo,
-        nome_arquivo=nome_arquivo,
-        tipo_conteudo=tipo_conteudo,
-        descricao=descricao,
-        usuario_id=usuario_id,
-    )
+    try:
+        midia = enviar_midia_em_bytes(
+            tipo_entidade="interacao_ia",
+            entidade_id=UUID(str(interacao_id)),
+            conteudo=conteudo,
+            nome_arquivo=nome_arquivo,
+            tipo_conteudo=tipo_conteudo,
+            descricao=descricao,
+            usuario_id=usuario_id,
+        )
+    except AppError:
+        raise
+    except Exception as exc:  # noqa: BLE001 - queremos a causa real no erro
+        logger.exception("Falha ao salvar a imagem no storage")
+        raise ExternalServiceError(
+            "Storage",
+            "Nao consegui guardar a foto agora. Tente novamente em instantes.",
+            exc,
+        ) from exc
     dados_confirmacao["interacao_ia_id"] = interacao_id
     dados_confirmacao["url_imagem"] = midia.get("url_publica")
     dados_confirmacao["midia_id"] = midia.get("id")
@@ -736,6 +755,26 @@ def _validar_tipo_imagem(tipo_conteudo: str | None) -> str:
     return tipo
 
 
+def _responder_visao(**kwargs) -> dict:
+    """Chama a visão da OpenAI e devolve o JSON já parseado.
+
+    Qualquer falha (modelo sem visão, schema recusado, resposta inválida,
+    rede) vira ExternalServiceError com a causa real — nunca um 500 seco.
+    """
+    try:
+        resposta = get_openai_client().responses.create(**kwargs)
+        return json.loads(resposta.output_text)
+    except AppError:
+        raise
+    except Exception as exc:  # noqa: BLE001 - queremos a causa real no erro
+        logger.exception("Falha ao ler imagem com OpenAI Vision")
+        raise ExternalServiceError(
+            "OpenAI Vision",
+            "Nao consegui ler a imagem agora. Confira a foto e tente de novo.",
+            exc,
+        ) from exc
+
+
 def _extrair_produtos_de_cardapio(
     *,
     conteudo: bytes,
@@ -752,7 +791,7 @@ def _extrair_produtos_de_cardapio(
         raise MissingConfigurationError("OpenAI Vision", faltando)
 
     imagem_base64 = base64.b64encode(conteudo).decode("ascii")
-    resposta = get_openai_client().responses.create(
+    dados = _responder_visao(
         model=settings.openai_text_model_resolved,
         instructions=_instrucoes_importacao_cardapio(),
         input=[
@@ -782,7 +821,6 @@ def _extrair_produtos_de_cardapio(
         ],
         text={"format": _formato_json_importacao_cardapio()},
     )
-    dados = json.loads(resposta.output_text)
     produtos = _normalizar_produtos_da_imagem(dados.get("produtos") or [])
     return {
         "produtos": produtos,
@@ -817,7 +855,7 @@ def _extrair_producao_de_imagem(
         for produto in produtos
     ]
     imagem_base64 = base64.b64encode(conteudo).decode("ascii")
-    resposta = get_openai_client().responses.create(
+    dados = _responder_visao(
         model=settings.openai_text_model_resolved,
         instructions=_instrucoes_importacao_producao(),
         input=[
@@ -847,7 +885,6 @@ def _extrair_producao_de_imagem(
         ],
         text={"format": _formato_json_importacao_producao()},
     )
-    dados = json.loads(resposta.output_text)
     interpretacao = {
         "acao": ACAO_REGISTRAR_PRODUCAO,
         "data_venda": dados.get("data_venda"),
@@ -957,8 +994,11 @@ def _formato_json_importacao_cardapio() -> dict:
             "url_imagem_principal": {"type": ["string", "null"]},
             "cor_botao": {"type": ["string", "null"]},
             "ordem_exibicao": {"type": ["integer", "null"]},
-            "preco_venda": {"type": ["number", "null"], "minimum": 0},
-            "preco_custo": {"type": ["number", "null"], "minimum": 0},
+            # Sem "minimum": o structured outputs estrito da OpenAI recusa
+            # restrições numéricas em campo anulável; o preço é validado no
+            # código (_normalizar_produtos_da_imagem), não no schema.
+            "preco_venda": {"type": ["number", "null"]},
+            "preco_custo": {"type": ["number", "null"]},
             "vigente_desde": {"type": ["string", "null"]},
         },
     }
