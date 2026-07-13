@@ -12,6 +12,7 @@ from app.modules.ia.domain.acoes import (
     ACAO_CANCELAR_ITEM_VENDA,
     ACAO_CANCELAR_VENDA,
     ACAO_CRIAR_PRODUTO,
+    ACAO_CRIAR_PRODUTOS,
     ACAO_DESCONHECIDO,
     ACAO_FECHAR_DIA_DE_VENDA,
     ACAO_REGISTRAR_PRODUCAO,
@@ -53,6 +54,7 @@ def interpretar_com_fallback(texto: str, produtos: list[dict]) -> dict:
             "observacoes": None,
             "itens": [],
             "produto": produto,
+            "produtos": [],
             "itens_nao_identificados": [],
             "mensagem_assistente": mensagem_inicial_da_acao(ACAO_CRIAR_PRODUTO, []),
         }
@@ -80,6 +82,7 @@ def interpretar_com_fallback(texto: str, produtos: list[dict]) -> dict:
         "observacoes": None,
         "itens": itens,
         "produto": None,
+        "produtos": [],
         "itens_nao_identificados": itens_nao_identificados,
         "mensagem_assistente": mensagem_inicial_da_acao(acao, itens),
     }
@@ -347,6 +350,7 @@ def normalizar_interpretacao(
         "observacoes": normalizar_texto_opcional(interpretacao.get("observacoes")),
         "itens": itens,
         "produto": normalizar_produto_interpretado(interpretacao.get("produto")),
+        "produtos": normalizar_produtos_interpretados(interpretacao.get("produtos")),
         "itens_nao_identificados": itens_nao_identificados,
         "mensagem_assistente": normalizar_texto_opcional(interpretacao.get("mensagem_assistente"))
         or mensagem_inicial_da_acao(acao, itens),
@@ -369,6 +373,17 @@ def normalizar_produto_interpretado(produto: dict | None) -> dict | None:
     }
 
 
+def normalizar_produtos_interpretados(produtos: list[dict] | None) -> list[dict]:
+    if not isinstance(produtos, list):
+        return []
+    normalizados = []
+    for produto in produtos:
+        normalizado = normalizar_produto_interpretado(produto)
+        if normalizado:
+            normalizados.append(normalizado)
+    return normalizados
+
+
 def normalizar_inteiro_opcional(valor) -> int | None:
     if valor is None or valor == "":
         return None
@@ -381,6 +396,8 @@ def normalizar_inteiro_opcional(valor) -> int | None:
 def mensagem_inicial_da_acao(acao: str, itens: list[dict]) -> str:
     if acao == ACAO_CRIAR_PRODUTO:
         return "Confira antes de cadastrar o produto."
+    if acao == ACAO_CRIAR_PRODUTOS:
+        return "Confira antes de cadastrar os produtos."
     if acao == ACAO_REGISTRAR_VENDA and itens:
         return f"Confira a venda: {formatar_itens(itens)}."
     if acao == ACAO_REGISTRAR_PRODUCAO and itens:

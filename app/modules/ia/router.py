@@ -108,6 +108,34 @@ async def transcrever_audio_de_venda(
     )
 
 
+@router.post("/produtos/importar-cardapio", response_model=RespostaInterpretarComandoDeIA)
+async def importar_cardapio_por_imagem(
+    file: Annotated[UploadFile, File()],
+    usuario: IaOperacional,
+    contexto: Annotated[str | None, Form()] = None,
+) -> dict:
+    return await servico.importar_cardapio_por_imagem(
+        file=file,
+        contexto=contexto,
+        usuario_id=usuario["id"],
+    )
+
+
+@router.post("/producao/importar-foto", response_model=RespostaInterpretarComandoDeIA)
+async def importar_producao_por_imagem(
+    file: Annotated[UploadFile, File()],
+    usuario: IaOperacional,
+    dia_de_venda_id: Annotated[UUID | None, Form()] = None,
+    contexto: Annotated[str | None, Form()] = None,
+) -> dict:
+    return await servico.importar_producao_por_imagem(
+        file=file,
+        dia_de_venda_id=dia_de_venda_id,
+        contexto=contexto,
+        usuario_id=usuario["id"],
+    )
+
+
 @router.post("/interacoes/{interacao_ia_id}/confirmar", response_model=RespostaConfirmarComandoDeIA)
 def confirmar_comando(interacao_ia_id: UUID, usuario: IaOperacional) -> dict:
     return servico.confirmar_comando(interacao_ia_id, usuario_id=usuario["id"])

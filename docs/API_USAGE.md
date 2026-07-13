@@ -306,6 +306,8 @@ Comandos suportados pelo fluxo generico:
 - fechar dia de venda
 - cancelar venda inteira
 - cancelar item de venda, cancelando a venda original e criando uma venda corrigida com os itens restantes
+- cadastrar produto individual (`criar_produto`)
+- cadastrar varios produtos quando o comando vier estruturado pela IA (`criar_produtos`)
 
 No cancelamento parcial, a API nao apaga itens: ela preserva historico cancelando a venda original e registrando uma venda corrigida depois da confirmacao.
 
@@ -334,6 +336,109 @@ curl -X POST http://localhost:8000/api/v1/ia/transcrever-audio \
 ```
 
 O audio e salvo no Supabase Storage e associado a `interacoes_ia` quando `interpretar=true`.
+
+O mesmo endpoint aceita comandos de cadastro de produto por voz. Exemplo de fala:
+`cadastre broa de milho por sete reais e cinquenta`. A resposta vem como
+`acao: criar_produto` e deve ser confirmada em `/ia/interacoes/{id}/confirmar`.
+
+## 9.1. Importar producao por foto
+
+Use quando o usuario tira foto de uma lousa, folha ou anotacao de producao do
+dia. A imagem precisa conter quantidades produzidas, nao apenas precos de
+cardapio. A API usa o catalogo cadastrado para resolver `produto_id`; itens que
+nao baterem com o catalogo voltam em `itens_nao_identificados`.
+
+```bash
+curl -X POST http://localhost:8000/api/v1/ia/producao/importar-foto \
+  -H "Authorization: Bearer TOKEN" \
+  -F "file=@producao.jpg" \
+  -F "dia_de_venda_id=DIA_DE_VENDA_ID" \
+  -F "contexto=Quadro de producao de hoje"
+```
+
+Resposta resumida:
+
+```json
+{
+  "acao": "registrar_producao",
+  "precisa_confirmacao": true,
+  "mensagem_confirmacao": "Entendi que a producao do dia 12/07/2026 foi 24x Pao de Queijo. Confirma para salvar?",
+  "itens": [
+    {
+      "produto_id": "PRODUTO_ID",
+      "nome_produto": "Pao de Queijo",
+      "quantidade": 24,
+      "confianca": 0.92
+    }
+  ],
+  "dados_confirmacao": {
+    "producao": {
+      "dia_de_venda_id": "DIA_DE_VENDA_ID",
+      "itens": [
+        {
+          "produto_id": "PRODUTO_ID",
+          "nome_produto": "Pao de Queijo",
+          "quantidade": 24,
+          "confianca": 0.92
+        }
+      ]
+    },
+    "url_imagem": "https://..."
+  }
+}
+```
+
+Depois de revisar a lista, confirme:
+
+```bash
+curl -X POST http://localhost:8000/api/v1/ia/interacoes/INTERACAO_IA_ID/confirmar \
+  -H "Authorization: Bearer TOKEN"
+```
+
+## 9.2. Importar cardapio por foto
+
+Use quando o usuario ja tem uma foto de menu/cardapio com produtos e precos.
+A API usa Vision para extrair a lista, salva a foto em `midias`, cria uma
+interacao de IA e devolve uma confirmacao unica antes de cadastrar tudo.
+
+```bash
+curl -X POST http://localhost:8000/api/v1/ia/produtos/importar-cardapio \
+  -H "Authorization: Bearer TOKEN" \
+  -F "file=@cardapio.jpg" \
+  -F "contexto=Cardapio vendido na banca"
+```
+
+Resposta resumida:
+
+```json
+{
+  "acao": "criar_produtos",
+  "precisa_confirmacao": true,
+  "mensagem_confirmacao": "Encontrei 8 produto(s) no cardapio...",
+  "dados_confirmacao": {
+    "produtos": [
+      {
+        "nome": "Pao de Queijo",
+        "preco_venda": "5.50",
+        "origem_preco": "ia",
+        "gerado_por_ia": true
+      }
+    ],
+    "produtos_pendentes": [],
+    "url_imagem": "https://..."
+  }
+}
+```
+
+Depois de revisar a lista no front, confirme normalmente:
+
+```bash
+curl -X POST http://localhost:8000/api/v1/ia/interacoes/INTERACAO_IA_ID/confirmar \
+  -H "Authorization: Bearer TOKEN"
+```
+
+Produtos sem preco legivel aparecem em `produtos_pendentes`; eles nao sao
+cadastrados automaticamente.
 
 ## 10. Ver resumo do dia
 

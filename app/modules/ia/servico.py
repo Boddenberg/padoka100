@@ -1,6 +1,8 @@
+import base64
 import io
 import json
 from datetime import date
+from decimal import Decimal
 from uuid import UUID
 
 from fastapi import UploadFile
@@ -39,6 +41,7 @@ from app.shared.db import encode_value, first_or_none, to_db_payload
 ACAO_REGISTRAR_VENDA = _acoes.ACAO_REGISTRAR_VENDA
 ACAO_REGISTRAR_PRODUCAO = _acoes.ACAO_REGISTRAR_PRODUCAO
 ACAO_CRIAR_PRODUTO = _acoes.ACAO_CRIAR_PRODUTO
+ACAO_CRIAR_PRODUTOS = _acoes.ACAO_CRIAR_PRODUTOS
 ACAO_ABRIR_DIA_DE_VENDA = _acoes.ACAO_ABRIR_DIA_DE_VENDA
 ACAO_FECHAR_DIA_DE_VENDA = _acoes.ACAO_FECHAR_DIA_DE_VENDA
 ACAO_CANCELAR_VENDA = _acoes.ACAO_CANCELAR_VENDA
@@ -64,6 +67,8 @@ _formatar_resumo_da_venda = _texto.formatar_resumo_da_venda
 _total_da_venda = _texto.total_da_venda
 _interpretar_com_fallback = _fallback.interpretar_com_fallback
 _normalizar_interpretacao = _fallback.normalizar_interpretacao
+_normalizar_produto_interpretado = _fallback.normalizar_produto_interpretado
+_normalizar_produtos_interpretados = _fallback.normalizar_produtos_interpretados
 _mensagem_inicial_da_acao = _fallback.mensagem_inicial_da_acao
 _comando_pede_ultima_venda = _fallback.comando_pede_ultima_venda
 _mensagem_cancelamento_sem_alvo_claro = _fallback.mensagem_cancelamento_sem_alvo_claro
@@ -540,6 +545,465 @@ async def transcrever_audio_de_venda(
     )
 
 
+async def importar_cardapio_por_imagem(
+    *,
+    file: UploadFile,
+    contexto: str | None = None,
+    usuario_id: UUID | str | None = None,
+) -> dict:
+    conteudo = await file.read()
+    if not conteudo:
+        raise BadRequestError("Arquivo de imagem vazio.")
+    tipo_conteudo = _validar_tipo_imagem(file.content_type)
+
+    extraidos = _extrair_produtos_de_cardapio(
+        conteudo=conteudo,
+        tipo_conteudo=tipo_conteudo,
+        contexto=contexto,
+    )
+    interpretacao = _montar_interpretacao_de_cardapio(extraidos, contexto=contexto)
+    dados_confirmacao = _montar_confirmacao_de_produtos(interpretacao)
+    interacao = _criar_interacao_ia(
+        dia_de_venda_id=None,
+        tipo_entrada="imagem",
+        texto_original=contexto or file.filename or "Cardapio importado por imagem",
+        url_audio=None,
+        acao_interpretada=interpretacao,
+        dados_confirmacao=dados_confirmacao,
+        usuario_id=usuario_id,
+    )
+    dados_confirmacao = _salvar_imagem_na_interacao(
+        interacao_id=interacao["id"],
+        dados_confirmacao=dados_confirmacao,
+        conteudo=conteudo,
+        nome_arquivo=file.filename,
+        tipo_conteudo=tipo_conteudo,
+        descricao="Foto de cardapio usada para cadastro de produtos por IA",
+        usuario_id=usuario_id,
+    )
+    return _resposta_importacao_cardapio(interacao, interpretacao, dados_confirmacao, extraidos)
+
+
+async def importar_producao_por_imagem(
+    *,
+    file: UploadFile,
+    dia_de_venda_id: UUID | None = None,
+    contexto: str | None = None,
+    usuario_id: UUID | str | None = None,
+) -> dict:
+    conteudo = await file.read()
+    if not conteudo:
+        raise BadRequestError("Arquivo de imagem vazio.")
+    tipo_conteudo = _validar_tipo_imagem(file.content_type)
+
+    produtos = produtos_public.listar_produtos_ativos(usuario_id=usuario_id)
+    interpretacao = _extrair_producao_de_imagem(
+        conteudo=conteudo,
+        tipo_conteudo=tipo_conteudo,
+        contexto=contexto,
+        produtos=produtos,
+    )
+    texto_original = contexto or file.filename or "Producao importada por imagem"
+    dados_confirmacao = _montar_dados_confirmacao(
+        interpretacao=interpretacao,
+        dia_de_venda_id=dia_de_venda_id,
+        texto_original=texto_original,
+        tipo_entrada_venda="ia",
+        url_audio=None,
+        usuario_id=usuario_id,
+    )
+    interacao = _criar_interacao_ia(
+        dia_de_venda_id=_extrair_dia_de_venda_id_para_interacao(
+            dados_confirmacao,
+            dia_de_venda_id,
+        ),
+        tipo_entrada="imagem",
+        texto_original=texto_original,
+        url_audio=None,
+        acao_interpretada=interpretacao,
+        dados_confirmacao=dados_confirmacao,
+        usuario_id=usuario_id,
+    )
+    dados_confirmacao = _salvar_imagem_na_interacao(
+        interacao_id=interacao["id"],
+        dados_confirmacao=dados_confirmacao,
+        conteudo=conteudo,
+        nome_arquivo=file.filename,
+        tipo_conteudo=tipo_conteudo,
+        descricao="Foto usada em comando de producao por IA",
+        usuario_id=usuario_id,
+    )
+    return _resposta_interpretacao_por_imagem(
+        interacao=interacao,
+        interpretacao=interpretacao,
+        dados_confirmacao=dados_confirmacao,
+        modelo_usado=interpretacao["modelo_usado"],
+    )
+
+
+def _montar_interpretacao_de_cardapio(extraidos: dict, *, contexto: str | None) -> dict:
+    return {
+        "acao": ACAO_CRIAR_PRODUTOS,
+        "data_venda": None,
+        "nome_local": None,
+        "venda_id": None,
+        "usar_ultima_venda": False,
+        "motivo_cancelamento": None,
+        "observacoes": contexto,
+        "itens": [],
+        "produto": None,
+        "produtos": extraidos["produtos"],
+        "itens_nao_identificados": extraidos["itens_nao_identificados"],
+        "avisos": extraidos["avisos"],
+        "mensagem_assistente": "Li a foto do cardapio e montei uma lista para conferir.",
+    }
+
+
+def _salvar_imagem_na_interacao(
+    *,
+    interacao_id: UUID | str,
+    dados_confirmacao: dict,
+    conteudo: bytes,
+    nome_arquivo: str | None,
+    tipo_conteudo: str,
+    descricao: str,
+    usuario_id: UUID | str | None,
+) -> dict:
+    midia = enviar_midia_em_bytes(
+        tipo_entidade="interacao_ia",
+        entidade_id=UUID(str(interacao_id)),
+        conteudo=conteudo,
+        nome_arquivo=nome_arquivo,
+        tipo_conteudo=tipo_conteudo,
+        descricao=descricao,
+        usuario_id=usuario_id,
+    )
+    dados_confirmacao["interacao_ia_id"] = interacao_id
+    dados_confirmacao["url_imagem"] = midia.get("url_publica")
+    dados_confirmacao["midia_id"] = midia.get("id")
+    get_supabase_client().table("interacoes_ia").update(
+        to_db_payload(
+            {
+                "dados_confirmacao": dados_confirmacao,
+            }
+        )
+    ).eq("id", interacao_id).execute()
+    return dados_confirmacao
+
+
+def _resposta_importacao_cardapio(
+    interacao: dict,
+    interpretacao: dict,
+    dados_confirmacao: dict,
+    extraidos: dict,
+) -> dict:
+    return _resposta_interpretacao_por_imagem(
+        interacao=interacao,
+        interpretacao=interpretacao,
+        dados_confirmacao=dados_confirmacao,
+        modelo_usado=extraidos["modelo_usado"],
+    )
+
+
+def _resposta_interpretacao_por_imagem(
+    *,
+    interacao: dict,
+    interpretacao: dict,
+    dados_confirmacao: dict,
+    modelo_usado: str,
+) -> dict:
+    mensagem_confirmacao = dados_confirmacao.get("mensagem_confirmacao")
+    return {
+        "interacao_ia_id": interacao["id"],
+        "acao": dados_confirmacao["acao"],
+        "precisa_confirmacao": dados_confirmacao["precisa_confirmacao"],
+        "mensagem_assistente": mensagem_confirmacao or dados_confirmacao["mensagem_confirmacao"],
+        "mensagem_confirmacao": mensagem_confirmacao,
+        "itens": interpretacao["itens"],
+        "itens_nao_identificados": interpretacao["itens_nao_identificados"],
+        "dados_confirmacao": dados_confirmacao,
+        "modelo_usado": modelo_usado,
+    }
+
+
+def _validar_tipo_imagem(tipo_conteudo: str | None) -> str:
+    tipo = (tipo_conteudo or "image/jpeg").split(";", 1)[0].strip().lower()
+    if not tipo.startswith("image/"):
+        raise BadRequestError(
+            "Envie uma imagem do cardapio.",
+            {"tipo_conteudo": tipo_conteudo},
+        )
+    return tipo
+
+
+def _extrair_produtos_de_cardapio(
+    *,
+    conteudo: bytes,
+    tipo_conteudo: str,
+    contexto: str | None,
+) -> dict:
+    settings = get_settings()
+    if not settings.openai_text_configured:
+        faltando = []
+        if not settings.openai_api_key:
+            faltando.append("OPENAI_API_KEY")
+        if not settings.openai_text_model_resolved:
+            faltando.append("OPENAI_TEXT_MODEL")
+        raise MissingConfigurationError("OpenAI Vision", faltando)
+
+    imagem_base64 = base64.b64encode(conteudo).decode("ascii")
+    resposta = get_openai_client().responses.create(
+        model=settings.openai_text_model_resolved,
+        instructions=_instrucoes_importacao_cardapio(),
+        input=[
+            {
+                "role": "user",
+                "content": [
+                    {
+                        "type": "input_text",
+                        "text": json.dumps(
+                            {
+                                "contexto": contexto,
+                                "orientacao": (
+                                    "Extraia todos os produtos vendaveis e seus precos. "
+                                    "Ignore titulos, categorias, observacoes, telefones, "
+                                    "horarios e texto decorativo."
+                                ),
+                            },
+                            ensure_ascii=False,
+                        ),
+                    },
+                    {
+                        "type": "input_image",
+                        "image_url": f"data:{tipo_conteudo};base64,{imagem_base64}",
+                    },
+                ],
+            }
+        ],
+        text={"format": _formato_json_importacao_cardapio()},
+    )
+    dados = json.loads(resposta.output_text)
+    produtos = _normalizar_produtos_da_imagem(dados.get("produtos") or [])
+    return {
+        "produtos": produtos,
+        "itens_nao_identificados": _lista_textos(dados.get("itens_sem_preco")),
+        "avisos": _lista_textos(dados.get("avisos")),
+        "modelo_usado": settings.openai_text_model_resolved,
+    }
+
+
+def _extrair_producao_de_imagem(
+    *,
+    conteudo: bytes,
+    tipo_conteudo: str,
+    contexto: str | None,
+    produtos: list[dict],
+) -> dict:
+    settings = get_settings()
+    if not settings.openai_text_configured:
+        faltando = []
+        if not settings.openai_api_key:
+            faltando.append("OPENAI_API_KEY")
+        if not settings.openai_text_model_resolved:
+            faltando.append("OPENAI_TEXT_MODEL")
+        raise MissingConfigurationError("OpenAI Vision", faltando)
+
+    catalogo = [
+        {
+            "id": produto["id"],
+            "nome": produto["nome"],
+            "descricao": produto.get("descricao"),
+        }
+        for produto in produtos
+    ]
+    imagem_base64 = base64.b64encode(conteudo).decode("ascii")
+    resposta = get_openai_client().responses.create(
+        model=settings.openai_text_model_resolved,
+        instructions=_instrucoes_importacao_producao(),
+        input=[
+            {
+                "role": "user",
+                "content": [
+                    {
+                        "type": "input_text",
+                        "text": json.dumps(
+                            {
+                                "contexto": contexto,
+                                "catalogo_produtos": catalogo,
+                                "orientacao": (
+                                    "Extraia quantidades produzidas/feitas/assadas. "
+                                    "Use somente IDs presentes no catalogo."
+                                ),
+                            },
+                            ensure_ascii=False,
+                        ),
+                    },
+                    {
+                        "type": "input_image",
+                        "image_url": f"data:{tipo_conteudo};base64,{imagem_base64}",
+                    },
+                ],
+            }
+        ],
+        text={"format": _formato_json_importacao_producao()},
+    )
+    dados = json.loads(resposta.output_text)
+    interpretacao = {
+        "acao": ACAO_REGISTRAR_PRODUCAO,
+        "data_venda": dados.get("data_venda"),
+        "nome_local": dados.get("nome_local"),
+        "venda_id": None,
+        "usar_ultima_venda": False,
+        "motivo_cancelamento": None,
+        "observacoes": contexto,
+        "itens": dados.get("itens") or [],
+        "produto": None,
+        "produtos": [],
+        "itens_nao_identificados": _lista_textos(dados.get("itens_nao_identificados")),
+        "mensagem_assistente": "Li a foto e montei a producao para conferir.",
+    }
+    interpretacao = _normalizar_interpretacao(
+        interpretacao,
+        produtos,
+        texto_original=contexto or "producao por imagem",
+    )
+    interpretacao["avisos"] = _lista_textos(dados.get("avisos"))
+    interpretacao["modelo_usado"] = settings.openai_text_model_resolved
+    return interpretacao
+
+
+def _instrucoes_importacao_producao() -> str:
+    return (
+        "Voce le fotos de lista/quadro/anotacao de producao de uma padaria. "
+        "Extraia somente itens produzidos, feitos, assados ou de fornada, com quantidade. "
+        "Use apenas produtos do catalogo informado e devolva produto_id exatamente como recebido. "
+        "Nao invente produtos nem quantidades. Se o item nao estiver no catalogo ou a "
+        "quantidade estiver ilegivel, coloque em itens_nao_identificados. "
+        "Nao trate preco de cardapio como quantidade de producao. "
+        "Retorne apenas JSON valido no schema solicitado."
+    )
+
+
+def _formato_json_importacao_producao() -> dict:
+    return {
+        "type": "json_schema",
+        "name": "importacao_producao_padoka",
+        "schema": {
+            "type": "object",
+            "additionalProperties": False,
+            "required": [
+                "data_venda",
+                "nome_local",
+                "itens",
+                "itens_nao_identificados",
+                "avisos",
+            ],
+            "properties": {
+                "data_venda": {"type": ["string", "null"]},
+                "nome_local": {"type": ["string", "null"]},
+                "itens": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "additionalProperties": False,
+                        "required": ["produto_id", "nome_produto", "quantidade", "confianca"],
+                        "properties": {
+                            "produto_id": {"type": "string"},
+                            "nome_produto": {"type": "string"},
+                            "quantidade": {"type": "integer", "minimum": 1},
+                            "confianca": {"type": "number", "minimum": 0, "maximum": 1},
+                        },
+                    },
+                },
+                "itens_nao_identificados": {"type": "array", "items": {"type": "string"}},
+                "avisos": {"type": "array", "items": {"type": "string"}},
+            },
+        },
+        "strict": True,
+    }
+
+
+def _instrucoes_importacao_cardapio() -> str:
+    return (
+        "Voce le fotos de cardapio/menu de uma pequena padaria. "
+        "Extraia somente produtos vendaveis e preco de venda. "
+        "Nao invente nomes nem precos. Se o preco nao estiver legivel, coloque o nome "
+        "em itens_sem_preco e nao inclua como produto pronto. "
+        "Use valores numericos em reais no campo preco_venda, sem simbolo de moeda. "
+        "Se houver tamanho/variacao com precos diferentes, crie produtos separados "
+        "com o tamanho no nome. Retorne apenas JSON valido no schema solicitado."
+    )
+
+
+def _formato_json_importacao_cardapio() -> dict:
+    produto_schema = {
+        "type": "object",
+        "additionalProperties": False,
+        "required": [
+            "nome",
+            "descricao",
+            "descricao_visual",
+            "url_imagem_principal",
+            "cor_botao",
+            "ordem_exibicao",
+            "preco_venda",
+            "preco_custo",
+            "vigente_desde",
+        ],
+        "properties": {
+            "nome": {"type": ["string", "null"]},
+            "descricao": {"type": ["string", "null"]},
+            "descricao_visual": {"type": ["string", "null"]},
+            "url_imagem_principal": {"type": ["string", "null"]},
+            "cor_botao": {"type": ["string", "null"]},
+            "ordem_exibicao": {"type": ["integer", "null"]},
+            "preco_venda": {"type": ["number", "null"], "minimum": 0},
+            "preco_custo": {"type": ["number", "null"], "minimum": 0},
+            "vigente_desde": {"type": ["string", "null"]},
+        },
+    }
+    return {
+        "type": "json_schema",
+        "name": "importacao_cardapio_padoka",
+        "schema": {
+            "type": "object",
+            "additionalProperties": False,
+            "required": ["produtos", "itens_sem_preco", "avisos"],
+            "properties": {
+                "produtos": {"type": "array", "items": produto_schema},
+                "itens_sem_preco": {"type": "array", "items": {"type": "string"}},
+                "avisos": {"type": "array", "items": {"type": "string"}},
+            },
+        },
+        "strict": True,
+    }
+
+
+def _normalizar_produtos_da_imagem(produtos: list[dict]) -> list[dict]:
+    normalizados = _normalizar_produtos_interpretados(produtos)
+    vistos = set()
+    unicos = []
+    for indice, produto in enumerate(normalizados):
+        nome = produto.get("nome")
+        if not nome:
+            continue
+        chave = _normalizar(nome)
+        if chave in vistos:
+            continue
+        vistos.add(chave)
+        produto["ordem_exibicao"] = produto.get("ordem_exibicao")
+        if produto["ordem_exibicao"] is None:
+            produto["ordem_exibicao"] = indice
+        unicos.append(produto)
+    return unicos
+
+
+def _lista_textos(valor) -> list[str]:
+    if not isinstance(valor, list):
+        return []
+    return [str(item).strip() for item in valor if str(item).strip()]
+
+
 def confirmar_comando(interacao_ia_id: UUID, *, usuario_id: UUID | str | None = None) -> dict:
     client = get_supabase_client()
     interacao = _buscar_interacao_ia(client, interacao_ia_id, usuario_id=usuario_id)
@@ -683,6 +1147,7 @@ def _interpretar_com_openai(texto: str, produtos: list[dict]) -> dict:
             "observacoes",
             "itens",
             "produto",
+            "produtos",
             "itens_nao_identificados",
             "mensagem_assistente",
         ],
@@ -740,6 +1205,35 @@ def _interpretar_com_openai(texto: str, produtos: list[dict]) -> dict:
                     "vigente_desde": {
                         "type": ["string", "null"],
                         "description": "Data YYYY-MM-DD para inicio do preco, se informada.",
+                    },
+                },
+            },
+            "produtos": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "additionalProperties": False,
+                    "required": [
+                        "nome",
+                        "descricao",
+                        "descricao_visual",
+                        "url_imagem_principal",
+                        "cor_botao",
+                        "ordem_exibicao",
+                        "preco_venda",
+                        "preco_custo",
+                        "vigente_desde",
+                    ],
+                    "properties": {
+                        "nome": {"type": ["string", "null"]},
+                        "descricao": {"type": ["string", "null"]},
+                        "descricao_visual": {"type": ["string", "null"]},
+                        "url_imagem_principal": {"type": ["string", "null"]},
+                        "cor_botao": {"type": ["string", "null"]},
+                        "ordem_exibicao": {"type": ["integer", "null"]},
+                        "preco_venda": {"type": ["number", "null"], "minimum": 0},
+                        "preco_custo": {"type": ["number", "null"], "minimum": 0},
+                        "vigente_desde": {"type": ["string", "null"]},
                     },
                 },
             },
@@ -821,6 +1315,8 @@ def _montar_dados_confirmacao(
     acao = interpretacao["acao"]
     if acao == ACAO_CRIAR_PRODUTO:
         return _montar_confirmacao_de_produto(interpretacao)
+    if acao == ACAO_CRIAR_PRODUTOS:
+        return _montar_confirmacao_de_produtos(interpretacao)
     if acao == ACAO_REGISTRAR_VENDA:
         return _montar_confirmacao_de_venda(
             interpretacao=interpretacao,
@@ -866,6 +1362,53 @@ def _montar_dados_confirmacao(
     )
 
 
+def _montar_confirmacao_de_produtos(interpretacao: dict) -> dict:
+    produtos = interpretacao.get("produtos") or []
+    produtos_prontos = []
+    produtos_pendentes = []
+    for produto in produtos:
+        nome = produto.get("nome")
+        preco_venda = produto.get("preco_venda")
+        if not nome:
+            produtos_pendentes.append({"motivo": "nome_nao_identificado", "produto": produto})
+            continue
+        if preco_venda is None:
+            produtos_pendentes.append({"motivo": "preco_nao_identificado", "nome": nome})
+            continue
+        produtos_prontos.append(_dados_produto_para_cadastro(produto))
+
+    for item in interpretacao.get("itens_nao_identificados") or []:
+        produtos_pendentes.append({"motivo": "preco_nao_identificado", "nome": item})
+
+    if not produtos_prontos:
+        return _dados_sem_confirmacao(
+            ACAO_CRIAR_PRODUTOS,
+            (
+                "Li a foto, mas nao encontrei produtos com nome e preco de venda "
+                "legiveis para cadastrar."
+            ),
+        )
+
+    quantidade = len(produtos_prontos)
+    lista = _formatar_produtos_para_confirmacao(produtos_prontos)
+    pendencias = ""
+    if produtos_pendentes:
+        pendencias = f" Deixei {len(produtos_pendentes)} item(ns) para revisao por faltar dado."
+    mensagem = f"Encontrei {quantidade} produto(s) no cardapio: {lista}.{pendencias} Confirma?"
+    return {
+        "acao": ACAO_CRIAR_PRODUTOS,
+        "precisa_confirmacao": True,
+        "mensagem_confirmacao": mensagem,
+        "produtos": produtos_prontos,
+        "produtos_pendentes": produtos_pendentes,
+        "avisos": interpretacao.get("avisos") or [],
+        "operacao": {
+            "tipo": ACAO_CRIAR_PRODUTOS,
+            "produtos": produtos_prontos,
+        },
+    }
+
+
 def _montar_confirmacao_de_produto(interpretacao: dict) -> dict:
     produto = interpretacao.get("produto") or {}
     nome = produto.get("nome")
@@ -881,20 +1424,7 @@ def _montar_confirmacao_de_produto(interpretacao: dict) -> dict:
             f"Entendi que voce quer cadastrar {nome}, mas preciso do preco de venda.",
         )
 
-    dados_produto = {
-        "nome": nome,
-        "descricao": produto.get("descricao"),
-        "descricao_visual": produto.get("descricao_visual"),
-        "url_imagem_principal": produto.get("url_imagem_principal"),
-        "cor_botao": produto.get("cor_botao"),
-        "ordem_exibicao": produto.get("ordem_exibicao") or 0,
-        "preco_venda": preco_venda,
-        "preco_custo": produto.get("preco_custo") or 0,
-        "vigente_desde": produto.get("vigente_desde") or data_operacional_hoje().isoformat(),
-        "motivo_preco": "Produto cadastrado via IA",
-        "origem_preco": "ia",
-        "gerado_por_ia": True,
-    }
+    dados_produto = _dados_produto_para_cadastro(produto)
     mensagem = (
         f"Entendi que devo cadastrar {nome} com preco de venda "
         f"{_formatar_moeda(preco_venda)}. Confirma?"
@@ -909,6 +1439,33 @@ def _montar_confirmacao_de_produto(interpretacao: dict) -> dict:
             "produto": dados_produto,
         },
     }
+
+
+def _dados_produto_para_cadastro(produto: dict) -> dict:
+    return {
+        "nome": produto["nome"],
+        "descricao": produto.get("descricao"),
+        "descricao_visual": produto.get("descricao_visual"),
+        "url_imagem_principal": produto.get("url_imagem_principal"),
+        "cor_botao": produto.get("cor_botao"),
+        "ordem_exibicao": produto.get("ordem_exibicao") or 0,
+        "preco_venda": produto["preco_venda"],
+        "preco_custo": produto.get("preco_custo") or 0,
+        "vigente_desde": produto.get("vigente_desde") or data_operacional_hoje().isoformat(),
+        "motivo_preco": "Produto cadastrado via IA",
+        "origem_preco": "ia",
+        "gerado_por_ia": True,
+    }
+
+
+def _formatar_produtos_para_confirmacao(produtos: list[dict]) -> str:
+    partes = [
+        f"{produto['nome']} ({_formatar_moeda(Decimal(str(produto['preco_venda'])))})"
+        for produto in produtos[:5]
+    ]
+    if len(produtos) > 5:
+        partes.append(f"mais {len(produtos) - 5}")
+    return ", ".join(partes)
 
 
 def _montar_confirmacao_de_venda(
@@ -1350,6 +1907,19 @@ def _executar_operacao_confirmada(
         )
         return {"produto": produto}
 
+    if tipo == ACAO_CRIAR_PRODUTOS:
+        produtos_operacao = operacao.get("produtos") or []
+        if not produtos_operacao:
+            raise BadRequestError("Essa interacao nao tem produtos para executar.")
+        produtos_criados = [
+            produtos_public.criar_produto(
+                RequisicaoCriarProduto(**dados_produto),
+                usuario_id=usuario_id,
+            )
+            for dados_produto in produtos_operacao
+        ]
+        return {"produtos": produtos_criados, "quantidade": len(produtos_criados)}
+
     if tipo == ACAO_REGISTRAR_VENDA:
         dados_venda = dados_confirmacao.get("venda")
         if not dados_venda:
@@ -1719,6 +2289,8 @@ def _mensagem_falha_confirmacao(exc: AppError) -> str:
 def _mensagem_sucesso_confirmacao(acao: str | None) -> str:
     if acao == ACAO_CRIAR_PRODUTO:
         return "Pronto, cadastrei o produto."
+    if acao == ACAO_CRIAR_PRODUTOS:
+        return "Pronto, cadastrei os produtos."
     if acao == ACAO_REGISTRAR_VENDA:
         return "Pronto, registrei a venda."
     if acao == ACAO_REGISTRAR_PRODUCAO:

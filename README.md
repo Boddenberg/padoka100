@@ -406,7 +406,7 @@ Base local:
 | Relatorios | `/relatorios/dias/{id}/resumo`, `/relatorios/periodo`, `/relatorios/periodo/resumo` |
 | Historico | `/historico/linha-do-tempo` |
 | Midia | `/midia/{tipo_entidade}/{entidade_id}` |
-| IA | `/ia/interpretar-comando`, `/ia/transcrever-audio`, `/ia/analises/padrao` |
+| IA | `/ia/interpretar-comando`, `/ia/transcrever-audio`, `/ia/producao/importar-foto`, `/ia/produtos/importar-cardapio`, `/ia/analises/padrao` |
 | Custos | `/custos/insumos`, `/custos/produtos/{id}/receitas`, `/custos/lista-compras` |
 | Custeio assistido | `/custos/assistente/sessoes`, `/entradas/texto`, `/entradas/arquivo`, `/confirmar` |
 | Notificacoes | `/notificacoes/feed`, `/notificacoes/{id}/ler`, `/admin/notificacoes` |
