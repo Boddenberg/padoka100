@@ -26,6 +26,7 @@ from app.modules.dias_de_venda.esquemas import (
     RequisicaoCriarItemProducao,
     RequisicaoFecharDiaDeVenda,
 )
+from app.modules.ia import midias_recebidas
 from app.modules.ia.domain import acoes as _acoes
 from app.modules.ia.domain import analise as _analise
 from app.modules.ia.domain import fallback as _fallback
@@ -485,12 +486,22 @@ def interpretar_comando_de_venda(
     )
 
 
+def listar_midias_recebidas_por_ia(
+    *,
+    item: str | None = None,
+    usuario_id: UUID | str | None = None,
+    limite: int = 100,
+) -> list[dict]:
+    return midias_recebidas.listar(item=item, usuario_id=usuario_id, limite=limite)
+
+
 async def transcrever_audio(
     *,
     file: UploadFile,
     dia_de_venda_id: UUID | None = None,
     interpretar: bool = True,
     usuario_id: UUID | str | None = None,
+    usuario_nome: str | None = None,
 ) -> dict:
     settings = get_settings()
     faltando = []
@@ -517,6 +528,8 @@ async def transcrever_audio(
     transcricao = transcricao or ""
     interpretacao = None
     url_audio = None
+    interacao_ia_id = None
+    midia_audio = None
 
     if interpretar:
         interpretacao = interpretar_comando(
@@ -527,16 +540,17 @@ async def transcrever_audio(
             tipo_entrada="audio",
             usuario_id=usuario_id,
         )
-        midia = enviar_midia_em_bytes(
+        interacao_ia_id = interpretacao["interacao_ia_id"]
+        midia_audio = enviar_midia_em_bytes(
             tipo_entidade="interacao_ia",
-            entidade_id=UUID(interpretacao["interacao_ia_id"]),
+            entidade_id=UUID(str(interacao_ia_id)),
             conteudo=conteudo,
             nome_arquivo=file.filename,
             tipo_conteudo=file.content_type,
             descricao="Audio usado em comando de IA",
             usuario_id=usuario_id,
         )
-        url_audio = midia.get("url_publica")
+        url_audio = midia_audio.get("url_publica")
         dados_confirmacao = _anexar_url_audio_em_dados_confirmacao(
             interpretacao["dados_confirmacao"],
             url_audio,
@@ -546,6 +560,17 @@ async def transcrever_audio(
         get_supabase_client().table("interacoes_ia").update(
             to_db_payload({"url_audio": url_audio, "dados_confirmacao": dados_confirmacao})
         ).eq("id", interpretacao["interacao_ia_id"]).execute()
+
+    midias_recebidas.registrar(
+        item="audio",
+        usuario_id=usuario_id,
+        usuario_nome=usuario_nome,
+        interacao_ia_id=interacao_ia_id,
+        midia_id=(midia_audio or {}).get("id"),
+        nome_arquivo=file.filename,
+        url_publica=url_audio,
+        tipo_conteudo=file.content_type,
+    )
 
     return {
         "transcricao": transcricao,
@@ -560,12 +585,14 @@ async def transcrever_audio_de_venda(
     dia_de_venda_id: UUID | None = None,
     interpretar: bool = True,
     usuario_id: UUID | str | None = None,
+    usuario_nome: str | None = None,
 ) -> dict:
     return await transcrever_audio(
         file=file,
         dia_de_venda_id=dia_de_venda_id,
         interpretar=interpretar,
         usuario_id=usuario_id,
+        usuario_nome=usuario_nome,
     )
 
 
@@ -574,6 +601,7 @@ async def importar_cardapio_por_imagem(
     file: UploadFile,
     contexto: str | None = None,
     usuario_id: UUID | str | None = None,
+    usuario_nome: str | None = None,
 ) -> dict:
     conteudo = await file.read()
     if not conteudo:
@@ -604,6 +632,7 @@ async def importar_cardapio_por_imagem(
         tipo_conteudo=tipo_conteudo,
         descricao="Foto de cardapio usada para cadastro de produtos por IA",
         usuario_id=usuario_id,
+        usuario_nome=usuario_nome,
     )
     return _resposta_importacao_cardapio(interacao, interpretacao, dados_confirmacao, extraidos)
 
@@ -614,6 +643,7 @@ async def importar_producao_por_imagem(
     dia_de_venda_id: UUID | None = None,
     contexto: str | None = None,
     usuario_id: UUID | str | None = None,
+    usuario_nome: str | None = None,
 ) -> dict:
     conteudo = await file.read()
     if not conteudo:
@@ -656,6 +686,7 @@ async def importar_producao_por_imagem(
         tipo_conteudo=tipo_conteudo,
         descricao="Foto usada em comando de producao por IA",
         usuario_id=usuario_id,
+        usuario_nome=usuario_nome,
     )
     return _resposta_interpretacao_por_imagem(
         interacao=interacao,
@@ -692,6 +723,7 @@ def _salvar_imagem_na_interacao(
     tipo_conteudo: str,
     descricao: str,
     usuario_id: UUID | str | None,
+    usuario_nome: str | None,
 ) -> dict:
     try:
         midia = enviar_midia_em_bytes(
@@ -712,6 +744,16 @@ def _salvar_imagem_na_interacao(
             "Nao consegui guardar a foto agora. Tente novamente em instantes.",
             exc,
         ) from exc
+    midias_recebidas.registrar(
+        item="foto",
+        usuario_id=usuario_id,
+        usuario_nome=usuario_nome,
+        interacao_ia_id=interacao_id,
+        midia_id=midia.get("id"),
+        nome_arquivo=nome_arquivo,
+        url_publica=midia.get("url_publica"),
+        tipo_conteudo=tipo_conteudo,
+    )
     dados_confirmacao["interacao_ia_id"] = interacao_id
     dados_confirmacao["url_imagem"] = midia.get("url_publica")
     dados_confirmacao["midia_id"] = midia.get("id")

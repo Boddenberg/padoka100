@@ -106,3 +106,16 @@ class RespostaConfirmarVenda(ApiModel):
     mensagem_assistente: str | None = None
     venda: VendaSaida | None = None
     resultado: dict = Field(default_factory=dict)
+
+
+class MidiaRecebidaPorIA(ApiModel):
+    id: UUID
+    usuario_id: UUID | None = None
+    usuario_nome_cadastrado: str | None = None
+    data: str
+    item: str
+    interacao_ia_id: UUID | None = None
+    midia_id: UUID | None = None
+    nome_arquivo: str | None = None
+    url_publica: str | None = None
+    tipo_conteudo: str | None = None

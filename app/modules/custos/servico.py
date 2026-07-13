@@ -34,6 +34,7 @@ from app.modules.custos.esquemas import (
     RequisicaoGerarListaCompras,
     RequisicaoRegistrarPrecoInsumo,
 )
+from app.modules.ia import midias_recebidas
 from app.modules.produtos import servico as servico_de_produtos
 from app.shared.db import first_or_none, to_db_payload
 
@@ -562,10 +563,18 @@ async def atualizar_precos_por_nota_arquivo(
     aplicar: bool = True,
     contexto: str | None = None,
     usuario_id: UUID | str | None = None,
+    usuario_nome: str | None = None,
 ) -> dict:
     conteudo = await file.read()
     if not conteudo:
         raise BadRequestError("Arquivo vazio.")
+    midias_recebidas.registrar(
+        item="foto",
+        usuario_id=usuario_id,
+        usuario_nome=usuario_nome,
+        nome_arquivo=file.filename,
+        tipo_conteudo=file.content_type,
+    )
     itens = _extrair_itens_de_nota_com_openai(
         conteudo=conteudo,
         tipo_conteudo=file.content_type,

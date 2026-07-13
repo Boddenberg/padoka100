@@ -35,6 +35,7 @@ from app.modules.custos.prompts.extracao_custeio import (
     formato_json_extracao_custeio,
     instrucoes_extracao_custeio,
 )
+from app.modules.ia import midias_recebidas
 from app.modules.midia.servico import enviar_midia_em_bytes
 from app.modules.produtos import servico as servico_de_produtos
 from app.modules.produtos.esquemas import RequisicaoCriarVersaoDePreco
@@ -338,6 +339,7 @@ async def adicionar_entrada_arquivo(
     finalidade: str = "auto",
     permitir_fallback: bool = True,
     usuario_id: UUID | str | None = None,
+    usuario_nome: str | None = None,
 ) -> dict:
     tipo = tipo.strip().lower()
     if tipo not in {"audio", "imagem"}:
@@ -362,6 +364,15 @@ async def adicionar_entrada_arquivo(
         tipo_conteudo=file.content_type,
         descricao=f"Entrada de {tipo} para assistente de custeio",
         usuario_id=usuario_id,
+    )
+    midias_recebidas.registrar(
+        item="audio" if tipo == "audio" else "foto",
+        usuario_id=usuario_id,
+        usuario_nome=usuario_nome,
+        midia_id=midia.get("id"),
+        nome_arquivo=file.filename,
+        url_publica=midia.get("url_publica"),
+        tipo_conteudo=file.content_type,
     )
 
     if tipo == "audio":
@@ -2484,4 +2495,3 @@ def _descrever_conversao_aproximada(unidade: str | None) -> str | None:
     if not unidade:
         return None
     return servico_de_custos.descrever_unidade_aproximada(unidade)
-

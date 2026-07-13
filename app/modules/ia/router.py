@@ -1,11 +1,12 @@
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, File, Form, UploadFile
+from fastapi import APIRouter, Depends, File, Form, Query, UploadFile
 
 from app.modules.auth.dependencias import exigir_capacidade
 from app.modules.ia import servico
 from app.modules.ia.esquemas import (
+    MidiaRecebidaPorIA,
     RequisicaoAnaliseEspecifica,
     RequisicaoAnalisePadrao,
     RequisicaoInterpretarComandoDeIA,
@@ -23,6 +24,7 @@ from app.modules.ia.esquemas import (
 router = APIRouter(prefix="/ia", tags=["ia"])
 IaOperacional = Annotated[dict, Depends(exigir_capacidade("ia.operacional"))]
 IaAnalitica = Annotated[dict, Depends(exigir_capacidade("ia.analitica"))]
+IaTroubleshooting = Annotated[dict, Depends(exigir_capacidade("admin.gerenciar"))]
 
 
 @router.get(
@@ -40,6 +42,20 @@ def montar_dados_estruturados_periodo(
         data_fim=data_fim,
         produto_id=produto_id,
         usuario_id=usuario["id"],
+    )
+
+
+@router.get("/midias-recebidas", response_model=list[MidiaRecebidaPorIA])
+def listar_midias_recebidas(
+    _: IaTroubleshooting,
+    item: Annotated[str | None, Query(pattern="^(audio|foto)$")] = None,
+    usuario_id: Annotated[UUID | None, Query()] = None,
+    limite: Annotated[int, Query(ge=1, le=500)] = 100,
+) -> list[dict]:
+    return servico.listar_midias_recebidas_por_ia(
+        item=item,
+        usuario_id=usuario_id,
+        limite=limite,
     )
 
 
@@ -90,6 +106,7 @@ async def transcrever_audio(
         dia_de_venda_id=dia_de_venda_id,
         interpretar=interpretar,
         usuario_id=usuario["id"],
+        usuario_nome=usuario.get("nome"),
     )
 
 
@@ -105,6 +122,7 @@ async def transcrever_audio_de_venda(
         dia_de_venda_id=dia_de_venda_id,
         interpretar=interpretar,
         usuario_id=usuario["id"],
+        usuario_nome=usuario.get("nome"),
     )
 
 
@@ -118,6 +136,7 @@ async def importar_cardapio_por_imagem(
         file=file,
         contexto=contexto,
         usuario_id=usuario["id"],
+        usuario_nome=usuario.get("nome"),
     )
 
 
@@ -133,6 +152,7 @@ async def importar_producao_por_imagem(
         dia_de_venda_id=dia_de_venda_id,
         contexto=contexto,
         usuario_id=usuario["id"],
+        usuario_nome=usuario.get("nome"),
     )
 
 

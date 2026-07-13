@@ -105,6 +105,7 @@ async def atualizar_precos_por_nota_arquivo(
         aplicar=aplicar,
         contexto=contexto,
         usuario_id=usuario["id"],
+        usuario_nome=usuario.get("nome"),
     )
 
 
@@ -239,6 +240,7 @@ async def adicionar_arquivo_ao_custeio(
         finalidade=finalidade,
         permitir_fallback=permitir_fallback,
         usuario_id=usuario["id"],
+        usuario_nome=usuario.get("nome"),
     )
 
 
