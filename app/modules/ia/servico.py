@@ -2,7 +2,7 @@ import base64
 import io
 import json
 import logging
-from datetime import date
+from datetime import date, timedelta
 from decimal import Decimal
 from uuid import UUID
 
@@ -34,6 +34,7 @@ from app.modules.ia.esquemas import (
     RequisicaoInterpretarComandoDeVenda,
 )
 from app.modules.ia.prompts.command_interpreter import COMMAND_INTERPRETER_INSTRUCTIONS
+from app.modules.ia.prompts.especialista import ESPECIALISTA_INSTRUCTIONS
 from app.modules.midia.servico import enviar_midia_em_bytes
 from app.modules.produtos import public as produtos_public
 from app.modules.produtos.esquemas import RequisicaoCriarProduto
@@ -55,6 +56,7 @@ ACAO_ABRIR_DIA_DE_VENDA = _acoes.ACAO_ABRIR_DIA_DE_VENDA
 ACAO_FECHAR_DIA_DE_VENDA = _acoes.ACAO_FECHAR_DIA_DE_VENDA
 ACAO_CANCELAR_VENDA = _acoes.ACAO_CANCELAR_VENDA
 ACAO_CANCELAR_ITEM_VENDA = _acoes.ACAO_CANCELAR_ITEM_VENDA
+ACAO_CONVERSAR = _acoes.ACAO_CONVERSAR
 ACAO_DESCONHECIDO = _acoes.ACAO_DESCONHECIDO
 ACOES_SUPORTADAS = _acoes.ACOES_SUPORTADAS
 _normalizar = _texto.normalizar
@@ -128,14 +130,22 @@ def interpretar_comando(
         produtos,
         texto_original=requisicao.texto,
     )
-    dados_confirmacao = _montar_dados_confirmacao(
-        interpretacao=interpretacao,
-        dia_de_venda_id=requisicao.dia_de_venda_id,
-        texto_original=requisicao.texto,
-        tipo_entrada_venda="audio" if tipo_entrada == "audio" else "ia",
-        url_audio=url_audio,
-        usuario_id=usuario_id,
-    )
+    if interpretacao["acao"] == ACAO_CONVERSAR:
+        dados_confirmacao = _montar_conversa_especialista(
+            interpretacao=interpretacao,
+            texto=requisicao.texto,
+            produtos=produtos,
+            usuario_id=usuario_id,
+        )
+    else:
+        dados_confirmacao = _montar_dados_confirmacao(
+            interpretacao=interpretacao,
+            dia_de_venda_id=requisicao.dia_de_venda_id,
+            texto_original=requisicao.texto,
+            tipo_entrada_venda="audio" if tipo_entrada == "audio" else "ia",
+            url_audio=url_audio,
+            usuario_id=usuario_id,
+        )
     interacao = _criar_interacao_ia(
         dia_de_venda_id=_extrair_dia_de_venda_id_para_interacao(
             dados_confirmacao,
@@ -1341,6 +1351,98 @@ def _gerar_analise_com_ia(
         ),
     )
     return resposta.output_text, settings.openai_text_model_resolved
+
+
+def _montar_contexto_do_especialista(
+    produtos: list[dict],
+    *,
+    usuario_id: UUID | str | None,
+) -> dict:
+    """Contexto do cliente para o especialista: produtos + resumo recente.
+
+    O historico e melhor-esforco: se algo falhar (backend antigo, sem dados),
+    seguimos so com os produtos — o agente ainda responde bem.
+    """
+    catalogo = []
+    for produto in produtos:
+        preco = produto.get("preco_atual") if isinstance(produto.get("preco_atual"), dict) else {}
+        catalogo.append(
+            {
+                "nome": produto.get("nome"),
+                "preco_venda": preco.get("preco_venda"),
+                "preco_custo": preco.get("preco_custo"),
+            }
+        )
+
+    resumo_recente = None
+    try:
+        hoje = data_operacional_hoje()
+        inicio = hoje - timedelta(days=14)
+        dados = montar_dados_estruturados_periodo(
+            data_inicio=inicio.isoformat(),
+            data_fim=hoje.isoformat(),
+            usuario_id=usuario_id,
+        )
+        resumo_recente = {
+            "periodo": dados["periodo"]["rotulo"],
+            "faturamentoTotal": dados["faturamentoTotal"],
+            "quantidadeTotalVendida": dados["quantidadeTotalVendida"],
+            "quantidadeTotalSobrando": dados["quantidadeTotalSobrando"],
+            "produtos": dados["produtos"][:8],
+        }
+    except Exception:  # noqa: BLE001 - contexto opcional; sem ele ainda respondemos
+        logger.exception("Falha ao montar o resumo recente para o especialista")
+        resumo_recente = None
+
+    return {"produtos_cadastrados": catalogo, "resumo_recente": resumo_recente}
+
+
+def responder_como_especialista(
+    texto: str,
+    produtos: list[dict],
+    *,
+    usuario_id: UUID | str | None = None,
+) -> str | None:
+    """Resposta do Pãozinho como especialista de padaria + guia do app.
+
+    Faz uma chamada propria a OpenAI, com contexto do cliente e guardrails de
+    escopo. Devolve None se a IA nao estiver configurada ou falhar — quem chama
+    cai numa mensagem padrao amigavel.
+    """
+    settings = get_settings()
+    if not settings.openai_text_configured:
+        return None
+    contexto = _montar_contexto_do_especialista(produtos, usuario_id=usuario_id)
+    try:
+        resposta = get_openai_client().responses.create(
+            model=settings.openai_text_model_resolved,
+            instructions=ESPECIALISTA_INSTRUCTIONS,
+            input=json.dumps({"pergunta": texto, "contexto": contexto}, ensure_ascii=False),
+        )
+    except Exception:  # noqa: BLE001 - a conversa nunca derruba o fluxo de comando
+        logger.exception("Falha ao gerar a resposta do especialista")
+        return None
+    return (getattr(resposta, "output_text", "") or "").strip() or None
+
+
+def _montar_conversa_especialista(
+    *,
+    interpretacao: dict,
+    texto: str,
+    produtos: list[dict],
+    usuario_id: UUID | str | None = None,
+) -> dict:
+    resposta = responder_como_especialista(texto, produtos, usuario_id=usuario_id)
+    mensagem = resposta or interpretacao.get("mensagem_assistente") or (
+        "Posso ajudar com a sua padaria: receitas, custos, precos, producao e como "
+        "usar o app. E so me perguntar!"
+    )
+    return {
+        "acao": ACAO_CONVERSAR,
+        "precisa_confirmacao": False,
+        "mensagem_confirmacao": mensagem,
+        "operacao": None,
+    }
 
 
 def _montar_dados_confirmacao(

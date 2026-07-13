@@ -11,6 +11,7 @@ from app.modules.ia.domain.acoes import (
     ACAO_ABRIR_DIA_DE_VENDA,
     ACAO_CANCELAR_ITEM_VENDA,
     ACAO_CANCELAR_VENDA,
+    ACAO_CONVERSAR,
     ACAO_CRIAR_PRODUTO,
     ACAO_CRIAR_PRODUTOS,
     ACAO_DESCONHECIDO,
@@ -255,6 +256,10 @@ def corrigir_acao_pelo_texto(
     *,
     tem_itens: bool,
 ) -> str:
+    # Conversa/consulta e classificada pelo modelo pelo sentido da frase; nao
+    # deixamos as heuristicas de texto reescreverem para uma acao concreta.
+    if acao == ACAO_CONVERSAR:
+        return acao
     if not texto_original:
         return acao
 
@@ -410,6 +415,8 @@ def mensagem_inicial_da_acao(acao: str, itens: list[dict]) -> str:
         return "Confira antes de abrir o dia de venda."
     if acao == ACAO_FECHAR_DIA_DE_VENDA:
         return "Confira antes de fechar o dia de venda."
+    if acao == ACAO_CONVERSAR:
+        return "Deixa comigo!"
     return "Nao consegui identificar uma acao segura nesse comando."
 
 

@@ -8,6 +8,9 @@ ACAO_ABRIR_DIA_DE_VENDA = "abrir_dia_de_venda"
 ACAO_FECHAR_DIA_DE_VENDA = "fechar_dia_de_venda"
 ACAO_CANCELAR_VENDA = "cancelar_venda"
 ACAO_CANCELAR_ITEM_VENDA = "cancelar_item_venda"
+# Conversa/consulta com o especialista: perguntas sobre padaria/confeitaria/
+# panificacao, sobre o proprio app ou saudacoes. Nao executa nada.
+ACAO_CONVERSAR = "conversar"
 ACAO_DESCONHECIDO = "desconhecido"
 
 ACOES_SUPORTADAS = {
@@ -19,5 +22,6 @@ ACOES_SUPORTADAS = {
     ACAO_FECHAR_DIA_DE_VENDA,
     ACAO_CANCELAR_VENDA,
     ACAO_CANCELAR_ITEM_VENDA,
+    ACAO_CONVERSAR,
     ACAO_DESCONHECIDO,
 }

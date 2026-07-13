@@ -4,6 +4,7 @@ from app.modules.ia.domain import fallback
 from app.modules.ia.domain.acoes import (
     ACAO_ABRIR_DIA_DE_VENDA,
     ACAO_CANCELAR_VENDA,
+    ACAO_CONVERSAR,
     ACAO_CRIAR_PRODUTO,
     ACAO_DESCONHECIDO,
     ACAO_FECHAR_DIA_DE_VENDA,
@@ -83,6 +84,36 @@ def test_fallback_desconhecido_sem_item_e_sem_verbo():
     assert resultado["acao"] == ACAO_DESCONHECIDO
     assert resultado["itens"] == []
     assert resultado["itens_nao_identificados"]
+
+
+def test_normalizar_interpretacao_preserva_conversa():
+    # "faço" e uma palavra que a heuristica associa a producao; a conversa
+    # classificada pelo modelo nao pode ser reescrita para uma acao concreta.
+    interpretacao = {
+        "acao": ACAO_CONVERSAR,
+        "itens": [],
+        "mensagem_assistente": "Deixa comigo!",
+    }
+
+    resultado = fallback.normalizar_interpretacao(
+        interpretacao,
+        PRODUTOS,
+        texto_original="como eu faco um pao de fermentacao natural?",
+    )
+
+    assert resultado["acao"] == ACAO_CONVERSAR
+    assert resultado["itens"] == []
+
+
+def test_corrigir_acao_preserva_conversa():
+    assert (
+        fallback.corrigir_acao_pelo_texto(
+            ACAO_CONVERSAR,
+            "quero abrir o dia amanha",
+            tem_itens=False,
+        )
+        == ACAO_CONVERSAR
+    )
 
 
 def test_normalizar_interpretacao_marca_produto_desconhecido():
