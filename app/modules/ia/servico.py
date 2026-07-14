@@ -19,7 +19,8 @@ from app.core.errors import (
 )
 from app.db.openai import get_openai_client
 from app.db.supabase import get_supabase_client
-from app.infra.supabase.result import coluna_ausente, executar_lista_opcional, tabela_ausente
+from app.infra.supabase.pagination import em_lotes, executar_paginado, executar_paginado_opcional
+from app.infra.supabase.result import coluna_ausente
 from app.modules.dias_de_venda import servico as servico_de_dias_de_venda
 from app.modules.dias_de_venda.esquemas import (
     RequisicaoCriarDiaDeVenda,
@@ -293,15 +294,19 @@ def _montar_resumo_do_periodo_para_ia(
     usuario_id: UUID | str | None = None,
 ) -> dict:
     client = get_supabase_client()
-    consulta = (
-        client.table("dias_de_venda")
-        .select("id, data_venda, nome_local_no_momento, situacao, aberto_em")
-        .gte("data_venda", data_inicio.isoformat())
-        .lte("data_venda", data_fim.isoformat())
-    )
-    if usuario_id:
-        consulta = consulta.eq("usuario_id", str(usuario_id))
-    dias = consulta.order("data_venda").order("aberto_em").execute().data
+
+    def criar_consulta_dias():
+        consulta_dias = (
+            client.table("dias_de_venda")
+            .select("id, data_venda, nome_local_no_momento, situacao, aberto_em")
+            .gte("data_venda", data_inicio.isoformat())
+            .lte("data_venda", data_fim.isoformat())
+        )
+        if usuario_id:
+            consulta_dias = consulta_dias.eq("usuario_id", str(usuario_id))
+        return consulta_dias.order("data_venda").order("aberto_em").order("id")
+
+    dias = executar_paginado(criar_consulta_dias)
     resumos_por_abertura = _montar_resumos_de_aberturas_para_ia(
         client,
         dias,
@@ -327,38 +332,53 @@ def _montar_resumos_de_aberturas_para_ia(
     if not dia_ids:
         return []
 
-    itens_producao = client.table("itens_producao").select("*").in_("dia_de_venda_id", dia_ids)
-    decisoes_sobra = (
-        client.table("decisoes_sobra").select("*").in_("dia_destino_id", dia_ids)
-    )
-    if produto_id:
-        itens_producao = itens_producao.eq("produto_id", str(produto_id))
-        decisoes_sobra = decisoes_sobra.eq("produto_id", str(produto_id))
-    itens_producao = itens_producao.execute().data
-    decisoes_sobra = _executar_lista_opcional_ia(decisoes_sobra)
+    itens_producao = []
+    decisoes_sobra = []
+    vendas_ativas = []
+    correcoes = []
+    for lote_dias in em_lotes(dia_ids):
+        itens_producao.extend(
+            executar_paginado(
+                lambda lote_dias=lote_dias: _consulta_producao_para_ia(
+                    client, lote_dias, produto_id=produto_id
+                )
+            )
+        )
+        decisoes_sobra.extend(
+            executar_paginado_opcional(
+                lambda lote_dias=lote_dias: _consulta_sobras_para_ia(
+                    client, lote_dias, produto_id=produto_id
+                )
+            )
+        )
+        vendas_ativas.extend(
+            executar_paginado(
+                lambda lote_dias=lote_dias: client.table("vendas")
+                .select("id, dia_de_venda_id")
+                .in_("dia_de_venda_id", lote_dias)
+                .eq("situacao", "ativa")
+                .order("id")
+            )
+        )
+        correcoes.extend(
+            executar_paginado_opcional(
+                lambda lote_dias=lote_dias: client.table("correcoes_dia_fechado")
+                .select("*")
+                .in_("dia_de_venda_id", lote_dias)
+                .order("criado_em", desc=True)
+                .order("id")
+            )
+        )
 
-    vendas_ativas = (
-        client.table("vendas")
-        .select("id, dia_de_venda_id")
-        .in_("dia_de_venda_id", dia_ids)
-        .eq("situacao", "ativa")
-        .execute()
-        .data
-    )
-    venda_ids = [venda["id"] for venda in vendas_ativas]
     itens_venda = []
-    if venda_ids:
-        consulta_itens_venda = client.table("itens_venda").select("*").in_("venda_id", venda_ids)
-        if produto_id:
-            consulta_itens_venda = consulta_itens_venda.eq("produto_id", str(produto_id))
-        itens_venda = consulta_itens_venda.execute().data
-
-    correcoes = _executar_lista_opcional_ia(
-        client.table("correcoes_dia_fechado")
-        .select("*")
-        .in_("dia_de_venda_id", dia_ids)
-        .order("criado_em", desc=True)
-    )
+    for lote_vendas in em_lotes(venda["id"] for venda in vendas_ativas):
+        itens_venda.extend(
+            executar_paginado(
+                lambda lote_vendas=lote_vendas: _consulta_vendas_para_ia(
+                    client, lote_vendas, produto_id=produto_id
+                )
+            )
+        )
 
     producoes_por_dia = _agrupar_linhas_por_chave(itens_producao, "dia_de_venda_id")
     vendas_por_dia = _agrupar_linhas_por_chave(itens_venda, "dia_de_venda_id")
@@ -392,6 +412,49 @@ def _montar_resumos_de_aberturas_para_ia(
             }
         )
     return resumos
+
+
+def _consulta_producao_para_ia(client, dia_ids: list, *, produto_id: UUID | None):
+    consulta = (
+        client.table("itens_producao")
+        .select(
+            "id,dia_de_venda_id,produto_id,nome_produto_no_momento,"
+            "url_imagem_produto_no_momento,quantidade_produzida"
+        )
+        .in_("dia_de_venda_id", dia_ids)
+    )
+    if produto_id:
+        consulta = consulta.eq("produto_id", str(produto_id))
+    return consulta.order("id")
+
+
+def _consulta_sobras_para_ia(client, dia_ids: list, *, produto_id: UUID | None):
+    consulta = (
+        client.table("decisoes_sobra")
+        .select(
+            "id,dia_destino_id,produto_id,nome_produto_no_momento,"
+            "url_imagem_produto_no_momento,quantidade_usada_hoje,"
+            "quantidade_nao_usada_hoje"
+        )
+        .in_("dia_destino_id", dia_ids)
+    )
+    if produto_id:
+        consulta = consulta.eq("produto_id", str(produto_id))
+    return consulta.order("id")
+
+
+def _consulta_vendas_para_ia(client, venda_ids: list, *, produto_id: UUID | None):
+    consulta = (
+        client.table("itens_venda")
+        .select(
+            "id,venda_id,dia_de_venda_id,produto_id,nome_produto_no_momento,"
+            "url_imagem_produto_no_momento,quantidade,valor_total_venda,valor_total_custo"
+        )
+        .in_("venda_id", venda_ids)
+    )
+    if produto_id:
+        consulta = consulta.eq("produto_id", str(produto_id))
+    return consulta.order("id")
 
 
 def _consolidar_resumos_por_data_para_ia(resumos: list[dict]) -> list[dict]:
@@ -440,11 +503,6 @@ def _agrupar_linhas_por_chave(linhas: list[dict], chave: str) -> dict[str, list[
     for linha in linhas:
         grupos.setdefault(str(linha[chave]), []).append(linha)
     return grupos
-
-
-# Helpers centralizados em infra; aliases preservam os nomes locais.
-_executar_lista_opcional_ia = executar_lista_opcional
-_erro_tabela_ausente_ia = tabela_ausente
 
 
 def _montar_periodo_estruturado(data_inicio: date, data_fim: date) -> dict:

@@ -1,10 +1,12 @@
 import logging
 from datetime import UTC, date, datetime, timedelta
+from decimal import Decimal
 from uuid import UUID, uuid4
 
 from app.core.clock import agora_utc, fuso_horario_negocio, hoje_operacional
 from app.core.errors import BadRequestError, ConflictError, NotFoundError
 from app.db.supabase import get_supabase_client
+from app.infra.supabase.pagination import em_lotes, executar_paginado
 from app.modules.analytics_reports import domain
 from app.modules.analytics_reports.ia import gerar_leitura
 from app.modules.auth.domain.capacidades import plano_do_usuario, usuario_tem_capacidade
@@ -12,6 +14,7 @@ from app.modules.ia.servico import montar_dados_estruturados_periodo
 from app.modules.notificacoes import servico as notificacoes_servico
 from app.modules.notificacoes.esquemas import RequisicaoCriarNotificacao
 from app.shared.db import first_or_none, to_db_payload
+from app.shared.periodos import dividir_periodo_em_blocos
 from supabase import Client
 
 logger = logging.getLogger(__name__)
@@ -248,36 +251,41 @@ def _coletar_vendas(
     data_inicio: str,
     data_fim: str,
 ) -> dict:
-    dias = (
-        client.table("dias_de_venda")
+    dias = executar_paginado(
+        lambda: client.table("dias_de_venda")
         .select("id,data_venda")
         .eq("usuario_id", str(usuario_id))
         .gte("data_venda", data_inicio)
         .lte("data_venda", data_fim)
-        .execute()
-        .data
+        .order("data_venda")
+        .order("id")
     )
     dia_por_id = {str(dia["id"]): dia["data_venda"] for dia in dias}
     if not dia_por_id:
         return {"quantidade": 0, "por_data": {}, "por_hora": []}
-    vendas = (
-        client.table("vendas")
-        .select("id,dia_de_venda_id,ocorrido_em")
-        .eq("usuario_id", str(usuario_id))
-        .in_("dia_de_venda_id", list(dia_por_id))
-        .eq("situacao", "ativa")
-        .execute()
-        .data
-    )
-    venda_ids = [venda["id"] for venda in vendas]
+
+    vendas = []
+    for lote_dias in em_lotes(dia_por_id):
+        vendas.extend(
+            executar_paginado(
+                lambda lote_dias=lote_dias: client.table("vendas")
+                .select("id,dia_de_venda_id,ocorrido_em")
+                .eq("usuario_id", str(usuario_id))
+                .in_("dia_de_venda_id", lote_dias)
+                .eq("situacao", "ativa")
+                .order("id")
+            )
+        )
+
     itens = []
-    if venda_ids:
-        itens = (
-            client.table("itens_venda")
-            .select("venda_id,valor_total_venda")
-            .in_("venda_id", venda_ids)
-            .execute()
-            .data
+    for lote_vendas in em_lotes(venda["id"] for venda in vendas):
+        itens.extend(
+            executar_paginado(
+                lambda lote_vendas=lote_vendas: client.table("itens_venda")
+                .select("id,venda_id,valor_total_venda")
+                .in_("venda_id", lote_vendas)
+                .order("id")
+            )
         )
     valor_por_venda: dict[str, float] = {}
     for item in itens:
@@ -325,6 +333,117 @@ def _dados_do_periodo(
     return dados
 
 
+_CAMPOS_TOTAIS_DINHEIRO = ("faturamentoTotal", "custoEstimado", "lucroEstimado")
+_CAMPOS_TOTAIS_INTEIROS = (
+    "quantidadeTotalProduzida",
+    "quantidadeTotalVendida",
+    "quantidadeTotalSobrando",
+    "quantidadeSobraAproveitada",
+    "quantidadeSobraDescartada",
+    "quantidadeVendas",
+)
+_CAMPOS_PRODUTO_DINHEIRO = ("faturamento", "custoEstimado", "lucroEstimado")
+_CAMPOS_PRODUTO_INTEIROS = (
+    "totalProduzido",
+    "totalVendido",
+    "totalSobrando",
+    "totalSobraAproveitada",
+    "totalSobraDescartada",
+    "diasEsgotado",
+)
+
+
+def _decimal(valor) -> Decimal:
+    try:
+        return Decimal(str(valor or 0))
+    except Exception:  # noqa: BLE001 - dados antigos podem conter valores inesperados
+        return Decimal("0")
+
+
+def _inteiro(valor) -> int:
+    try:
+        return int(round(float(valor or 0)))
+    except (TypeError, ValueError):
+        return 0
+
+
+def _mesclar_dados_do_periodo(
+    blocos: list[dict],
+    *,
+    data_inicio: date,
+    data_fim: date,
+) -> dict:
+    """Mantem apenas agregados de cada bloco; nenhuma linha bruta atravessa o job."""
+
+    totais: dict[str, Decimal | int] = {
+        **{campo: Decimal("0") for campo in _CAMPOS_TOTAIS_DINHEIRO},
+        **{campo: 0 for campo in _CAMPOS_TOTAIS_INTEIROS},
+    }
+    produtos_por_id: dict[str, dict] = {}
+    horas: dict[int, dict] = {}
+    dias: list[dict] = []
+    correcoes: list[dict] = []
+
+    for bloco in blocos:
+        for campo in _CAMPOS_TOTAIS_DINHEIRO:
+            totais[campo] += _decimal(bloco.get(campo))
+        for campo in _CAMPOS_TOTAIS_INTEIROS:
+            totais[campo] += _inteiro(bloco.get(campo))
+        dias.extend(bloco.get("dias") or [])
+        correcoes.extend(bloco.get("correcoesRetroativas") or [])
+
+        for produto in bloco.get("produtos") or []:
+            produto_id = str(produto.get("produtoId") or produto.get("produto") or "produto")
+            acumulado = produtos_por_id.setdefault(
+                produto_id,
+                {
+                    "produtoId": produto.get("produtoId"),
+                    "produto": produto.get("produto") or "Produto",
+                    **{campo: Decimal("0") for campo in _CAMPOS_PRODUTO_DINHEIRO},
+                    **{campo: 0 for campo in _CAMPOS_PRODUTO_INTEIROS},
+                },
+            )
+            for campo in _CAMPOS_PRODUTO_DINHEIRO:
+                acumulado[campo] += _decimal(produto.get(campo))
+            for campo in _CAMPOS_PRODUTO_INTEIROS:
+                acumulado[campo] += _inteiro(produto.get(campo))
+
+        for faixa in bloco.get("vendasPorHora") or []:
+            hora = _inteiro(faixa.get("hora"))
+            acumulado_hora = horas.setdefault(
+                hora, {"hora": hora, "vendas": 0, "faturamento": Decimal("0")}
+            )
+            acumulado_hora["vendas"] += _inteiro(faixa.get("vendas"))
+            acumulado_hora["faturamento"] += _decimal(faixa.get("faturamento"))
+
+    inicio_formatado = data_inicio.strftime("%d/%m/%Y")
+    fim_formatado = data_fim.strftime("%d/%m/%Y")
+    return {
+        "periodo": {
+            "inicio": data_inicio.isoformat(),
+            "fim": data_fim.isoformat(),
+            "inicioFormatado": inicio_formatado,
+            "fimFormatado": fim_formatado,
+            "rotulo": f"{inicio_formatado} a {fim_formatado}",
+        },
+        **totais,
+        "produtos": sorted(
+            produtos_por_id.values(),
+            key=lambda produto: produto["totalVendido"],
+            reverse=True,
+        ),
+        "dias": sorted(dias, key=lambda dia: str(dia.get("data") or "")),
+        "correcoesRetroativas": correcoes,
+        "vendasPorHora": [
+            {
+                **horas[hora],
+                "faturamento": round(float(horas[hora]["faturamento"]), 2),
+            }
+            for hora in sorted(horas)
+        ],
+    }
+
+
 def processar_relatorio(relatorio_id: UUID | str) -> None:
     linha = _reivindicar(relatorio_id)
     if not linha:
@@ -335,19 +454,66 @@ def processar_relatorio(relatorio_id: UUID | str) -> None:
         tamanho = (data_fim - data_inicio).days + 1
         anterior_fim = data_inicio - timedelta(days=1)
         anterior_inicio = data_inicio - timedelta(days=tamanho)
+        blocos_atual = dividir_periodo_em_blocos(
+            data_inicio, data_fim, mais_recentes_primeiro=True
+        )
+        blocos_anterior = dividir_periodo_em_blocos(
+            anterior_inicio, anterior_fim, mais_recentes_primeiro=True
+        )
+        total_blocos = len(blocos_atual) + len(blocos_anterior)
+        concluidos = 0
+        dados_atuais = []
+        dados_anteriores = []
+
         _atualizar(
             relatorio_id,
-            {"progresso": 30, "etapa": "Conferindo vendas, producao e custos"},
+            {
+                "progresso": 18,
+                "etapa": f"Lendo os dados aos poucos (0 de {total_blocos} blocos)",
+            },
         )
-        atual = _dados_do_periodo(
-            usuario_id=linha["usuario_id"],
-            data_inicio=data_inicio,
-            data_fim=data_fim,
+        for inicio_bloco, fim_bloco in blocos_atual:
+            dados_atuais.append(
+                _dados_do_periodo(
+                    usuario_id=linha["usuario_id"],
+                    data_inicio=inicio_bloco,
+                    data_fim=fim_bloco,
+                )
+            )
+            concluidos += 1
+            _atualizar(
+                relatorio_id,
+                {
+                    "progresso": 18 + int((concluidos / total_blocos) * 44),
+                    "etapa": (
+                        f"Lendo os dados aos poucos ({concluidos} de {total_blocos} blocos)"
+                    ),
+                },
+            )
+        for inicio_bloco, fim_bloco in blocos_anterior:
+            dados_anteriores.append(
+                _dados_do_periodo(
+                    usuario_id=linha["usuario_id"],
+                    data_inicio=inicio_bloco,
+                    data_fim=fim_bloco,
+                )
+            )
+            concluidos += 1
+            _atualizar(
+                relatorio_id,
+                {
+                    "progresso": 18 + int((concluidos / total_blocos) * 44),
+                    "etapa": (
+                        f"Lendo os dados aos poucos ({concluidos} de {total_blocos} blocos)"
+                    ),
+                },
+            )
+
+        atual = _mesclar_dados_do_periodo(
+            dados_atuais, data_inicio=data_inicio, data_fim=data_fim
         )
-        anterior = _dados_do_periodo(
-            usuario_id=linha["usuario_id"],
-            data_inicio=anterior_inicio,
-            data_fim=anterior_fim,
+        anterior = _mesclar_dados_do_periodo(
+            dados_anteriores, data_inicio=anterior_inicio, data_fim=anterior_fim
         )
         _atualizar(
             relatorio_id,

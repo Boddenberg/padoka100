@@ -21,6 +21,7 @@ class ConsultaFake:
         self.filtros: list[tuple[str, object]] = []
         self.payload = None
         self.operacao = "select"
+        self._intervalo: tuple[int, int] | None = None
 
     def select(self, *_args):
         return self
@@ -69,12 +70,20 @@ class ConsultaFake:
     def limit(self, *_args):
         return self
 
+    def range(self, inicio: int, fim: int):
+        self._intervalo = (inicio, fim)
+        return self
+
     def execute(self):
         if self.operacao == "insert":
             if isinstance(self.payload, list):
                 return ResultadoFake([{"id": FAKE_ID, **linha} for linha in self.payload])
             return ResultadoFake([{"id": FAKE_ID, **self.payload}])
-        return ResultadoFake(self._dados)
+        dados = self._dados
+        if self._intervalo is not None:
+            inicio, fim = self._intervalo
+            dados = dados[inicio : fim + 1]
+        return ResultadoFake(dados)
 
 
 class ClienteFake:

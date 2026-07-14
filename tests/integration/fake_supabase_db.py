@@ -54,6 +54,7 @@ class ConsultaFake:
         self._filtros = []
         self._ordens: list[tuple[str, bool]] = []
         self._limite: int | None = None
+        self._intervalo: tuple[int, int] | None = None
         self._operacao = "select"
         self._payload = None
 
@@ -160,6 +161,10 @@ class ConsultaFake:
         self._limite = quantidade
         return self
 
+    def range(self, inicio: int, fim: int):
+        self._intervalo = (inicio, fim)
+        return self
+
     # -- execucao -----------------------------------------------------------
     def execute(self) -> ResultadoFake:
         linhas = self._banco.tabelas.setdefault(self._tabela, [])
@@ -185,6 +190,9 @@ class ConsultaFake:
             )
         if self._limite is not None:
             selecionadas = selecionadas[: self._limite]
+        if self._intervalo is not None:
+            inicio, fim = self._intervalo
+            selecionadas = selecionadas[inicio : fim + 1]
         return ResultadoFake([dict(linha) for linha in selecionadas])
 
     def _passa_filtros(self, linha: dict) -> bool:
