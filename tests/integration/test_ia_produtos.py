@@ -89,6 +89,38 @@ def test_ia_pede_preco_antes_de_cadastrar_produto(client):
     assert "preco de venda" in dados["mensagem_assistente"]
 
 
+def test_ia_threads_expoem_tentativas_e_rejeicao(client):
+    conta = registrar_e_logar(client, "ia-thread@padoka.test", "IA Thread")
+    promover_plano(client, conta["usuario"]["id"], "admin")
+
+    interpretacao = client.post(
+        "/api/v1/ia/interpretar-comando",
+        json={"texto": "cadastre produto Pao de Sal por R$ 1,00"},
+        headers=conta["headers"],
+    )
+    assert interpretacao.status_code == 200, interpretacao.text
+    dados = interpretacao.json()
+    assert dados["thread_id"]
+
+    rejeicao = client.post(
+        f"/api/v1/ia/interacoes/{dados['interacao_ia_id']}/rejeitar",
+        json={"motivo": "Resposta ficou errada"},
+        headers=conta["headers"],
+    )
+    assert rejeicao.status_code == 200, rejeicao.text
+    assert rejeicao.json()["resultado"]["rejeitada"] is True
+
+    timeline = client.get(
+        f"/api/v1/ia/threads?thread_id={dados['thread_id']}",
+        headers=conta["headers"],
+    )
+    assert timeline.status_code == 200, timeline.text
+    thread = timeline.json()[0]
+    assert thread["thread_id"] == dados["thread_id"]
+    assert thread["desfecho"] == "rejeitada"
+    assert thread["interacoes"][0]["motivo_rejeicao"] == "Resposta ficou errada"
+
+
 def test_ia_importa_cardapio_por_foto_e_cadastra_todos(monkeypatch, client):
     conta = registrar_e_logar(client, "ia-cardapio@padoka.test", "IA Cardapio")
     promover_plano(client, conta["usuario"]["id"], "ia")

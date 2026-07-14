@@ -3,9 +3,9 @@ import io
 import json
 import logging
 import re
-from datetime import date, timedelta
+from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from fastapi import UploadFile
 
@@ -19,14 +19,14 @@ from app.core.errors import (
 )
 from app.db.openai import get_openai_client
 from app.db.supabase import get_supabase_client
-from app.infra.supabase.result import executar_lista_opcional, tabela_ausente
+from app.infra.supabase.result import coluna_ausente, executar_lista_opcional, tabela_ausente
 from app.modules.dias_de_venda import servico as servico_de_dias_de_venda
 from app.modules.dias_de_venda.esquemas import (
     RequisicaoCriarDiaDeVenda,
     RequisicaoCriarItemProducao,
     RequisicaoFecharDiaDeVenda,
 )
-from app.modules.ia import midias_recebidas
+from app.modules.ia import midias_recebidas, threads
 from app.modules.ia.domain import acoes as _acoes
 from app.modules.ia.domain import analise as _analise
 from app.modules.ia.domain import fallback as _fallback
@@ -117,6 +117,7 @@ def interpretar_comando(
     usuario_id: UUID | str | None = None,
 ) -> dict:
     settings = get_settings()
+    thread_id = requisicao.thread_id or uuid4()
     produtos = produtos_public.listar_produtos_ativos(usuario_id=usuario_id)
 
     modelo_usado = "fallback-parser"
@@ -163,18 +164,23 @@ def interpretar_comando(
         acao_interpretada=interpretacao,
         dados_confirmacao=dados_confirmacao,
         usuario_id=usuario_id,
+        thread_id=thread_id,
     )
+    thread_id = interacao.get("thread_id") or thread_id
 
     dados_confirmacao["interacao_ia_id"] = interacao["id"]
     if dados_confirmacao.get("venda"):
         dados_confirmacao["venda"]["interacao_ia_id"] = interacao["id"]
-    get_supabase_client().table("interacoes_ia").update(
-        to_db_payload({"dados_confirmacao": dados_confirmacao})
-    ).eq("id", interacao["id"]).execute()
+    _atualizar_interacao_ia(
+        get_supabase_client(),
+        interacao["id"],
+        {"dados_confirmacao": dados_confirmacao},
+    )
 
     mensagem_confirmacao = dados_confirmacao.get("mensagem_confirmacao")
     return {
         "interacao_ia_id": interacao["id"],
+        "thread_id": thread_id,
         "acao": dados_confirmacao["acao"],
         "precisa_confirmacao": dados_confirmacao["precisa_confirmacao"],
         "mensagem_assistente": mensagem_confirmacao or interpretacao["mensagem_assistente"],
@@ -489,10 +495,33 @@ def interpretar_comando_de_venda(
 def listar_midias_recebidas_por_ia(
     *,
     item: str | None = None,
+    thread_id: UUID | str | None = None,
     usuario_id: UUID | str | None = None,
     limite: int = 100,
 ) -> list[dict]:
-    return midias_recebidas.listar(item=item, usuario_id=usuario_id, limite=limite)
+    return midias_recebidas.listar(
+        item=item,
+        thread_id=thread_id,
+        usuario_id=usuario_id,
+        limite=limite,
+    )
+
+
+def listar_threads_de_ia(
+    *,
+    thread_id: UUID | str | None = None,
+    usuario_id: UUID | str | None = None,
+    situacao: str | None = None,
+    limite_threads: int = 50,
+    limite_interacoes: int = 200,
+) -> list[dict]:
+    return threads.listar(
+        thread_id=thread_id,
+        usuario_id=usuario_id,
+        situacao=situacao,
+        limite_threads=limite_threads,
+        limite_interacoes=limite_interacoes,
+    )
 
 
 async def transcrever_audio(
@@ -500,6 +529,7 @@ async def transcrever_audio(
     file: UploadFile,
     dia_de_venda_id: UUID | None = None,
     interpretar: bool = True,
+    thread_id: UUID | None = None,
     usuario_id: UUID | str | None = None,
     usuario_nome: str | None = None,
 ) -> dict:
@@ -530,17 +560,20 @@ async def transcrever_audio(
     url_audio = None
     interacao_ia_id = None
     midia_audio = None
+    thread_id_resposta = thread_id or uuid4()
 
     if interpretar:
         interpretacao = interpretar_comando(
             RequisicaoInterpretarComandoDeIA(
                 texto=transcricao,
                 dia_de_venda_id=dia_de_venda_id,
+                thread_id=thread_id_resposta,
             ),
             tipo_entrada="audio",
             usuario_id=usuario_id,
         )
         interacao_ia_id = interpretacao["interacao_ia_id"]
+        thread_id_resposta = interpretacao["thread_id"]
         midia_audio = enviar_midia_em_bytes(
             tipo_entidade="interacao_ia",
             entidade_id=UUID(str(interacao_ia_id)),
@@ -557,23 +590,28 @@ async def transcrever_audio(
         )
         interpretacao["dados_confirmacao"] = dados_confirmacao
         interpretacao["mensagem_confirmacao"] = dados_confirmacao.get("mensagem_confirmacao")
-        get_supabase_client().table("interacoes_ia").update(
-            to_db_payload({"url_audio": url_audio, "dados_confirmacao": dados_confirmacao})
-        ).eq("id", interpretacao["interacao_ia_id"]).execute()
+        _atualizar_interacao_ia(
+            get_supabase_client(),
+            interpretacao["interacao_ia_id"],
+            {"url_audio": url_audio, "dados_confirmacao": dados_confirmacao},
+        )
 
     midias_recebidas.registrar(
         item="audio",
         usuario_id=usuario_id,
         usuario_nome=usuario_nome,
+        thread_id=thread_id_resposta,
         interacao_ia_id=interacao_ia_id,
         midia_id=(midia_audio or {}).get("id"),
         nome_arquivo=file.filename,
         url_publica=url_audio,
         tipo_conteudo=file.content_type,
+        resposta_ia=_resposta_ia_do_payload(interpretacao),
     )
 
     return {
         "transcricao": transcricao,
+        "thread_id": thread_id_resposta,
         "url_audio": url_audio,
         "interpretacao": interpretacao,
     }
@@ -584,6 +622,7 @@ async def transcrever_audio_de_venda(
     file: UploadFile,
     dia_de_venda_id: UUID | None = None,
     interpretar: bool = True,
+    thread_id: UUID | None = None,
     usuario_id: UUID | str | None = None,
     usuario_nome: str | None = None,
 ) -> dict:
@@ -591,6 +630,7 @@ async def transcrever_audio_de_venda(
         file=file,
         dia_de_venda_id=dia_de_venda_id,
         interpretar=interpretar,
+        thread_id=thread_id,
         usuario_id=usuario_id,
         usuario_nome=usuario_nome,
     )
@@ -600,6 +640,7 @@ async def importar_cardapio_por_imagem(
     *,
     file: UploadFile,
     contexto: str | None = None,
+    thread_id: UUID | None = None,
     usuario_id: UUID | str | None = None,
     usuario_nome: str | None = None,
 ) -> dict:
@@ -615,6 +656,7 @@ async def importar_cardapio_por_imagem(
     )
     interpretacao = _montar_interpretacao_de_cardapio(extraidos, contexto=contexto)
     dados_confirmacao = _montar_confirmacao_de_produtos(interpretacao)
+    thread_id = thread_id or uuid4()
     interacao = _criar_interacao_ia(
         dia_de_venda_id=None,
         tipo_entrada="imagem",
@@ -623,9 +665,13 @@ async def importar_cardapio_por_imagem(
         acao_interpretada=interpretacao,
         dados_confirmacao=dados_confirmacao,
         usuario_id=usuario_id,
+        thread_id=thread_id,
     )
+    thread_id = interacao.get("thread_id") or thread_id
+    interacao["thread_id"] = thread_id
     dados_confirmacao = _salvar_imagem_na_interacao(
         interacao_id=interacao["id"],
+        thread_id=thread_id,
         dados_confirmacao=dados_confirmacao,
         conteudo=conteudo,
         nome_arquivo=file.filename,
@@ -642,6 +688,7 @@ async def importar_producao_por_imagem(
     file: UploadFile,
     dia_de_venda_id: UUID | None = None,
     contexto: str | None = None,
+    thread_id: UUID | None = None,
     usuario_id: UUID | str | None = None,
     usuario_nome: str | None = None,
 ) -> dict:
@@ -666,6 +713,7 @@ async def importar_producao_por_imagem(
         url_audio=None,
         usuario_id=usuario_id,
     )
+    thread_id = thread_id or uuid4()
     interacao = _criar_interacao_ia(
         dia_de_venda_id=_extrair_dia_de_venda_id_para_interacao(
             dados_confirmacao,
@@ -677,9 +725,13 @@ async def importar_producao_por_imagem(
         acao_interpretada=interpretacao,
         dados_confirmacao=dados_confirmacao,
         usuario_id=usuario_id,
+        thread_id=thread_id,
     )
+    thread_id = interacao.get("thread_id") or thread_id
+    interacao["thread_id"] = thread_id
     dados_confirmacao = _salvar_imagem_na_interacao(
         interacao_id=interacao["id"],
+        thread_id=thread_id,
         dados_confirmacao=dados_confirmacao,
         conteudo=conteudo,
         nome_arquivo=file.filename,
@@ -717,6 +769,7 @@ def _montar_interpretacao_de_cardapio(extraidos: dict, *, contexto: str | None) 
 def _salvar_imagem_na_interacao(
     *,
     interacao_id: UUID | str,
+    thread_id: UUID | str | None,
     dados_confirmacao: dict,
     conteudo: bytes,
     nome_arquivo: str | None,
@@ -748,22 +801,22 @@ def _salvar_imagem_na_interacao(
         item="foto",
         usuario_id=usuario_id,
         usuario_nome=usuario_nome,
+        thread_id=thread_id,
         interacao_ia_id=interacao_id,
         midia_id=midia.get("id"),
         nome_arquivo=nome_arquivo,
         url_publica=midia.get("url_publica"),
         tipo_conteudo=tipo_conteudo,
+        resposta_ia=_resposta_ia_do_payload(dados_confirmacao),
     )
     dados_confirmacao["interacao_ia_id"] = interacao_id
     dados_confirmacao["url_imagem"] = midia.get("url_publica")
     dados_confirmacao["midia_id"] = midia.get("id")
-    get_supabase_client().table("interacoes_ia").update(
-        to_db_payload(
-            {
-                "dados_confirmacao": dados_confirmacao,
-            }
-        )
-    ).eq("id", interacao_id).execute()
+    _atualizar_interacao_ia(
+        get_supabase_client(),
+        interacao_id,
+        {"dados_confirmacao": dados_confirmacao},
+    )
     return dados_confirmacao
 
 
@@ -791,6 +844,7 @@ def _resposta_interpretacao_por_imagem(
     mensagem_confirmacao = dados_confirmacao.get("mensagem_confirmacao")
     return {
         "interacao_ia_id": interacao["id"],
+        "thread_id": interacao.get("thread_id"),
         "acao": dados_confirmacao["acao"],
         "precisa_confirmacao": dados_confirmacao["precisa_confirmacao"],
         "mensagem_assistente": mensagem_confirmacao or dados_confirmacao["mensagem_confirmacao"],
@@ -1111,12 +1165,14 @@ def confirmar_comando(interacao_ia_id: UUID, *, usuario_id: UUID | str | None = 
             interacao_ia_id,
             acao,
             "Essa confirmacao ja foi aplicada.",
+            thread_id=interacao.get("thread_id"),
         )
     if interacao["situacao"] != "interpretada":
         return _resposta_confirmacao_nao_aplicada(
             interacao_ia_id,
             acao,
             "Essa interacao de IA nao esta pronta para confirmacao.",
+            thread_id=interacao.get("thread_id"),
         )
 
     if not dados_confirmacao.get("precisa_confirmacao"):
@@ -1124,6 +1180,7 @@ def confirmar_comando(interacao_ia_id: UUID, *, usuario_id: UUID | str | None = 
             interacao_ia_id,
             acao,
             "Essa interacao nao tem nenhuma acao pronta para confirmar.",
+            thread_id=interacao.get("thread_id"),
         )
     operacao = dados_confirmacao.get("operacao")
     if not operacao:
@@ -1131,6 +1188,7 @@ def confirmar_comando(interacao_ia_id: UUID, *, usuario_id: UUID | str | None = 
             interacao_ia_id,
             acao,
             "Essa interacao nao tem uma operacao pronta para confirmar.",
+            thread_id=interacao.get("thread_id"),
         )
 
     try:
@@ -1142,14 +1200,18 @@ def confirmar_comando(interacao_ia_id: UUID, *, usuario_id: UUID | str | None = 
         )
     except AppError as exc:
         mensagem = _mensagem_falha_confirmacao(exc)
-        client.table("interacoes_ia").update(
+        _atualizar_interacao_ia(
+            client,
+            interacao_ia_id,
             {
                 "situacao": "falhou",
                 "mensagem_erro": mensagem,
-            }
-        ).eq("id", str(interacao_ia_id)).execute()
+                "resolvido_em": datetime.now(UTC),
+            },
+        )
         return {
             "interacao_ia_id": interacao_ia_id,
+            "thread_id": interacao.get("thread_id"),
             "acao": dados_confirmacao.get("acao", operacao.get("tipo")),
             "sucesso": False,
             "mensagem_assistente": mensagem,
@@ -1161,15 +1223,17 @@ def confirmar_comando(interacao_ia_id: UUID, *, usuario_id: UUID | str | None = 
             },
         }
 
-    client.table("interacoes_ia").update({"situacao": "confirmada"}).eq(
-        "id",
-        str(interacao_ia_id),
-    ).execute()
+    _atualizar_interacao_ia(
+        client,
+        interacao_ia_id,
+        {"situacao": "confirmada", "resolvido_em": datetime.now(UTC)},
+    )
     mensagem = _mensagem_sucesso_confirmacao(
         dados_confirmacao.get("acao", operacao.get("tipo"))
     )
     return {
         "interacao_ia_id": interacao_ia_id,
+        "thread_id": interacao.get("thread_id"),
         "acao": dados_confirmacao.get("acao", operacao.get("tipo")),
         "sucesso": True,
         "mensagem_assistente": mensagem,
@@ -1192,6 +1256,7 @@ def confirmar_venda(interacao_ia_id: UUID, *, usuario_id: UUID | str | None = No
         )
         return {
             "interacao_ia_id": interacao_ia_id,
+            "thread_id": interacao.get("thread_id"),
             "sucesso": False,
             "mensagem_assistente": mensagem,
             "venda": None,
@@ -1206,6 +1271,7 @@ def confirmar_venda(interacao_ia_id: UUID, *, usuario_id: UUID | str | None = No
     if not venda:
         return {
             "interacao_ia_id": interacao_ia_id,
+            "thread_id": confirmacao.get("thread_id") or interacao.get("thread_id"),
             "sucesso": False,
             "mensagem_assistente": confirmacao.get("mensagem_assistente"),
             "venda": None,
@@ -1213,10 +1279,70 @@ def confirmar_venda(interacao_ia_id: UUID, *, usuario_id: UUID | str | None = No
         }
     return {
         "interacao_ia_id": interacao_ia_id,
+        "thread_id": confirmacao.get("thread_id") or interacao.get("thread_id"),
         "sucesso": True,
         "mensagem_assistente": confirmacao.get("mensagem_assistente"),
         "venda": venda,
         "resultado": confirmacao["resultado"],
+    }
+
+
+def rejeitar_comando(
+    interacao_ia_id: UUID,
+    *,
+    motivo: str | None = None,
+    usuario_id: UUID | str | None = None,
+) -> dict:
+    client = get_supabase_client()
+    interacao = _buscar_interacao_ia(client, interacao_ia_id, usuario_id=usuario_id)
+    if interacao["situacao"] == "confirmada":
+        mensagem = "Essa interacao ja foi confirmada e nao pode mais ser rejeitada."
+        return {
+            "interacao_ia_id": interacao_ia_id,
+            "thread_id": interacao.get("thread_id"),
+            "sucesso": False,
+            "mensagem_assistente": mensagem,
+            "resultado": {
+                "rejeitada": False,
+                "mensagem": mensagem,
+                "situacao": interacao["situacao"],
+            },
+        }
+    if interacao["situacao"] == "rejeitada":
+        mensagem = "Essa interacao ja estava rejeitada."
+        return {
+            "interacao_ia_id": interacao_ia_id,
+            "thread_id": interacao.get("thread_id"),
+            "sucesso": True,
+            "mensagem_assistente": mensagem,
+            "resultado": {
+                "rejeitada": True,
+                "mensagem": mensagem,
+                "situacao": "rejeitada",
+            },
+        }
+
+    _atualizar_interacao_ia(
+        client,
+        interacao_ia_id,
+        {
+            "situacao": "rejeitada",
+            "motivo_rejeicao": motivo,
+            "resolvido_em": datetime.now(UTC),
+        },
+    )
+    mensagem = "Tudo bem, descartei essa interpretacao."
+    return {
+        "interacao_ia_id": interacao_ia_id,
+        "thread_id": interacao.get("thread_id"),
+        "sucesso": True,
+        "mensagem_assistente": mensagem,
+        "resultado": {
+            "rejeitada": True,
+            "mensagem": mensagem,
+            "situacao": "rejeitada",
+            "motivo": motivo,
+        },
     }
 
 
@@ -2340,6 +2466,7 @@ def _validar_itens_com_preco_na_data(
 def _criar_interacao_ia(
     *,
     dia_de_venda_id: UUID | str | None,
+    thread_id: UUID | str | None,
     tipo_entrada: str,
     texto_original: str,
     url_audio: str | None,
@@ -2347,26 +2474,64 @@ def _criar_interacao_ia(
     dados_confirmacao: dict,
     usuario_id: UUID | str | None = None,
 ) -> dict:
-    return (
-        get_supabase_client()
-        .table("interacoes_ia")
-        .insert(
-            to_db_payload(
-                {
-                    "dia_de_venda_id": dia_de_venda_id,
-                    "tipo_entrada": tipo_entrada,
-                    "texto_original": texto_original,
-                    "url_audio": url_audio,
-                    "acao_interpretada": acao_interpretada,
-                    "dados_confirmacao": dados_confirmacao,
-                    "situacao": "interpretada",
-                    "usuario_id": usuario_id,
-                }
-            )
-        )
-        .execute()
-        .data[0]
+    thread_id = thread_id or uuid4()
+    payload = to_db_payload(
+        {
+            "dia_de_venda_id": dia_de_venda_id,
+            "thread_id": thread_id,
+            "tipo_entrada": tipo_entrada,
+            "texto_original": texto_original,
+            "url_audio": url_audio,
+            "acao_interpretada": acao_interpretada,
+            "dados_confirmacao": dados_confirmacao,
+            "situacao": "interpretada",
+            "usuario_id": usuario_id,
+        }
     )
+    try:
+        interacao = _inserir_interacao_ia(payload)
+    except Exception as exc:
+        if not coluna_ausente(exc, "thread_id"):
+            raise
+        payload_sem_thread = {**payload}
+        payload_sem_thread.pop("thread_id", None)
+        interacao = _inserir_interacao_ia(payload_sem_thread)
+        interacao["thread_id"] = str(thread_id)
+    return interacao
+
+
+def _inserir_interacao_ia(payload: dict) -> dict:
+    return get_supabase_client().table("interacoes_ia").insert(payload).execute().data[0]
+
+
+def _atualizar_interacao_ia(client, interacao_ia_id: UUID | str, payload: dict) -> None:
+    payload_db = to_db_payload(payload)
+    try:
+        client.table("interacoes_ia").update(payload_db).eq("id", str(interacao_ia_id)).execute()
+    except Exception as exc:
+        payload_fallback = payload_db
+        while True:
+            payload_ajustado = _remover_colunas_ausentes_da_interacao(payload_fallback, exc)
+            if payload_ajustado == payload_fallback:
+                raise
+            try:
+                client.table("interacoes_ia").update(payload_ajustado).eq(
+                    "id",
+                    str(interacao_ia_id),
+                ).execute()
+                return
+            except Exception as exc_retry:  # noqa: BLE001
+                exc = exc_retry
+                payload_fallback = payload_ajustado
+
+
+def _remover_colunas_ausentes_da_interacao(payload: dict, exc: Exception) -> dict:
+    ajustado = {**payload}
+    for coluna in ("resolvido_em", "motivo_rejeicao"):
+        if coluna_ausente(exc, coluna) and coluna in ajustado:
+            logger.warning("Coluna interacoes_ia.%s ainda nao esta disponivel", coluna)
+            ajustado.pop(coluna, None)
+    return ajustado
 
 
 def _buscar_interacao_ia(
@@ -2496,6 +2661,12 @@ def _anexar_url_audio_em_dados_confirmacao(dados_confirmacao: dict, url_audio: s
     return dados_confirmacao
 
 
+def _resposta_ia_do_payload(payload: dict | None) -> str | None:
+    if not payload:
+        return None
+    return payload.get("mensagem_assistente") or payload.get("mensagem_confirmacao")
+
+
 def _dados_sem_confirmacao(acao: str, mensagem: str) -> dict:
     return {
         "acao": acao,
@@ -2509,9 +2680,12 @@ def _resposta_confirmacao_nao_aplicada(
     interacao_ia_id: UUID,
     acao: str | None,
     mensagem: str,
+    *,
+    thread_id: UUID | str | None = None,
 ) -> dict:
     return {
         "interacao_ia_id": interacao_ia_id,
+        "thread_id": thread_id,
         "acao": acao or ACAO_DESCONHECIDO,
         "sucesso": False,
         "mensagem_assistente": mensagem,

@@ -290,11 +290,14 @@ curl -X POST http://localhost:8000/api/v1/ia/interpretar-comando \
   -H "Content-Type: application/json" \
   -d '{
     "dia_de_venda_id": "DIA_DE_VENDA_ID",
+    "thread_id": "THREAD_ID_OPCIONAL",
     "texto": "producao de hoje foi 10 paes de calabresa e 10 paes de queijo"
   }'
 ```
 
 A resposta traz `mensagem_confirmacao` e `dados_confirmacao`. O front deve mostrar a mensagem para o usuario e so chamar a confirmacao se ele aceitar.
+Tambem traz `thread_id`; guarde esse valor para agrupar novas tentativas do
+mesmo assunto.
 
 Para comandos com varios produtos na mesma acao, como `fiz 15 paes de soja e 15 paes de queijo`, a resposta vem com todos os itens em uma unica confirmacao. Nao e necessario criar um botao por item para esse fluxo.
 
@@ -332,16 +335,127 @@ curl -X POST http://localhost:8000/api/v1/ia/interacoes/INTERACAO_IA_ID/confirma
 curl -X POST http://localhost:8000/api/v1/ia/transcrever-audio \
   -F "file=@venda.webm" \
   -F "dia_de_venda_id=DIA_DE_VENDA_ID" \
-  -F "interpretar=true"
+  -F "interpretar=true" \
+  -F "thread_id=THREAD_ID_OPCIONAL"
 ```
 
 O audio e salvo no Supabase Storage e associado a `interacoes_ia` quando `interpretar=true`.
+Quando `thread_id` nao e enviado, a API cria um novo e devolve na resposta. Reuse
+esse mesmo `thread_id` nas proximas tentativas do mesmo assunto.
 
 O mesmo endpoint aceita comandos de cadastro de produto por voz. Exemplo de fala:
 `cadastre broa de milho por sete reais e cinquenta`. A resposta vem como
 `acao: criar_produto` e deve ser confirmada em `/ia/interacoes/{id}/confirmar`.
 
-## 9.1. Importar producao por foto
+Resposta resumida:
+
+```json
+{
+  "transcricao": "cadastre um pao de sal por um real",
+  "thread_id": "THREAD_ID",
+  "url_audio": "https://...",
+  "interpretacao": {
+    "interacao_ia_id": "INTERACAO_IA_ID",
+    "thread_id": "THREAD_ID",
+    "acao": "criar_produto",
+    "precisa_confirmacao": true,
+    "mensagem_assistente": "Entendi que devo cadastrar pao de sal com preco de venda R$ 1,00. Confirma?",
+    "mensagem_confirmacao": "Entendi que devo cadastrar pao de sal com preco de venda R$ 1,00. Confirma?"
+  }
+}
+```
+
+## 9.1. Listar midias recebidas pela IA
+
+Endpoint administrativo para troubleshooting do que os usuarios enviaram por
+audio ou foto para a IA. `resposta_ia` e o snapshot da mensagem que a API
+devolveu ao usuario naquele envio.
+
+```bash
+curl "http://localhost:8000/api/v1/ia/midias-recebidas?thread_id=THREAD_ID&limite=50" \
+  -H "Authorization: Bearer TOKEN_ADMIN"
+```
+
+Resposta resumida:
+
+```json
+[
+  {
+    "id": "MIDIA_RECEBIDA_ID",
+    "thread_id": "THREAD_ID",
+    "usuario_id": "USUARIO_ID",
+    "usuario_nome_cadastrado": "Ana Padoka",
+    "data": "2026-07-13T12:00:00+00:00",
+    "item": "foto",
+    "interacao_ia_id": "INTERACAO_IA_ID",
+    "midia_id": "MIDIA_ID",
+    "nome_arquivo": "cardapio.jpg",
+    "url_publica": "https://...",
+    "tipo_conteudo": "image/jpeg",
+    "resposta_ia": "Encontrei 3 produto(s) no cardapio: Pao frances (R$ 1,00). Confirma?"
+  }
+]
+```
+
+## 9.2. Ver a thread completa da IA
+
+Endpoint administrativo para enxergar a recorrencia inteira: tentativas do
+usuario, resposta da IA, midias, status e desfecho.
+
+```bash
+curl "http://localhost:8000/api/v1/ia/threads?thread_id=THREAD_ID" \
+  -H "Authorization: Bearer TOKEN_ADMIN"
+```
+
+Resposta resumida:
+
+```json
+[
+  {
+    "thread_id": "THREAD_ID",
+    "usuario_id": "USUARIO_ID",
+    "usuario_nome_cadastrado": "Ana Padoka",
+    "primeira_interacao_em": "2026-07-13T12:00:00+00:00",
+    "ultima_interacao_em": "2026-07-13T12:03:00+00:00",
+    "desfecho": "confirmada",
+    "total_interacoes": 3,
+    "total_midias": 3,
+    "interacoes": [
+      {
+        "interacao_ia_id": "INTERACAO_IA_ID",
+        "data": "2026-07-13T12:03:00+00:00",
+        "tipo_entrada": "audio",
+        "texto_usuario": "cadastre um pao de sal por um real",
+        "resposta_ia": "Entendi que devo cadastrar pao de sal com preco de venda R$ 1,00. Confirma?",
+        "situacao": "confirmada",
+        "acao": "criar_produto",
+        "precisa_confirmacao": true,
+        "midias": [
+          {
+            "id": "MIDIA_RECEBIDA_ID",
+            "item": "audio",
+            "url_publica": "https://...",
+            "resposta_ia": "Entendi que devo cadastrar pao de sal com preco de venda R$ 1,00. Confirma?"
+          }
+        ]
+      }
+    ]
+  }
+]
+```
+
+Se o usuario nao aceitou a interpretacao, marque a interacao como rejeitada:
+
+```bash
+curl -X POST http://localhost:8000/api/v1/ia/interacoes/INTERACAO_IA_ID/rejeitar \
+  -H "Authorization: Bearer TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "motivo": "Resposta da IA ficou nada a ver"
+  }'
+```
+
+## 9.3. Importar producao por foto
 
 Use quando o usuario tira foto de uma lousa, folha ou anotacao de producao do
 dia. A imagem precisa conter quantidades produzidas, nao apenas precos de
@@ -353,7 +467,8 @@ curl -X POST http://localhost:8000/api/v1/ia/producao/importar-foto \
   -H "Authorization: Bearer TOKEN" \
   -F "file=@producao.jpg" \
   -F "dia_de_venda_id=DIA_DE_VENDA_ID" \
-  -F "contexto=Quadro de producao de hoje"
+  -F "contexto=Quadro de producao de hoje" \
+  -F "thread_id=THREAD_ID_OPCIONAL"
 ```
 
 Resposta resumida:
@@ -395,7 +510,7 @@ curl -X POST http://localhost:8000/api/v1/ia/interacoes/INTERACAO_IA_ID/confirma
   -H "Authorization: Bearer TOKEN"
 ```
 
-## 9.2. Importar cardapio por foto
+## 9.4. Importar cardapio por foto
 
 Use quando o usuario ja tem uma foto de menu/cardapio com produtos e precos.
 A API usa Vision para extrair a lista, salva a foto em `midias`, cria uma
@@ -405,7 +520,8 @@ interacao de IA e devolve uma confirmacao unica antes de cadastrar tudo.
 curl -X POST http://localhost:8000/api/v1/ia/produtos/importar-cardapio \
   -H "Authorization: Bearer TOKEN" \
   -F "file=@cardapio.jpg" \
-  -F "contexto=Cardapio vendido na banca"
+  -F "contexto=Cardapio vendido na banca" \
+  -F "thread_id=THREAD_ID_OPCIONAL"
 ```
 
 Resposta resumida:

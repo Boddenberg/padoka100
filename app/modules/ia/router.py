@@ -11,14 +11,17 @@ from app.modules.ia.esquemas import (
     RequisicaoAnalisePadrao,
     RequisicaoInterpretarComandoDeIA,
     RequisicaoInterpretarComandoDeVenda,
+    RequisicaoRejeitarComandoDeIA,
     RespostaAnaliseIA,
     RespostaConfirmarComandoDeIA,
     RespostaConfirmarVenda,
     RespostaDadosEstruturadosIA,
     RespostaInterpretarComandoDeIA,
     RespostaInterpretarComandoDeVenda,
+    RespostaRejeitarComandoDeIA,
     RespostaTranscreverAudioDeIA,
     RespostaTranscreverAudioDeVenda,
+    ThreadIA,
 )
 
 router = APIRouter(prefix="/ia", tags=["ia"])
@@ -49,13 +52,36 @@ def montar_dados_estruturados_periodo(
 def listar_midias_recebidas(
     _: IaTroubleshooting,
     item: Annotated[str | None, Query(pattern="^(audio|foto)$")] = None,
+    thread_id: Annotated[UUID | None, Query()] = None,
     usuario_id: Annotated[UUID | None, Query()] = None,
     limite: Annotated[int, Query(ge=1, le=500)] = 100,
 ) -> list[dict]:
     return servico.listar_midias_recebidas_por_ia(
         item=item,
+        thread_id=thread_id,
         usuario_id=usuario_id,
         limite=limite,
+    )
+
+
+@router.get("/threads", response_model=list[ThreadIA])
+def listar_threads_de_ia(
+    _: IaTroubleshooting,
+    thread_id: Annotated[UUID | None, Query()] = None,
+    usuario_id: Annotated[UUID | None, Query()] = None,
+    situacao: Annotated[
+        str | None,
+        Query(pattern="^(interpretada|confirmada|rejeitada|falhou)$"),
+    ] = None,
+    limite_threads: Annotated[int, Query(ge=1, le=100)] = 50,
+    limite_interacoes: Annotated[int, Query(ge=1, le=1000)] = 200,
+) -> list[dict]:
+    return servico.listar_threads_de_ia(
+        thread_id=thread_id,
+        usuario_id=usuario_id,
+        situacao=situacao,
+        limite_threads=limite_threads,
+        limite_interacoes=limite_interacoes,
     )
 
 
@@ -100,11 +126,13 @@ async def transcrever_audio(
     usuario: IaOperacional,
     dia_de_venda_id: Annotated[UUID | None, Form()] = None,
     interpretar: Annotated[bool, Form()] = True,
+    thread_id: Annotated[UUID | None, Form()] = None,
 ) -> dict:
     return await servico.transcrever_audio(
         file=file,
         dia_de_venda_id=dia_de_venda_id,
         interpretar=interpretar,
+        thread_id=thread_id,
         usuario_id=usuario["id"],
         usuario_nome=usuario.get("nome"),
     )
@@ -116,11 +144,13 @@ async def transcrever_audio_de_venda(
     usuario: IaOperacional,
     dia_de_venda_id: Annotated[UUID | None, Form()] = None,
     interpretar: Annotated[bool, Form()] = True,
+    thread_id: Annotated[UUID | None, Form()] = None,
 ) -> dict:
     return await servico.transcrever_audio_de_venda(
         file=file,
         dia_de_venda_id=dia_de_venda_id,
         interpretar=interpretar,
+        thread_id=thread_id,
         usuario_id=usuario["id"],
         usuario_nome=usuario.get("nome"),
     )
@@ -131,10 +161,12 @@ async def importar_cardapio_por_imagem(
     file: Annotated[UploadFile, File()],
     usuario: IaOperacional,
     contexto: Annotated[str | None, Form()] = None,
+    thread_id: Annotated[UUID | None, Form()] = None,
 ) -> dict:
     return await servico.importar_cardapio_por_imagem(
         file=file,
         contexto=contexto,
+        thread_id=thread_id,
         usuario_id=usuario["id"],
         usuario_nome=usuario.get("nome"),
     )
@@ -146,11 +178,13 @@ async def importar_producao_por_imagem(
     usuario: IaOperacional,
     dia_de_venda_id: Annotated[UUID | None, Form()] = None,
     contexto: Annotated[str | None, Form()] = None,
+    thread_id: Annotated[UUID | None, Form()] = None,
 ) -> dict:
     return await servico.importar_producao_por_imagem(
         file=file,
         dia_de_venda_id=dia_de_venda_id,
         contexto=contexto,
+        thread_id=thread_id,
         usuario_id=usuario["id"],
         usuario_nome=usuario.get("nome"),
     )
@@ -164,3 +198,19 @@ def confirmar_comando(interacao_ia_id: UUID, usuario: IaOperacional) -> dict:
 @router.post("/interacoes/{interacao_ia_id}/confirmar-venda", response_model=RespostaConfirmarVenda)
 def confirmar_venda(interacao_ia_id: UUID, usuario: IaOperacional) -> dict:
     return servico.confirmar_venda(interacao_ia_id, usuario_id=usuario["id"])
+
+
+@router.post(
+    "/interacoes/{interacao_ia_id}/rejeitar",
+    response_model=RespostaRejeitarComandoDeIA,
+)
+def rejeitar_comando(
+    interacao_ia_id: UUID,
+    requisicao: RequisicaoRejeitarComandoDeIA,
+    usuario: IaOperacional,
+) -> dict:
+    return servico.rejeitar_comando(
+        interacao_ia_id,
+        motivo=requisicao.motivo,
+        usuario_id=usuario["id"],
+    )
