@@ -420,6 +420,7 @@ Documentos de apoio:
 - [Planos de acesso](docs/ACCESS_PLANS.md)
 - [Contrato do custeio assistido](docs/CUSTEIO_ASSISTIDO_FRONT.md)
 - [Contrato de notificacoes](docs/NOTIFICACOES_FRONT.md)
+- [Seed de vendas fake](docs/SEED_VENDAS_FAKE.md)
 - [Deploy](docs/DEPLOYMENT.md)
 - [Insomnia collection](docs/padoka100-insomnia-collection.json)
 
