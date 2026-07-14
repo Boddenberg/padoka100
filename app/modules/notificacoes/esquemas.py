@@ -114,6 +114,7 @@ class NotificacaoPublicaSaida(ApiModel):
     lida_em: datetime | None = None
     nova: bool = False
     midias: list[MidiaNotificacaoPublicaSaida] = Field(default_factory=list)
+    metadados: dict = Field(default_factory=dict)
 
 
 class EstadoNotificacaoSaida(ApiModel):

@@ -216,10 +216,15 @@ def montar_dados_estruturados_periodo(
             {
                 "data": dia["data"],
                 "status": dia["status"],
+                "nomeLocal": dia.get("nome_local"),
                 "faturamentoTotal": dia["faturamento_total"],
+                "custoEstimado": dia["custo_estimado"],
+                "lucroEstimado": dia["lucro_estimado"],
                 "quantidadeTotalProduzida": dia["total_produzido"],
                 "quantidadeTotalVendida": dia["total_vendido"],
                 "quantidadeTotalSobrando": dia["total_sobra"],
+                "quantidadeSobraAproveitada": dia["total_sobra_aproveitada"],
+                "quantidadeSobraDescartada": dia["total_sobra_descartada"],
                 "produtosEsgotados": [
                     produto["nome_produto"] for produto in dia["produtos_esgotados"]
                 ],
@@ -236,23 +241,39 @@ def montar_dados_estruturados_periodo(
                     "totalProduzido": 0,
                     "totalVendido": 0,
                     "totalSobrando": 0,
+                    "totalSobraAproveitada": 0,
+                    "totalSobraDescartada": 0,
                     "faturamento": 0,
+                    "custoEstimado": 0,
+                    "lucroEstimado": 0,
                     "diasEsgotado": 0,
                 },
             )
             acumulado["totalProduzido"] += produto["quantidade_produzida"]
             acumulado["totalVendido"] += produto["quantidade_vendida"]
             acumulado["totalSobrando"] += produto["quantidade_sobra"]
+            acumulado["totalSobraAproveitada"] += produto[
+                "quantidade_sobra_aproveitada"
+            ]
+            acumulado["totalSobraDescartada"] += produto[
+                "quantidade_sobra_descartada"
+            ]
             acumulado["faturamento"] += produto["faturamento_bruto"]
+            acumulado["custoEstimado"] += produto["custo_estimado"]
+            acumulado["lucroEstimado"] += produto["lucro_estimado"]
             if produto["esgotado"]:
                 acumulado["diasEsgotado"] += 1
 
     dados = {
         "periodo": _montar_periodo_estruturado(data_inicio_valor, data_fim_valor),
         "faturamentoTotal": resumo["faturamento_bruto"],
+        "custoEstimado": resumo["custo_estimado"],
+        "lucroEstimado": resumo["lucro_estimado"],
         "quantidadeTotalProduzida": resumo["total_produzido"],
         "quantidadeTotalVendida": resumo["total_vendido"],
         "quantidadeTotalSobrando": resumo["total_sobra"],
+        "quantidadeSobraAproveitada": resumo["total_sobra_aproveitada"],
+        "quantidadeSobraDescartada": resumo["total_sobra_descartada"],
         "produtos": sorted(
             produtos_por_id.values(),
             key=lambda produto: produto["totalVendido"],
@@ -274,7 +295,7 @@ def _montar_resumo_do_periodo_para_ia(
     client = get_supabase_client()
     consulta = (
         client.table("dias_de_venda")
-        .select("id, data_venda, situacao, aberto_em")
+        .select("id, data_venda, nome_local_no_momento, situacao, aberto_em")
         .gte("data_venda", data_inicio.isoformat())
         .lte("data_venda", data_fim.isoformat())
     )
@@ -359,6 +380,7 @@ def _montar_resumos_de_aberturas_para_ia(
                 "dia_de_venda_id": dia_id,
                 "data_venda": dia["data_venda"],
                 "data": dia["data_venda"],
+                "nome_local": dia.get("nome_local_no_momento"),
                 "situacao": dia["situacao"],
                 "status": dia["situacao"].upper(),
                 **totais,
@@ -396,6 +418,12 @@ def _consolidar_resumos_da_mesma_data_para_ia(resumos: list[dict]) -> dict:
         "dia_de_venda_id": resumos[-1]["dia_de_venda_id"],
         "data_venda": resumos[0]["data_venda"],
         "data": resumos[0]["data_venda"],
+        "nome_local": ", ".join(
+            dict.fromkeys(
+                resumo["nome_local"] for resumo in resumos if resumo.get("nome_local")
+            )
+        )
+        or None,
         "situacao": situacao,
         "status": situacao.upper(),
         **totais,

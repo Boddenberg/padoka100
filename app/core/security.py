@@ -21,6 +21,7 @@ _ROTAS_ISENTAS_EXATAS = (
 _PREFIXOS_ISENTOS = (
     "/notificacoes/",
     "/admin/notificacoes/",
+    "/analytics/relatorios/compartilhados/",
 )
 
 

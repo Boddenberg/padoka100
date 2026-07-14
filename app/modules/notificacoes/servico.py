@@ -33,7 +33,7 @@ def listar_notificacoes_publicas(
         limite=_limite_consulta_publica(limite, usuario),
         campos=(
             "id,titulo,corpo,status,publico,planos_alvo,usuario_alvo_id,"
-            "prioridade,midias,publicado_em,expira_em,criado_em"
+            "prioridade,midias,metadados,publicado_em,expira_em,criado_em"
         ),
     )
     linhas = [
@@ -443,7 +443,7 @@ def _buscar_notificacoes_visiveis_com_estado(
         client,
         campos=(
             "id,titulo,corpo,status,publico,planos_alvo,usuario_alvo_id,"
-            "prioridade,midias,publicado_em,expira_em,criado_em"
+            "prioridade,midias,metadados,publicado_em,expira_em,criado_em"
         ),
     )
     linhas = [
@@ -535,6 +535,7 @@ def _formatar_notificacao_publica(notificacao: dict) -> dict:
             _formatar_midia_publica(midia)
             for midia in (notificacao.get("midias") or [])
         ],
+        "metadados": notificacao.get("metadados") or {},
     }
 
 

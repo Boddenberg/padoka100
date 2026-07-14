@@ -1,6 +1,7 @@
 from fastapi import APIRouter
 
 from app.modules.admin.router import router as router_de_admin
+from app.modules.analytics_reports.router import router as router_de_analytics_reports
 from app.modules.auth.router import router as router_de_auth
 from app.modules.custos.router import router as router_de_custos
 from app.modules.dias_de_venda.router import router as router_de_dias_de_venda
@@ -23,6 +24,7 @@ api_router.include_router(router_de_locais)
 api_router.include_router(router_de_dias_de_venda)
 api_router.include_router(router_de_vendas)
 api_router.include_router(router_de_relatorios)
+api_router.include_router(router_de_analytics_reports)
 api_router.include_router(router_de_historico)
 api_router.include_router(router_de_midia)
 api_router.include_router(router_de_ia)

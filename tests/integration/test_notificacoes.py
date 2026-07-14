@@ -156,6 +156,7 @@ def test_feed_unico_prioriza_nao_lidas_e_resume_estado(client, banco):
         "lida_em",
         "nova",
         "midias",
+        "metadados",
     }
 
 

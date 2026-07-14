@@ -1,3 +1,6 @@
+import logging
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -11,13 +14,28 @@ from app.core.security import (
     resposta_api_key_invalida,
 )
 
+logger = logging.getLogger(__name__)
+
 
 def create_app() -> FastAPI:
     settings = get_settings()
+
+    @asynccontextmanager
+    async def lifespan(_: FastAPI):
+        if settings.supabase_configured:
+            try:
+                from app.modules.analytics_reports.worker import retomar_pendentes
+
+                retomar_pendentes()
+            except Exception:  # noqa: BLE001 - startup segue; endpoint permite retomar depois
+                logger.exception("Nao foi possivel retomar relatorios pendentes no startup")
+        yield
+
     app = FastAPI(
         title=settings.app_name,
         version="0.1.0",
         description="API para controle visual de producao e vendas da Padoka 100.",
+        lifespan=lifespan,
     )
 
     app.add_middleware(
