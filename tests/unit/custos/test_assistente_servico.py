@@ -310,3 +310,79 @@ def test_confirmacao_persiste_unidade_de_compra_inferida(monkeypatch):
     assert capturado["requisicao"].quantidade_comprada == Decimal("6")
     assert capturado["requisicao"].unidade_compra == "1l"
     assert capturado["requisicao"].preco_total == Decimal("32.94")
+
+
+class _FakeQuery:
+    def __init__(self, rows):
+        self._rows = rows
+        self.filtros = []
+
+    def select(self, *a, **k):
+        return self
+
+    def eq(self, campo, valor):
+        self.filtros.append(("eq", campo, valor))
+        return self
+
+    def neq(self, campo, valor):
+        self.filtros.append(("neq", campo, valor))
+        return self
+
+    def order(self, *a, **k):
+        return self
+
+    def limit(self, *a, **k):
+        return self
+
+    def execute(self):
+        class _R:
+            pass
+
+        r = _R()
+        r.data = self._rows
+        return r
+
+
+class _FakeClient:
+    def __init__(self, rows):
+        self.query = _FakeQuery(rows)
+
+    def table(self, _nome):
+        return self.query
+
+
+def _preparar_lookup(monkeypatch, rows):
+    cliente = _FakeClient(rows)
+    monkeypatch.setattr(assistente_servico, "get_supabase_client", lambda: cliente)
+    # Passa a sessão bruta adiante para checar QUAL foi escolhida sem tocar no DB.
+    monkeypatch.setattr(assistente_servico, "_montar_sessao_saida", lambda sessao: sessao)
+    return cliente
+
+
+def test_sessao_do_produto_prefere_a_confirmada(monkeypatch):
+    rows = [
+        {"id": "draft", "situacao": "rascunho", "criado_em": "2026-07-16"},
+        {"id": "conf", "situacao": "confirmado", "criado_em": "2026-07-15"},
+    ]
+    cliente = _preparar_lookup(monkeypatch, rows)
+    escolhida = assistente_servico.buscar_sessao_do_produto(PRODUTO_ID, usuario_id=PRODUTO_ID)
+    assert escolhida["id"] == "conf"
+    # Escopo por produto, por usuário e sem as descartadas.
+    assert ("eq", "produto_id", str(PRODUTO_ID)) in cliente.query.filtros
+    assert ("eq", "usuario_id", str(PRODUTO_ID)) in cliente.query.filtros
+    assert ("neq", "situacao", "descartado") in cliente.query.filtros
+
+
+def test_sessao_do_produto_usa_rascunho_mais_recente_sem_confirmada(monkeypatch):
+    rows = [
+        {"id": "novo", "situacao": "pronto_para_confirmar", "criado_em": "2026-07-16"},
+        {"id": "velho", "situacao": "rascunho", "criado_em": "2026-07-10"},
+    ]
+    _preparar_lookup(monkeypatch, rows)
+    escolhida = assistente_servico.buscar_sessao_do_produto(PRODUTO_ID)
+    assert escolhida["id"] == "novo"
+
+
+def test_sessao_do_produto_sem_sessoes_retorna_none(monkeypatch):
+    _preparar_lookup(monkeypatch, [])
+    assert assistente_servico.buscar_sessao_do_produto(PRODUTO_ID) is None

@@ -187,6 +187,16 @@ def buscar_sessao_de_custeio(sessao_id: UUID, usuario: AssistenteCusteio) -> dic
     return assistente_servico.buscar_sessao(sessao_id, usuario_id=usuario["id"])
 
 
+@router.get(
+    "/assistente/produtos/{produto_id}/sessao",
+    response_model=SessaoCusteioSaida | None,
+)
+def buscar_sessao_de_custeio_do_produto(
+    produto_id: UUID, usuario: AssistenteCusteio
+) -> dict | None:
+    return assistente_servico.buscar_sessao_do_produto(produto_id, usuario_id=usuario["id"])
+
+
 @router.post(
     "/assistente/sessoes/{sessao_id}/entradas/texto",
     response_model=SessaoCusteioSaida,

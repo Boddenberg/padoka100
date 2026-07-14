@@ -263,6 +263,33 @@ def buscar_sessao(sessao_id: UUID, *, usuario_id: UUID | str | None = None) -> d
     return _montar_sessao_saida(sessao)
 
 
+def buscar_sessao_do_produto(
+    produto_id: UUID,
+    *,
+    usuario_id: UUID | str | None = None,
+) -> dict | None:
+    """Última sessão de custeio de um produto, para o app reabrir o custo já
+    salvo mesmo num aparelho que não guardou a sessão localmente. Prefere a
+    sessão confirmada (o custo que valeu); na falta dela, o rascunho mais
+    recente. Descartadas ficam de fora."""
+    consulta = (
+        get_supabase_client()
+        .table("sessoes_custeio_assistido")
+        .select("*")
+        .eq("produto_id", str(produto_id))
+        .neq("situacao", "descartado")
+        .order("criado_em", desc=True)
+        .limit(20)
+    )
+    if usuario_id is not None:
+        consulta = consulta.eq("usuario_id", str(usuario_id))
+    sessoes = consulta.execute().data or []
+    if not sessoes:
+        return None
+    confirmada = next((s for s in sessoes if s.get("situacao") == "confirmado"), None)
+    return _montar_sessao_saida(confirmada or sessoes[0])
+
+
 def adicionar_entrada_texto(
     sessao_id: UUID,
     requisicao: RequisicaoEntradaTextoCusteio,
