@@ -20,6 +20,7 @@ TIPOS_DE_ENTIDADE_COM_MIDIA = {
     "usuario",
     "sessao_custeio",
     "notificacao",
+    "report",
 }
 
 TIPOS_CONTEUDO_BLOQUEADOS = {

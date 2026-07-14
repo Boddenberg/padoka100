@@ -12,6 +12,7 @@ from app.modules.notificacoes.router import router as router_de_notificacoes
 from app.modules.produtos.router import router as router_de_produtos
 from app.modules.rag.router import router as router_de_rag
 from app.modules.relatorios.router import router as router_de_relatorios
+from app.modules.reports.router import router as router_de_reports
 from app.modules.vendas.router import router as router_de_vendas
 
 api_router = APIRouter()
@@ -27,4 +28,5 @@ api_router.include_router(router_de_midia)
 api_router.include_router(router_de_ia)
 api_router.include_router(router_de_custos)
 api_router.include_router(router_de_notificacoes)
+api_router.include_router(router_de_reports)
 api_router.include_router(router_de_rag)

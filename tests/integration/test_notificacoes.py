@@ -89,6 +89,9 @@ def test_notificacao_para_usuario_especifico_e_estado_lido(client):
 def test_feed_unico_prioriza_nao_lidas_e_resume_estado(client, banco):
     usuario = registrar_e_logar(client, "feed@padoka.com", "Feed")
     agora = datetime.now(UTC)
+    # Conta criada bem antes destes avisos: todos ficam visiveis (o corte por
+    # data de criacao so esconde avisos anteriores a existencia da conta).
+    _antedatar_criacao_usuario(banco, usuario["usuario"]["id"], agora - timedelta(days=30))
     lida_id = str(uuid4())
     nao_lida_alta_id = str(uuid4())
     nao_lida_normal_id = str(uuid4())
@@ -158,6 +161,9 @@ def test_feed_unico_prioriza_nao_lidas_e_resume_estado(client, banco):
 
 def test_admin_exclui_notificacao_e_limpa_expiradas(client, banco):
     usuario = registrar_e_logar(client, "notificacoes@padoka.com", "Leitor")
+    _antedatar_criacao_usuario(
+        banco, usuario["usuario"]["id"], datetime.now(UTC) - timedelta(days=30)
+    )
     criada = client.post(
         "/api/v1/admin/notificacoes",
         headers=ADMIN_HEADERS,
@@ -217,6 +223,47 @@ def test_admin_exclui_notificacao_e_limpa_expiradas(client, banco):
     assert limpar.json() == {"removidas": 1}
     assert [linha["id"] for linha in banco.tabelas["notificacoes"]] == [ativo_id]
     assert [item["id"] for item in lista.json()] == [ativo_id]
+
+
+def test_conta_nova_nao_ve_notificacoes_anteriores_a_criacao(client, banco):
+    usuario = registrar_e_logar(client, "recem@padoka.com", "Recem Chegado")
+    agora = datetime.now(UTC)
+    # Conta criada ha uma hora: avisos anteriores a isso nao devem aparecer.
+    _antedatar_criacao_usuario(banco, usuario["usuario"]["id"], agora - timedelta(hours=1))
+
+    antiga_id = str(uuid4())
+    nova_id = str(uuid4())
+    banco.tabelas["notificacoes"] = [
+        _notificacao_linha(
+            antiga_id,
+            titulo="Teste antigo",
+            publicado_em=agora - timedelta(days=2),  # antes da conta existir
+        ),
+        _notificacao_linha(
+            nova_id,
+            titulo="Aviso novo",
+            publicado_em=agora - timedelta(minutes=1),  # depois da conta, ainda ativo
+        ),
+    ]
+
+    lista = client.get("/api/v1/notificacoes", headers=usuario["headers"])
+    feed = client.get("/api/v1/notificacoes/feed", headers=usuario["headers"])
+    contagem = client.get(
+        "/api/v1/notificacoes/nao-lidas/contagem",
+        headers=usuario["headers"],
+    )
+
+    assert lista.status_code == 200, lista.text
+    assert [item["id"] for item in lista.json()] == [nova_id]
+    assert [item["id"] for item in feed.json()["itens"]] == [nova_id]
+    assert contagem.json()["total"] == 1
+
+
+def _antedatar_criacao_usuario(banco, usuario_id: str, quando: datetime) -> None:
+    """Ajusta a data de criacao do usuario no banco fake (para o corte por data)."""
+    for linha in banco.tabelas.get("usuarios", []):
+        if str(linha["id"]) == str(usuario_id):
+            linha["criado_em"] = quando.isoformat()
 
 
 def _notificacao_linha(

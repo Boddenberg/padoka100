@@ -76,6 +76,10 @@ def _validar_sessao_custeio(entidade_id: UUID | str, usuario_id: str) -> None:
     )
 
 
+def _validar_report(entidade_id: UUID | str, usuario_id: str) -> None:
+    _validar_linha_com_dono("reports", "Report", entidade_id, usuario_id)
+
+
 def _validar_linha_com_dono(
     tabela: str,
     recurso: str,
@@ -104,4 +108,5 @@ _VALIDADORES = {
     "usuario": _validar_usuario,
     "interacao_ia": _validar_interacao_ia,
     "sessao_custeio": _validar_sessao_custeio,
+    "report": _validar_report,
 }

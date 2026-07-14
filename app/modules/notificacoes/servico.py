@@ -725,8 +725,23 @@ def _usuario_id_para_estado(
     return identificador
 
 
+# Sessoes internas (X-API-Key, requisicao sem token): nao representam uma conta
+# de verdade e por isso ficam de fora do corte por data de criacao.
+_IDS_USUARIO_SENTINELA = frozenset(
+    {
+        "00000000-0000-0000-0000-000000000000",  # requisicao sem token
+        "00000000-0000-0000-0000-000000000001",  # X-API-Key
+    }
+)
+
+
 def _notificacao_visivel_para_usuario(notificacao: dict, usuario: dict | None) -> bool:
     if not _notificacao_ativa(notificacao):
+        return False
+
+    # Conta nova nao recebe avisos publicados antes de ela existir: notificacoes
+    # antigas (inclusive testes) nao aparecem retroativamente para quem chegou depois.
+    if not _publicada_apos_criacao_do_usuario(notificacao, usuario):
         return False
 
     publico = str(notificacao.get("publico") or "todos")
@@ -740,6 +755,22 @@ def _notificacao_visivel_para_usuario(notificacao: dict, usuario: dict | None) -
         plano = str((usuario or {}).get("plano") or "").strip().lower()
         return plano in _normalizar_planos_alvo(notificacao.get("planos_alvo") or [])
     return False
+
+
+def _publicada_apos_criacao_do_usuario(notificacao: dict, usuario: dict | None) -> bool:
+    if not usuario:
+        return True
+    if str(usuario.get("id") or "") in _IDS_USUARIO_SENTINELA:
+        return True
+    criado_em = _parse_datetime(usuario.get("criado_em"))
+    if not criado_em:
+        return True
+    publicado_em = _parse_datetime(notificacao.get("publicado_em")) or _parse_datetime(
+        notificacao.get("criado_em")
+    )
+    if not publicado_em:
+        return True
+    return publicado_em >= criado_em
 
 
 def _notificacao_ativa(notificacao: dict) -> bool:
