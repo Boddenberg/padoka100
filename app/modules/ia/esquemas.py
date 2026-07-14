@@ -119,6 +119,7 @@ class MidiaRecebidaPorIA(ApiModel):
     thread_id: UUID | None = None
     usuario_id: UUID | None = None
     usuario_nome_cadastrado: str | None = None
+    usuario_foto_url: str | None = None
     data: str
     item: str
     interacao_ia_id: UUID | None = None

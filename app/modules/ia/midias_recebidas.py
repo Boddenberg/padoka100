@@ -34,7 +34,23 @@ def listar(
         if tabela_ausente(exc):
             return []
         raise
-    return [_montar_saida(linha) for linha in linhas]
+    fotos = _buscar_fotos_usuarios(client, linhas)
+    return [_montar_saida(linha, fotos) for linha in linhas]
+
+
+def _buscar_fotos_usuarios(client, linhas: list[dict]) -> dict[str, str | None]:
+    """Foto (avatar) de cada remetente, para identificar quem enviou a midia."""
+    ids = {str(linha["usuario_id"]) for linha in linhas if linha.get("usuario_id")}
+    if not ids:
+        return {}
+    try:
+        usuarios = (
+            client.table("usuarios").select("id,foto_url").in_("id", list(ids)).execute().data
+        )
+    except Exception:  # noqa: BLE001 - avatar e desejavel, nao obrigatorio
+        logger.exception("Falha ao buscar fotos dos remetentes de midia")
+        return {}
+    return {str(usuario["id"]): usuario.get("foto_url") for usuario in usuarios}
 
 
 def registrar(
@@ -132,12 +148,14 @@ def _resolver_nome_usuario_cadastrado(
     return usuario.get("nome")
 
 
-def _montar_saida(linha: dict) -> dict:
+def _montar_saida(linha: dict, fotos: dict[str, str | None] | None = None) -> dict:
+    fotos = fotos or {}
     return {
         "id": linha["id"],
         "thread_id": linha.get("thread_id"),
         "usuario_id": linha.get("usuario_id"),
         "usuario_nome_cadastrado": linha.get("usuario_nome_cadastrado"),
+        "usuario_foto_url": fotos.get(str(linha.get("usuario_id"))),
         "data": linha.get("criado_em"),
         "item": linha["item"],
         "interacao_ia_id": linha.get("interacao_ia_id"),

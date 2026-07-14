@@ -46,6 +46,7 @@ def test_listar_midias_recebidas_filtra_por_usuario_e_item(monkeypatch):
             "thread_id": THREAD,
             "usuario_id": USUARIO_A,
             "usuario_nome_cadastrado": "Ana Padoka",
+            "usuario_foto_url": None,
             "data": "2026-07-13T12:00:00+00:00",
             "item": "audio",
             "interacao_ia_id": INTERACAO,
