@@ -10,6 +10,7 @@ class Settings(BaseSettings):
     app_env: str = "local"
     api_prefix: str = "/api/v1"
     cors_origins: Annotated[list[str], NoDecode] = Field(default_factory=list)
+    web_production_origin: str = "https://padoka100-web-production.up.railway.app"
     api_key: str = ""
 
     supabase_url: str = ""
@@ -40,6 +41,12 @@ class Settings(BaseSettings):
         if isinstance(value, list):
             return value
         return []
+
+    @property
+    def cors_origins_resolved(self) -> list[str]:
+        if not self.cors_origins:
+            return ["*"]
+        return list(dict.fromkeys([*self.cors_origins, self.web_production_origin]))
 
     @property
     def supabase_api_key(self) -> str:
